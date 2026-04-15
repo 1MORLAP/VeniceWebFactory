@@ -249,56 +249,87 @@ Use `preview_stop` to stop the dev server.
 
 ---
 
-### Stage 5: Build Option B (Conversion Optimized + Spanish)
+### Stage 5: Build Option B via Google Stitch (Conversion Optimized + Spanish)
 
-Fork Option A and optimize for conversions. Option B must be **visibly and obviously different** from Option A — a side-by-side comparison should show clear differences in copy, layout, and conversion elements.
+Option B uses **Google Stitch** to generate the visual design, producing a dramatically different and more beautiful result than Option A. This is a semi-automated process: design generation happens in Stitch, extraction and integration is automated.
+
+#### 5a. Prompt the User to Create Stitch Screens
+
+Tell the user:
+
+> **Action needed:** Open [stitch.withgoogle.com](https://stitch.withgoogle.com) and create a new project.
+> - Paste the original site URL: `{url}`
+> - Create one screen per page (homepage, services, about, contact — or let Stitch decide)
+> - Wait for Stitch to finish generating the designs
+> - Give me the **project ID** when ready (visible in the URL: `stitch.withgoogle.com/project/{projectId}`)
+
+Wait for the user to provide the Stitch project ID.
+
+#### 5b. Extract Stitch Screens
+
+Once you have the project ID, list the screens and pull the HTML:
 
 ```bash
-cp -r jobs/{domain}/option-a/ jobs/{domain}/option-b/
-cd jobs/{domain}/option-b/ && rm -rf node_modules && npm install
+# List available screens
+./scripts/stitch.sh list_projects
 ```
 
-Update `astro.config.mjs` to use port 4322: add `server: { port: 4322 }`.
+Then for each screen, get the generated HTML:
 
-#### 5a. Conversion Optimization (English pages)
+```bash
+./scripts/stitch.sh get_screen_code '{"projectId": "{stitchProjectId}", "screenId": "{screenId}"}'
+```
 
-Rewrite the **homepage** (`src/pages/index.astro`) with these mandatory differences from Option A:
+Or export as a full Astro site:
 
-| Element | Option A | Option B (must change) |
-|---------|----------|----------------------|
-| Hero headline | Original text verbatim | Benefit-driven, emotionally compelling |
-| Hero subtext | Original text verbatim | Shorter, punchier, outcome-focused |
-| CTA buttons | "Call {phone}" / "Free Estimate" | "Get Your Free Quote Now" / "Book Online" |
-| Trust bar | None | Add stats bar: Years in Business, Homes Cleaned, Guarantee, 24/7 |
-| Star badge | None | Add 5-star rating badge in hero |
-| Services heading | Original text | Benefit-oriented ("Everything Your Home Needs") |
-| Service card CTAs | "Learn more" | "Get a free quote" |
-| How it works heading | Original text | Simpler ("Clean Floors in 3 Simple Steps") |
-| How it works steps | Original text | Rewritten for simplicity and appeal |
-| Testimonials heading | Original text | "Don't Take Our Word For It" |
-| FAQ heading | Original text | "Questions? We've Got Answers." |
-| Bottom CTA | Original text | Compelling ("Ready for Floors You'll Actually Want to Walk On?") |
-| Trust signals below CTA | Original text | "Free Estimates / No Hidden Fees / 24/7" |
+```bash
+STITCH_API_KEY="..." npx @_davideast/stitch-mcp site -p {stitchProjectId} -o jobs/{domain}/option-b/
+```
 
-Also rewrite service page content in the ServicePage components to be more conversion-focused.
+#### 5c. Integrate into Astro Project
 
-#### 5b. Spanish Version
+If Stitch exported an Astro project via `site`, use it directly. Otherwise:
 
-Create a full Spanish translation of all pages at `/es/` routes:
+1. Create `jobs/{domain}/option-b/` as an Astro project (copy from `templates/astro-base/`)
+2. For each Stitch screen HTML:
+   - Extract the `<body>` content (strip `<html>`, `<head>`, `<script>` tags)
+   - Place it as the page body inside the BaseLayout
+   - Replace Stitch's placeholder text with the **real business content** from the manifest
+   - Replace Stitch's placeholder images with the **real downloaded images** from `assets/img/`
+   - Preserve the original business phone, email, address, social links
+3. Copy Stitch's Tailwind config (colors, fonts, spacing) into `src/styles/global.css` `@theme` block
+4. Install dependencies and verify build:
+```bash
+cd jobs/{domain}/option-b/ && npm install && npm run build
+```
+
+#### 5d. Content Optimization
+
+After integrating Stitch's design, optimize the content for conversions:
+- Rewrite headlines to be benefit-driven and emotionally compelling
+- Rewrite CTAs to be action-oriented ("Get Your Free Quote Now" not "Contact Us")
+- Ensure testimonials use the REAL customer quotes from the manifest
+- Add trust signals: years in business, satisfaction guarantee, 24/7 availability
+- All phone numbers, emails, and links must point to the REAL business
+
+#### 5e. Spanish Version
+
+Create a full Spanish translation at `/es/` routes:
 
 1. Create `src/pages/es/` directory
-2. Create Spanish versions of: `index.astro`, `contact.astro`, `about.astro`, and all service pages
-3. All Spanish pages use the same components but with `lang="es"` prop
+2. Create Spanish versions of all pages
+3. Translate all content to Spanish (headlines, body copy, CTAs, nav items, footer)
+4. Keep the same Stitch design/layout — only the text changes
 
-#### 5c. Language Switcher
+#### 5f. Language Switcher
 
-Update the SiteNav component to accept a `lang` prop (`'en' | 'es'`, default `'en'`):
-- When `lang="en"`: show "ES" button linking to `/es{currentPath}`
-- When `lang="es"`: show "EN" button linking to `{currentPath without /es}`
-- Nav items translate when `lang="es"` (Inicio, Servicios, Nosotros, Contacto)
-- Language button appears on both desktop and mobile (next to hamburger on mobile)
+Add a language switcher to the nav:
+- EN/ES toggle button in the header (both desktop and mobile)
+- When on English page: "ES" button links to `/es{currentPath}`
+- When on Spanish page: "EN" button links to `{currentPath without /es}`
+- Nav items translate: Home→Inicio, Services→Servicios, About→Nosotros, Contact→Contacto
 
-#### 5d. Build and Verify
+#### 5g. Build and Verify
 
 ```bash
 cd jobs/{domain}/option-b/ && npm run build
@@ -315,8 +346,12 @@ Option B should build **16 pages** (8 English + 8 Spanish). If it builds fewer, 
 1. Start preview with name "option-b"
 2. Screenshot every page at desktop, mobile, tablet
 3. Check for broken resources and console errors
-4. Fix all issues
-5. Beauty pass
+4. Fix all issues — pay special attention to:
+   - Stitch placeholder text that wasn't replaced with real content
+   - Stitch placeholder images that weren't swapped for real photos
+   - Broken Stitch CDN image URLs (replace with local images from `assets/img/`)
+   - Phone numbers, emails, addresses that still show placeholder values
+5. Beauty pass — Stitch designs are already beautiful, but verify they work with real content
 6. Stop preview
 
 ---
@@ -380,16 +415,25 @@ Present the results to the user:
 ### A vs B Comparison
 | Element | Option A | Option B |
 |---------|----------|----------|
+| Design engine | WebFactory Astro templates | Google Stitch AI |
 | Hero headline | {A's headline} | {B's headline} |
 | CTAs | {A's CTA text} | {B's CTA text} |
 | Trust bar | None | {B's trust bar stats} |
 | Language | English only | English + Spanish |
+| Visual style | {A's design style} | {Stitch's design style} |
 
 ### Design Decisions
+**Option A:**
 - Style: {design style}
 - Color palette: {colors with hex values}
 - Typography: {heading font} / {body font}
 - Key design features: {list}
+
+**Option B (Stitch):**
+- Stitch project ID: {stitchProjectId}
+- Design system: {Stitch's design theme description}
+- Typography: {Stitch's font choices}
+- Key visual features: {glassmorphism, gradients, etc.}
 
 ### QA Summary
 - Pages checked: {count}
@@ -407,12 +451,13 @@ Present the results to the user:
 - Always run `npm run build` after generating code to catch errors
 - Fix ALL build errors before moving to QA
 - The QA loop is essential - never skip it. The site must look gorgeous at every breakpoint
-- The entire pipeline should complete without user intervention
+- The pipeline is mostly automated. The ONE manual step is: user creates the Stitch project and provides the project ID
 - When inspecting screenshots, be a harsh critic. If something looks mediocre, fix it. The bar is "would a designer be proud of this?"
 - **IMAGES**: The manifest has BOTH `images` (img tags) and `backgroundImages` (CSS backgrounds). Use background images as hero backgrounds, regular images as inline content. Every page that had a hero background in the original MUST have one in the rebuild
 - **DEPLOY**: Always `cd` to the correct project directory before running `npx vercel deploy`. Deploying from the wrong directory will deploy the wrong project
 - **SSO**: After deploying, disable Vercel SSO protection so URLs are publicly accessible
-- **OPTION B MUST BE DIFFERENT**: Option B must have visibly different copy, a trust bar, star rating badge, conversion-optimized CTAs, AND a full Spanish version with language switcher. If A and B look the same, B is wrong
+- **OPTION B USES STITCH**: Option B is designed by Google Stitch, not our Astro templates. It will look fundamentally different from Option A. After extracting Stitch HTML, replace ALL placeholder content with real business data from the manifest. If any placeholder text or stock images remain, Option B is wrong
+- **STITCH CLI**: Use `./scripts/stitch.sh <tool> '<json>'` to call Stitch tools. Key tools: `get_screen_code`, `get_screen_image`, `build_site`, `list_projects`
 - **SPANISH**: Option B includes /es/ routes for all pages. The SiteNav component must accept a `lang` prop and show a language toggle button
 - **PORT CONFLICT**: Option A uses port 4321, Option B uses port 4322. Set the port in `astro.config.mjs` with `server: { port: 4322 }` for Option B
 - **PREVIEW VIEWPORT**: The preview tool may default to a small viewport. Always use `preview_resize` with `width: 1440, height: 900` before taking desktop screenshots
