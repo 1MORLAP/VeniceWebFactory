@@ -3,22 +3,15 @@
     "allow": [
       "Bash(*)",
       "mcp__Claude_Preview__*",
-      "mcp__stitch__*",
-      "mcp__mcp-registry__search_mcp_registry",
-      "Bash(cp SKILL.md .claude/commands/webfactory.md)",
-      "Bash(cp SKILL.md ~/.claude/commands/webfactory.md)",
-      "mcp__067745f9-8ae5-4617-ba33-1524f0691bde__web_fetch_vercel_url"
+      "mcp__stitch__*"
     ]
   },
   "mcpServers": {
     "stitch": {
       "command": "npx",
-      "args": [
-        "@_davideast/stitch-mcp",
-        "proxy"
-      ],
+      "args": ["@_davideast/stitch-mcp", "proxy"],
       "env": {
-        "STITCH_API_KEY": "***REMOVED-STITCH-KEY***"
+        "STITCH_API_KEY": "${STITCH_API_KEY}"
       }
     }
   }
