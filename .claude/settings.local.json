@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(npx playwright:*)",
+      "Bash(node scripts/scrape.js \"https://www.plumbingbyjake.com\")",
+      "Bash(npm run:*)",
+      "Bash(node scripts/scrape.js \"https://www.hydramaxxsavescarpets.com/\")",
+      "Bash(file img_3.png img_15.jpeg img_22.jpg img_29.jpg img_36.jpg img_43.jpg img_50.png img_57.png)",
+      "Bash(ls -la img_3.png img_15.jpeg img_22.jpg img_29.jpg img_36.jpg img_43.jpg img_50.png)",
+      "Bash(node -e ':*)",
+      "Bash(cp -r /Users/tomasz/WebFactory/templates/astro-base/ /Users/tomasz/WebFactory/jobs/hydramaxxsavescarpets.com/option-a/)",
+      "Bash(mkdir -p /Users/tomasz/WebFactory/jobs/hydramaxxsavescarpets.com/option-a/public/images /Users/tomasz/WebFactory/jobs/hydramaxxsavescarpets.com/option-a/.claude)",
+      "Bash(ls -la assets/img/*.jpg assets/img/*.jpeg)",
+      "mcp__Claude_Preview__preview_start",
+      "mcp__067745f9-8ae5-4617-ba33-1524f0691bde__list_teams",
+      "Bash(npx vercel:*)",
+      "mcp__067745f9-8ae5-4617-ba33-1524f0691bde__web_fetch_vercel_url",
+      "Bash(node scripts/grab-heroes.js)",
+      "mcp__067745f9-8ae5-4617-ba33-1524f0691bde__get_access_to_vercel_url",
+      "mcp__067745f9-8ae5-4617-ba33-1524f0691bde__list_projects",
+      "Bash(mkdir -p /Users/tomasz/.claude/commands)",
+      "Bash(cp /Users/tomasz/WebFactory/SKILL.md /Users/tomasz/.claude/commands/webfactory.md)",
+      "Bash(mkdir -p /Users/tomasz/WebFactory/.claude/commands)",
+      "Bash(cp /Users/tomasz/WebFactory/SKILL.md /Users/tomasz/WebFactory/.claude/commands/webfactory.md)",
+      "WebFetch(domain:stitch.withgoogle.com)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "Bash(cp /Users/tomasz/WebFactory/templates/astro-base/src/components/Hero.astro src/components/Hero.astro)",
+      "Bash(cp /Users/tomasz/WebFactory/templates/astro-base/src/components/Section.astro src/components/Section.astro)",
+      "Bash(cp /Users/tomasz/WebFactory/templates/astro-base/src/components/ServiceCard.astro src/components/ServiceCard.astro)",
+      "Bash(cp /Users/tomasz/WebFactory/templates/astro-base/src/components/Testimonial.astro src/components/Testimonial.astro)",
+      "Bash(cp /Users/tomasz/WebFactory/templates/astro-base/src/components/StatsBar.astro src/components/StatsBar.astro)",
+      "mcp__Claude_in_Chrome__tabs_context_mcp",
+      "Bash(git init:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}

@@ -1,0 +1,87 @@
+---
+interface FormField {
+  type: string;
+  name: string;
+  label: string;
+  placeholder?: string;
+  required?: boolean;
+}
+
+interface Props {
+  heading?: string;
+  subheading?: string;
+  email: string;
+  fields?: FormField[];
+}
+
+const {
+  heading = 'Get in Touch',
+  subheading = "We'd love to hear from you. Send us a message and we'll get back to you as soon as possible.",
+  email,
+  fields = [
+    { type: 'text', name: 'name', label: 'Name', placeholder: 'Your name', required: true },
+    { type: 'email', name: 'email', label: 'Email', placeholder: 'your@email.com', required: true },
+    { type: 'tel', name: 'phone', label: 'Phone', placeholder: '(555) 123-4567', required: false },
+    { type: 'textarea', name: 'message', label: 'Message', placeholder: 'How can we help you?', required: true },
+  ],
+} = Astro.props;
+
+const subject = encodeURIComponent('Website Inquiry');
+---
+
+<section class="py-16 md:py-24 bg-gray-50" id="contact">
+  <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="text-center mb-12">
+      <h2 class="text-3xl md:text-4xl font-bold text-gray-900">{heading}</h2>
+      {subheading && <p class="mt-4 text-lg text-gray-600">{subheading}</p>}
+    </div>
+
+    <form id="contact-form" class="space-y-6 bg-white rounded-2xl p-8 shadow-sm border border-gray-100">
+      {fields.map(field => (
+        <div>
+          <label for={field.name} class="block text-sm font-medium text-gray-700 mb-2">
+            {field.label} {field.required && <span class="text-red-500">*</span>}
+          </label>
+          {field.type === 'textarea' ? (
+            <textarea
+              id={field.name}
+              name={field.name}
+              placeholder={field.placeholder}
+              required={field.required}
+              rows="4"
+              class="w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 placeholder-gray-400 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 outline-none transition"
+            />
+          ) : (
+            <input
+              type={field.type}
+              id={field.name}
+              name={field.name}
+              placeholder={field.placeholder}
+              required={field.required}
+              class="w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 placeholder-gray-400 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 outline-none transition"
+            />
+          )}
+        </div>
+      ))}
+
+      <button
+        type="submit"
+        class="w-full py-4 px-8 bg-primary-600 text-white font-semibold rounded-lg hover:bg-primary-700 transition-colors shadow-md hover:shadow-lg"
+      >
+        Send Message
+      </button>
+    </form>
+  </div>
+</section>
+
+<script define:vars={{ email, subject }}>
+  document.getElementById('contact-form')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const form = e.target;
+    const data = new FormData(form);
+    const body = Array.from(data.entries())
+      .map(([key, value]) => `${key}: ${value}`)
+      .join('\n');
+    window.location.href = `mailto:${email}?subject=${subject}&body=${encodeURIComponent(body)}`;
+  });
+</script>

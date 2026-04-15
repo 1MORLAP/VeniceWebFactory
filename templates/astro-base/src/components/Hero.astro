@@ -1,0 +1,108 @@
+---
+interface Props {
+  heading: string;
+  subheading?: string;
+  eyebrow?: string;
+  ctaText?: string;
+  ctaHref?: string;
+  ctaSecondaryText?: string;
+  ctaSecondaryHref?: string;
+  backgroundImage?: string;
+  variant?: 'dark' | 'light' | 'gradient';
+  size?: 'default' | 'tall' | 'fullscreen';
+}
+
+const {
+  heading,
+  subheading,
+  eyebrow,
+  ctaText,
+  ctaHref,
+  ctaSecondaryText,
+  ctaSecondaryHref,
+  backgroundImage,
+  variant = 'dark',
+  size = 'default',
+} = Astro.props;
+
+const sizeClasses = {
+  default: 'py-24 md:py-32 lg:py-40',
+  tall: 'py-32 md:py-40 lg:py-52',
+  fullscreen: 'min-h-[85vh] flex items-center',
+};
+
+const overlayClasses = {
+  dark: 'bg-gradient-to-br from-gray-900/80 via-gray-900/60 to-gray-900/40',
+  light: 'bg-gradient-to-br from-white/80 via-white/60 to-white/30',
+  gradient: 'bg-gradient-to-br from-primary-900/85 via-primary-800/70 to-primary-600/50',
+};
+---
+
+<section class={`relative overflow-hidden ${!backgroundImage && variant === 'gradient' ? 'bg-gradient-to-br from-primary-900 via-primary-700 to-primary-600' : !backgroundImage ? 'bg-gray-900' : ''}`}>
+  {/* Background image with parallax-style depth */}
+  {backgroundImage && (
+    <div class="absolute inset-0">
+      <img src={backgroundImage} alt="" class="w-full h-full object-cover scale-105" loading="eager" />
+      <div class={`absolute inset-0 ${overlayClasses[variant]}`} />
+      {/* Subtle noise texture overlay for depth */}
+      <div class="absolute inset-0 opacity-[0.03] mix-blend-overlay" style="background-image: url('data:image/svg+xml,%3Csvg viewBox=%220 0 256 256%22 xmlns=%22http://www.w3.org/2000/svg%22%3E%3Cfilter id=%22noise%22%3E%3CfeTurbulence type=%22fractalNoise%22 baseFrequency=%220.9%22 numOctaves=%224%22 stitchTiles=%22stitch%22/%3E%3C/filter%3E%3Crect width=%22100%25%22 height=%22100%25%22 filter=%22url(%23noise)%22/%3E%3C/svg%3E');" />
+    </div>
+  )}
+
+  {/* Decorative gradient orbs for visual richness */}
+  <div class="absolute -top-24 -right-24 w-96 h-96 bg-primary-500/10 rounded-full blur-3xl" />
+  <div class="absolute -bottom-32 -left-32 w-[30rem] h-[30rem] bg-accent-500/8 rounded-full blur-3xl" />
+
+  <div class={`relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 ${sizeClasses[size]}`}>
+    <div class="max-w-3xl">
+      {/* Eyebrow / pre-heading */}
+      {eyebrow && (
+        <div class="mb-6 fade-up">
+          <span class={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold tracking-wide uppercase ${variant === 'light' ? 'bg-primary-100 text-primary-700' : 'bg-white/10 backdrop-blur-sm text-accent-300 border border-white/10'}`}>
+            {eyebrow}
+          </span>
+        </div>
+      )}
+
+      {/* Main heading with dramatic typography */}
+      <h1 class={`text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-extrabold tracking-tight leading-[1.05] ${variant === 'light' ? 'text-gray-900' : 'text-white'}`}>
+        {heading}
+      </h1>
+
+      {/* Subheading with refined contrast */}
+      {subheading && (
+        <p class={`mt-6 md:mt-8 text-lg md:text-xl lg:text-2xl leading-relaxed max-w-2xl font-light ${variant === 'light' ? 'text-gray-600' : 'text-white/80'}`}>
+          {subheading}
+        </p>
+      )}
+
+      {/* CTA buttons with refined styling */}
+      {(ctaText || ctaSecondaryText) && (
+        <div class="mt-10 md:mt-12 flex flex-wrap gap-4">
+          {ctaText && ctaHref && (
+            <a
+              href={ctaHref}
+              class="group inline-flex items-center gap-2 px-8 py-4 text-base md:text-lg font-bold rounded-xl bg-accent-500 text-white hover:bg-accent-600 transition-all duration-300 shadow-lg shadow-accent-500/25 hover:shadow-xl hover:shadow-accent-500/30 hover:-translate-y-0.5"
+            >
+              {ctaText}
+              <svg class="w-5 h-5 transition-transform group-hover:translate-x-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3" /></svg>
+            </a>
+          )}
+          {ctaSecondaryText && ctaSecondaryHref && (
+            <a
+              href={ctaSecondaryHref}
+              class={`inline-flex items-center px-8 py-4 text-base md:text-lg font-semibold rounded-xl transition-all duration-300 hover:-translate-y-0.5 ${variant === 'light' ? 'bg-gray-900 text-white hover:bg-gray-800' : 'border-2 border-white/25 text-white hover:bg-white/10 backdrop-blur-sm'}`}
+            >
+              {ctaSecondaryText}
+            </a>
+          )}
+        </div>
+      )}
+
+      <slot />
+    </div>
+  </div>
+
+  {/* Bottom gradient fade for seamless transition to next section */}
+  <div class={`absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t ${variant === 'light' ? 'from-white' : 'from-transparent'}`} />
+</section>

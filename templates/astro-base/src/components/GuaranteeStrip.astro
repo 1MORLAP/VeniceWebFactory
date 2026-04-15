@@ -1,0 +1,21 @@
+---
+interface Props {
+  items: string[];
+  variant?: 'light' | 'accent';
+}
+
+const { items, variant = 'accent' } = Astro.props;
+---
+
+<section class={`py-6 md:py-8 border-t ${variant === 'accent' ? 'bg-accent-50 border-accent-100' : 'bg-gray-50 border-gray-100'}`}>
+  <div class="max-w-6xl mx-auto px-4 flex flex-wrap justify-center gap-x-8 gap-y-3">
+    {items.map(item => (
+      <span class={`flex items-center gap-2 text-sm font-semibold ${variant === 'accent' ? 'text-primary-800' : 'text-gray-700'}`}>
+        <svg class={`w-4.5 h-4.5 shrink-0 ${variant === 'accent' ? 'text-accent-500' : 'text-green-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7" />
+        </svg>
+        {item}
+      </span>
+    ))}
+  </div>
+</section>

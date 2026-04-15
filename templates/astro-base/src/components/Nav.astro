@@ -1,0 +1,74 @@
+---
+interface NavItem {
+  text: string;
+  href: string;
+}
+
+interface Props {
+  items: NavItem[];
+  logo?: string;
+  logoAlt?: string;
+  phone?: string;
+}
+
+const { items, logo, logoAlt = 'Logo', phone } = Astro.props;
+---
+
+<nav class="sticky top-0 z-50 bg-white/95 backdrop-blur-sm border-b border-gray-100">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="flex items-center justify-between h-16 md:h-20">
+      <a href="/" class="flex items-center gap-3">
+        {logo && <img src={logo} alt={logoAlt} class="h-10 md:h-12 w-auto" />}
+        <slot name="brand" />
+      </a>
+
+      <!-- Desktop nav -->
+      <div class="hidden md:flex items-center gap-8">
+        {items.map(item => (
+          <a href={item.href} class="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors">
+            {item.text}
+          </a>
+        ))}
+        {phone && (
+          <a href={`tel:${phone}`} class="text-sm font-semibold text-primary-600 hover:text-primary-700">
+            {phone}
+          </a>
+        )}
+        <slot name="cta" />
+      </div>
+
+      <!-- Mobile menu button -->
+      <button
+        id="mobile-menu-btn"
+        class="md:hidden p-2 text-gray-600"
+        aria-label="Toggle menu"
+      >
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Mobile menu -->
+  <div id="mobile-menu" class="hidden md:hidden border-t border-gray-100 bg-white">
+    <div class="px-4 py-4 space-y-3">
+      {items.map(item => (
+        <a href={item.href} class="block text-base font-medium text-gray-600 hover:text-gray-900">
+          {item.text}
+        </a>
+      ))}
+      {phone && (
+        <a href={`tel:${phone}`} class="block text-base font-semibold text-primary-600">
+          {phone}
+        </a>
+      )}
+    </div>
+  </div>
+</nav>
+
+<script>
+  const btn = document.getElementById('mobile-menu-btn');
+  const menu = document.getElementById('mobile-menu');
+  btn?.addEventListener('click', () => menu?.classList.toggle('hidden'));
+</script>

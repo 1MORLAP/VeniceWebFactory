@@ -1,0 +1,89 @@
+@import "tailwindcss";
+
+@theme {
+  /* Primary and accent get overridden per-project by the skill */
+  --color-primary-50: oklch(0.97 0.02 250);
+  --color-primary-100: oklch(0.93 0.04 250);
+  --color-primary-200: oklch(0.86 0.08 250);
+  --color-primary-300: oklch(0.76 0.12 250);
+  --color-primary-400: oklch(0.66 0.16 250);
+  --color-primary-500: oklch(0.55 0.18 250);
+  --color-primary-600: oklch(0.48 0.18 250);
+  --color-primary-700: oklch(0.42 0.16 250);
+  --color-primary-800: oklch(0.36 0.13 250);
+  --color-primary-900: oklch(0.30 0.10 250);
+
+  --color-accent-50: #fffbeb;
+  --color-accent-100: #fef3c7;
+  --color-accent-200: #fde68a;
+  --color-accent-300: #fcd34d;
+  --color-accent-400: #fbbf24;
+  --color-accent-500: #f59e0b;
+  --color-accent-600: #d97706;
+  --color-accent-700: #b45309;
+
+  --color-surface: #f8fafc;
+
+  --font-heading: 'Plus Jakarta Sans', system-ui, sans-serif;
+  --font-body: 'Inter', system-ui, sans-serif;
+}
+
+/* Typography */
+html {
+  scroll-behavior: smooth;
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading);
+  letter-spacing: -0.02em;
+}
+
+/* ---- Scroll-triggered animations ---- */
+
+.fade-up {
+  opacity: 0;
+  transform: translateY(30px);
+  transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.fade-up.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Staggered children entrance */
+.stagger > * {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.stagger.visible > *:nth-child(1) { transition-delay: 0.05s; }
+.stagger.visible > *:nth-child(2) { transition-delay: 0.12s; }
+.stagger.visible > *:nth-child(3) { transition-delay: 0.19s; }
+.stagger.visible > *:nth-child(4) { transition-delay: 0.26s; }
+.stagger.visible > *:nth-child(5) { transition-delay: 0.33s; }
+.stagger.visible > *:nth-child(6) { transition-delay: 0.40s; }
+
+.stagger.visible > * {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ---- Selection color ---- */
+::selection {
+  background-color: oklch(0.55 0.18 250 / 0.15);
+}
+
+/* ---- Smooth details/summary animation ---- */
+details > summary {
+  list-style: none;
+}
+details > summary::-webkit-details-marker {
+  display: none;
+}

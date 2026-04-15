@@ -1,0 +1,44 @@
+---
+interface Stat {
+  value: string;
+  label: string;
+}
+
+interface Props {
+  stats: Stat[];
+  variant?: 'light' | 'dark' | 'accent';
+}
+
+const { stats, variant = 'light' } = Astro.props;
+
+const wrapperClasses: Record<string, string> = {
+  light: 'bg-white border-y border-gray-100',
+  dark: 'bg-gray-900 text-white',
+  accent: 'bg-gradient-to-r from-primary-600 to-primary-700 text-white',
+};
+
+const valueClasses: Record<string, string> = {
+  light: 'text-primary-600',
+  dark: 'text-white',
+  accent: 'text-white',
+};
+
+const labelClasses: Record<string, string> = {
+  light: 'text-gray-500',
+  dark: 'text-gray-400',
+  accent: 'text-primary-100',
+};
+---
+
+<section class={`py-8 md:py-10 ${wrapperClasses[variant]}`}>
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="flex flex-wrap justify-center gap-x-12 md:gap-x-20 gap-y-6 text-center">
+      {stats.map(stat => (
+        <div class="fade-up">
+          <p class={`text-3xl md:text-4xl font-extrabold tracking-tight ${valueClasses[variant]}`}>{stat.value}</p>
+          <p class={`text-xs md:text-sm font-semibold uppercase tracking-widest mt-1 ${labelClasses[variant]}`}>{stat.label}</p>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>

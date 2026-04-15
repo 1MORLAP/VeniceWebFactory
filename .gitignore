@@ -1,0 +1,6 @@
+jobs/
+node_modules/
+dist/
+.astro/
+.vercel/
+*.log

@@ -1,0 +1,57 @@
+---
+interface Step {
+  number: number;
+  title: string;
+  description: string;
+}
+
+interface Props {
+  steps: Step[];
+  variant?: 'numbered' | 'connected' | 'cards';
+}
+
+const { steps, variant = 'connected' } = Astro.props;
+---
+
+{variant === 'connected' ? (
+  <div class="relative">
+    {/* Connecting line (desktop) */}
+    <div class="hidden md:block absolute top-12 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-primary-200 to-transparent" />
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-8 md:gap-6 stagger">
+      {steps.map((step) => (
+        <div class="relative text-center">
+          {/* Step number circle */}
+          <div class="relative z-10 w-24 h-24 mx-auto mb-6">
+            <div class="absolute inset-0 bg-primary-100 rounded-full" />
+            <div class="absolute inset-2 bg-white rounded-full shadow-sm flex items-center justify-center">
+              <span class="text-2xl font-extrabold text-primary-600">{step.number}</span>
+            </div>
+          </div>
+          <h3 class="text-xl font-bold text-gray-900 mb-3">{step.title}</h3>
+          <p class="text-gray-600 leading-relaxed max-w-xs mx-auto">{step.description}</p>
+        </div>
+      ))}
+    </div>
+  </div>
+) : variant === 'cards' ? (
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-6 stagger">
+    {steps.map((step) => (
+      <div class="bg-white rounded-2xl p-8 border border-gray-100 shadow-sm hover:shadow-lg transition-shadow duration-300">
+        <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center text-white text-xl font-extrabold mb-5 shadow-lg shadow-primary-500/20">{step.number}</div>
+        <h3 class="text-xl font-bold text-gray-900 mb-3">{step.title}</h3>
+        <p class="text-gray-600 leading-relaxed">{step.description}</p>
+      </div>
+    ))}
+  </div>
+) : (
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-8 stagger">
+    {steps.map((step) => (
+      <div class="text-center">
+        <div class="w-16 h-16 rounded-full bg-primary-100 text-primary-600 flex items-center justify-center text-2xl font-bold mx-auto mb-5">{step.number}</div>
+        <h3 class="text-lg font-bold text-gray-900 mb-2">{step.title}</h3>
+        <p class="text-gray-600">{step.description}</p>
+      </div>
+    ))}
+  </div>
+)}

@@ -1,0 +1,89 @@
+---
+interface Props {
+  title: string;
+  description: string;
+  icon?: string;
+  image?: string;
+  href?: string;
+  variant?: 'default' | 'featured' | 'minimal';
+  accentColor?: string;
+}
+
+const { title, description, icon, image, href, variant = 'default', accentColor } = Astro.props;
+const Tag = href ? 'a' : 'div';
+
+const borderColor = accentColor ? `border-${accentColor}-100` : 'border-gray-100';
+const iconBg = accentColor ? `bg-${accentColor}-50 group-hover:bg-${accentColor}-100` : 'bg-primary-50 group-hover:bg-primary-100';
+const iconColor = accentColor ? `text-${accentColor}-500` : 'text-primary-600';
+const linkColor = accentColor ? `text-${accentColor}-500` : 'text-primary-500';
+---
+
+{variant === 'featured' ? (
+  <Tag
+    href={href}
+    class={`group relative block rounded-3xl overflow-hidden shadow-md hover:shadow-2xl transition-all duration-500 ${href ? 'hover:-translate-y-2' : ''}`}
+  >
+    {image && (
+      <div class="relative h-56 overflow-hidden">
+        <img src={image} alt={title} class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
+        <div class="absolute inset-0 bg-gradient-to-t from-gray-900/80 via-gray-900/20 to-transparent" />
+        <div class="absolute bottom-0 left-0 right-0 p-6">
+          <h3 class="text-xl md:text-2xl font-bold text-white">{title}</h3>
+        </div>
+      </div>
+    )}
+    <div class="p-6 md:p-8 bg-white">
+      {!image && <h3 class="text-xl md:text-2xl font-bold text-gray-900 mb-3">{title}</h3>}
+      <p class="text-gray-600 leading-relaxed">{description}</p>
+      {href && (
+        <span class="mt-5 inline-flex items-center gap-1.5 text-primary-500 font-semibold text-sm group-hover:gap-3 transition-all duration-300">
+          Learn more
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3" /></svg>
+        </span>
+      )}
+    </div>
+  </Tag>
+) : variant === 'minimal' ? (
+  <Tag
+    href={href}
+    class={`group flex items-start gap-5 p-5 rounded-2xl hover:bg-gray-50 transition-all duration-300 ${href ? 'cursor-pointer' : ''}`}
+  >
+    {icon && (
+      <div class={`w-12 h-12 rounded-xl ${iconBg} flex items-center justify-center shrink-0 transition-colors`}>
+        <span class={`text-2xl ${iconColor}`}>{icon}</span>
+      </div>
+    )}
+    <div>
+      <h3 class="text-lg font-bold text-gray-900 mb-1">{title}</h3>
+      <p class="text-gray-600 leading-relaxed text-sm">{description}</p>
+    </div>
+  </Tag>
+) : (
+  <Tag
+    href={href}
+    class={`group relative block rounded-2xl border ${borderColor} bg-white p-7 md:p-8 transition-all duration-300 hover:shadow-xl hover:shadow-gray-200/50 ${href ? 'hover:-translate-y-1.5' : ''}`}
+  >
+    {/* Subtle top accent bar */}
+    <div class={`absolute top-0 left-6 right-6 h-0.5 ${accentColor ? `bg-${accentColor}-400` : 'bg-primary-400'} rounded-full scale-x-0 group-hover:scale-x-100 transition-transform duration-500 origin-left`} />
+
+    {image && (
+      <div class="mb-6 -mx-1 overflow-hidden rounded-xl">
+        <img src={image} alt={title} class="w-full h-52 object-cover transition-transform duration-700 group-hover:scale-105" />
+      </div>
+    )}
+    {icon && (
+      <div class={`w-14 h-14 rounded-2xl ${iconBg} flex items-center justify-center mb-5 transition-all duration-300`}>
+        <span class={`text-2xl ${iconColor}`}>{icon}</span>
+      </div>
+    )}
+    <h3 class="text-xl font-bold text-gray-900 mb-3">{title}</h3>
+    <p class="text-gray-600 leading-relaxed">{description}</p>
+    {href && (
+      <span class={`mt-5 inline-flex items-center gap-1.5 ${linkColor} font-semibold text-sm group-hover:gap-3 transition-all duration-300`}>
+        Learn more
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3" /></svg>
+      </span>
+    )}
+    <slot />
+  </Tag>
+)}
