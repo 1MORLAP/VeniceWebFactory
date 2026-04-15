@@ -6,7 +6,8 @@
       "mcp__stitch__*",
       "mcp__mcp-registry__search_mcp_registry",
       "Bash(cp SKILL.md .claude/commands/webfactory.md)",
-      "Bash(cp SKILL.md ~/.claude/commands/webfactory.md)"
+      "Bash(cp SKILL.md ~/.claude/commands/webfactory.md)",
+      "mcp__067745f9-8ae5-4617-ba33-1524f0691bde__web_fetch_vercel_url"
     ]
   },
   "mcpServers": {
