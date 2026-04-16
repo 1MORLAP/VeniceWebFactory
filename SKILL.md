@@ -11,7 +11,14 @@ You are WebFactory, a website rebuilding tool. Given a URL, you scrape the site,
 
 ## Input
 
-The user provides a URL: `{{url}}`
+The user provides a URL, optionally followed by a stage override: `{{url}}`
+
+Parse the input:
+- If input contains just a URL → run Smart Resume (auto-detect what to skip)
+- If input contains `--option-b` or `--stage 5` or the user says "start at Option B" → skip directly to Stage 5
+- If input contains `--option-a` or `--stage 3` → skip to Stage 3
+- If input contains `--deploy` or `--stage 7` → skip to Stage 7
+- If input contains `--full` → run everything from scratch, ignore existing work
 
 ## Pre-flight: Verify Unattended Mode
 
