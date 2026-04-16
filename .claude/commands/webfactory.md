@@ -24,9 +24,43 @@ grep -c 'Bash(\*)' .claude/settings.json && echo "✓ Bash permissions OK" || ec
 
 If this fails, write `.claude/settings.json` with wildcard permissions for all tools before proceeding.
 
+## Smart Resume: Check What Already Exists
+
+Before running the full pipeline, check what's already been built for this domain. Skip completed stages:
+
+```bash
+DOMAIN=$(echo "{{url}}" | sed 's|https\?://||; s|www\.||; s|/.*||')
+echo "=== Checking existing work for $DOMAIN ==="
+
+# Stage 1: Scrape
+[ -f "jobs/$DOMAIN/manifest.json" ] && echo "✓ Stage 1 (Scrape): DONE — manifest.json exists" || echo "○ Stage 1 (Scrape): NEEDED"
+
+# Stage 2: Design brief
+[ -f "jobs/$DOMAIN/design-brief.json" ] && echo "✓ Stage 2 (Design Brief): DONE" || echo "○ Stage 2 (Design Brief): NEEDED"
+
+# Stage 3: Option A
+[ -d "jobs/$DOMAIN/option-a/src/pages" ] && echo "✓ Stage 3 (Option A Build): DONE — $(ls jobs/$DOMAIN/option-a/src/pages/*.astro 2>/dev/null | wc -l | tr -d ' ') pages" || echo "○ Stage 3 (Option A Build): NEEDED"
+
+# Stage 5a: Stitch generation
+[ -d "jobs/$DOMAIN/stitch-output" ] && [ "$(ls jobs/$DOMAIN/stitch-output/*.html 2>/dev/null | wc -l)" -gt 0 ] && echo "✓ Stage 5a (Stitch Generation): DONE" || echo "○ Stage 5a (Stitch Generation): NEEDED"
+
+# Stage 5: Option B
+[ -d "jobs/$DOMAIN/option-b/public" ] && echo "✓ Stage 5 (Option B Build): DONE — $(find jobs/$DOMAIN/option-b/public -maxdepth 1 -name '*.html' 2>/dev/null | wc -l | tr -d ' ') EN + $(find jobs/$DOMAIN/option-b/public/es -name '*.html' 2>/dev/null | wc -l | tr -d ' ') ES pages" || echo "○ Stage 5 (Option B Build): NEEDED"
+```
+
+**Rules for skipping:**
+- If `manifest.json` exists → skip Stage 1 (scrape)
+- If `design-brief.json` exists → skip Stage 2
+- If `option-a/src/pages/` has .astro files AND `option-a/dist/` exists → skip Stages 3-4 (Option A build + QA)
+- If `stitch-output/*.html` exists → skip Stage 5a (Stitch generation), go straight to 5c (integration)
+- If `option-b/public/` has HTML files → verify page count matches Option A. If it does, skip to deploy. If not, rebuild Option B.
+- **NEVER skip Stage 5h (completeness check) or Stage 6 (QA)** — always run these even on resume
+
+Report what will be skipped and what will be built, then proceed with the first needed stage.
+
 ## Pipeline
 
-Execute these stages in order. After each stage, report progress to the user.
+Execute these stages in order (skipping completed ones per above). After each stage, report progress to the user.
 
 ---
 
