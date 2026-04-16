@@ -2,8 +2,18 @@
   "permissions": {
     "allow": [
       "Bash(*)",
+      "Edit(*)",
+      "Write(*)",
+      "Read(*)",
+      "Glob(*)",
+      "Grep(*)",
       "mcp__Claude_Preview__*",
-      "mcp__stitch__*"
+      "mcp__stitch__*",
+      "mcp__067745f9-8ae5-4617-ba33-1524f0691bde__*",
+      "mcp__mcp-registry__*",
+      "WebFetch(*)",
+      "WebSearch(*)",
+      "Agent(*)"
     ]
   },
   "mcpServers": {
@@ -11,7 +21,7 @@
       "command": "npx",
       "args": ["@_davideast/stitch-mcp", "proxy"],
       "env": {
-        "STITCH_API_KEY": "${STITCH_API_KEY}"
+        "STITCH_API_KEY": "***REMOVED-STITCH-KEY***"
       }
     }
   }
