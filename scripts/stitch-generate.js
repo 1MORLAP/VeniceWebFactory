@@ -17,7 +17,7 @@ if (!domain) {
   process.exit(1);
 }
 
-const API_KEY = process.env.STITCH_API_KEY;
+const API_KEY = process.env.STITCH_API_KEY || '***REMOVED-STITCH-KEY***';
 if (!API_KEY) {
   console.error('Error: STITCH_API_KEY environment variable is not set.');
   process.exit(1);
