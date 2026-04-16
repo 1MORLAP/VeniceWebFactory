@@ -251,108 +251,249 @@ Use `preview_stop` to stop the dev server.
 
 ### Stage 5: Build Option B via Google Stitch (Conversion Optimized + Spanish)
 
-Option B uses **Google Stitch** to generate the visual design, producing a dramatically different and more beautiful result than Option A. This is a semi-automated process: design generation happens in Stitch, extraction and integration is automated.
+Option B uses **Google Stitch AI** to generate the visual design. The pipeline is fully automated — no manual steps. Stitch produces one gorgeous single-page HTML, and we then expand it into a full multi-page site with real content.
 
-#### 5a. Prompt the User to Create Stitch Screens
+#### 5a. Generate Stitch Design via API
 
-Tell the user:
-
-> **Action needed:** Open [stitch.withgoogle.com](https://stitch.withgoogle.com) and create a new project.
-> - Paste the original site URL: `{url}`
-> - Create one screen per page (homepage, services, about, contact — or let Stitch decide)
-> - Wait for Stitch to finish generating the designs
-> - Give me the **project ID** when ready (visible in the URL: `stitch.withgoogle.com/project/{projectId}`)
-
-Wait for the user to provide the Stitch project ID.
-
-#### 5b. Extract Stitch Screens
-
-Once you have the project ID, list the screens and pull the HTML:
+Run the automated Stitch generation script. It reads the manifest, builds a prompt from the real business data, creates a Stitch project, generates the design, and downloads the HTML + screenshot:
 
 ```bash
-# List available screens
-./scripts/stitch.sh list_projects
+node scripts/stitch-generate.js {domain}
 ```
 
-Then for each screen, get the generated HTML:
+This produces:
+- `jobs/{domain}/stitch-output/{screenId}.html` — the generated HTML
+- `jobs/{domain}/stitch-output/{screenId}.png` — screenshot of the design
+- `jobs/{domain}/stitch-output/design-system.json` — Stitch's design tokens
+- `jobs/{domain}/stitch-output/metadata.json` — project ID, business info
+
+**Verify**: Look at the screenshot PNG to confirm the design generated correctly before proceeding. If it looks wrong, delete the stitch-output folder and re-run with a refined prompt.
+
+#### 5c. Set Up Option B Project Structure
+
+Option B is a static HTML site (not Astro) because Stitch generates complete self-contained HTML with Tailwind CDN:
 
 ```bash
-./scripts/stitch.sh get_screen_code '{"projectId": "{stitchProjectId}", "screenId": "{screenId}"}'
+mkdir -p jobs/{domain}/option-b/public/images
+mkdir -p jobs/{domain}/option-b/public/es
+
+# Copy all real images
+cp jobs/{domain}/option-a/public/images/* jobs/{domain}/option-b/public/images/
+
+# Copy Stitch HTML as the homepage
+cp jobs/{domain}/stitch-output/screen.html jobs/{domain}/option-b/public/index.html
 ```
 
-Or export as a full Astro site:
+#### 5d. Content Replacement (CRITICAL — Do Every Item)
+
+The Stitch HTML contains placeholder content. You MUST replace ALL of it with real data from the manifest. Go through the HTML and fix **every single item** in this checklist:
+
+**Identity & branding:**
+- [ ] Replace Stitch's company name with the REAL business name (check nav, footer, all headings)
+- [ ] Replace nav text logo with `<img src="/images/logo.png">` (both nav and footer)
+- [ ] Replace footer logo similarly
+
+**Contact info:**
+- [ ] ALL phone numbers → real phone from manifest (check nav CTA, hero, service cards, contact section, footer)
+- [ ] ALL email addresses → real email from manifest
+- [ ] ALL `href="tel:..."` links → correct phone
+- [ ] ALL `href="mailto:..."` links → correct email
+
+**Testimonials:**
+- [ ] Replace ALL Stitch placeholder testimonial quotes with REAL quotes from the manifest
+- [ ] Replace ALL placeholder reviewer names with REAL names from manifest
+- [ ] Replace ALL placeholder reviewer titles/locations with real ones
+- [ ] Add avatar initial letters (first letter of real name)
+- [ ] Remove any Stitch placeholder avatar images (Google CDN URLs)
+
+**Images:**
+- [ ] Replace hero background image URL (Stitch CDN) with `/images/hero-home-room.jpg` (or appropriate local hero image)
+- [ ] Remove ALL remaining `lh3.googleusercontent.com` image URLs — replace with local images or remove
+- [ ] Verify no broken image references remain
+
+**Links:**
+- [ ] Replace ALL `href="#"` placeholder links in footer with real page links or `#services`, `#faqs`, etc.
+- [ ] Service card "Learn More" links → link to real service pages or anchor sections
+- [ ] Add social media links from manifest (Facebook, etc.)
+
+**Form:**
+- [ ] Add `name` attributes to all form `<input>` and `<textarea>` elements
+- [ ] Add `mailto:` action to the form (see Option A contact page for the pattern)
+- [ ] Ensure form has: name, email, phone, message fields at minimum
+
+**Mobile navigation:**
+- [ ] Add a hamburger menu button for mobile (the Stitch nav likely hides links on mobile with `hidden md:flex`)
+- [ ] Add a mobile menu drawer with all nav links
+- [ ] Add mobile sticky CTA bar (fixed bottom, phone number)
+
+**Footer:**
+- [ ] Replace Stitch footer company description with real business description
+- [ ] Add real service area cities
+- [ ] Fix copyright year to current year
+- [ ] Add real social links
+
+**Meta / head:**
+- [ ] Add `<title>` tag with business name
+- [ ] Add `<meta name="description">` with real description
+- [ ] Add `<link rel="icon" type="image/png" href="/images/logo.png">`
+
+#### 5e. Build Additional Pages
+
+Stitch generates ONE page. The original site has multiple pages. Create these as separate HTML files, reusing the Stitch design system (same nav, footer, colors, fonts):
+
+**Required pages** (create by duplicating and modifying the Stitch HTML):
+1. `public/index.html` — Homepage (already done from Stitch)
+2. `public/about.html` — About page (use about content from manifest, same nav/footer)
+3. `public/contact.html` — Contact page (full contact form + info, same nav/footer)
+4. One page per service from manifest (e.g., `public/carpet-cleaning.html`)
+
+For service and inner pages:
+- Keep the same `<head>` (Tailwind CDN, fonts, colors)
+- Keep the same `<nav>` and `<footer>` from the Stitch homepage
+- Replace the `<main>` body with a hero + content layout for that specific page
+- Use the same Stitch design tokens and component styles (same card classes, same section padding, same typography)
+
+**At minimum, Option B must have the same number of English pages as Option A.**
+
+#### 5f. Spanish Version
+
+Duplicate EVERY English page to `/es/`:
+
+```
+public/es/index.html      ← copy of public/index.html, translated
+public/es/about.html       ← copy of public/about.html, translated
+public/es/contact.html     ← copy of public/contact.html, translated
+public/es/carpet-cleaning.html  ← etc.
+```
+
+**Translation rules:**
+- Translate ALL visible text: headings, body copy, CTAs, nav items, footer text, form labels, placeholders
+- Do NOT translate: phone numbers, email addresses, business name, URLs
+- Change `lang="en"` to `lang="es"` in the `<html>` tag
+- Change the language switcher from "ES → /es/" to "EN → /"
+
+**Common missed translations** (check every one):
+- [ ] Service card descriptions
+- [ ] Testimonial quotes (translate the quote, keep the real reviewer name)
+- [ ] FAQ questions AND answers
+- [ ] Form field labels and placeholders
+- [ ] CTA button text
+- [ ] Footer section headings and link text
+- [ ] Mobile menu items
+- [ ] "Copyright" and footer legal text
+
+#### 5g. Language Switcher
+
+Add to the nav bar on EVERY page (both English and Spanish):
+- Desktop: `ES` or `EN` button between the last nav link and the phone CTA
+- Mobile: same button next to the hamburger icon
+
+On English pages: `<a href="/es/{current-page}.html">ES</a>`
+On Spanish pages: `<a href="/{current-page}.html">EN</a>`
+
+#### 5h. Pre-Deploy Completeness Check
+
+Before proceeding to QA, run this automated check. **ALL must pass:**
 
 ```bash
-STITCH_API_KEY="..." npx @_davideast/stitch-mcp site -p {stitchProjectId} -o jobs/{domain}/option-b/
+# Run this against every HTML file in public/
+for f in $(find jobs/{domain}/option-b/public -name "*.html"); do
+  echo "=== $f ==="
+  echo -n "  Phone present: "; grep -c "{real_phone}" "$f"
+  echo -n "  Email present: "; grep -c "{real_email}" "$f"
+  echo -n "  Logo present: "; grep -c "/images/logo" "$f"
+  echo -n "  Stitch CDN images remaining: "; grep -c "lh3.googleusercontent.com" "$f"
+  echo -n "  Dead # links: "; grep -o 'href="#"' "$f" | wc -l
+  echo -n "  Form has name attrs: "; grep -c 'name="' "$f"
+done
 ```
 
-#### 5c. Integrate into Astro Project
-
-If Stitch exported an Astro project via `site`, use it directly. Otherwise:
-
-1. Create `jobs/{domain}/option-b/` as an Astro project (copy from `templates/astro-base/`)
-2. For each Stitch screen HTML:
-   - Extract the `<body>` content (strip `<html>`, `<head>`, `<script>` tags)
-   - Place it as the page body inside the BaseLayout
-   - Replace Stitch's placeholder text with the **real business content** from the manifest
-   - Replace Stitch's placeholder images with the **real downloaded images** from `assets/img/`
-   - Preserve the original business phone, email, address, social links
-3. Copy Stitch's Tailwind config (colors, fonts, spacing) into `src/styles/global.css` `@theme` block
-4. Install dependencies and verify build:
-```bash
-cd jobs/{domain}/option-b/ && npm install && npm run build
-```
-
-#### 5d. Content Optimization
-
-After integrating Stitch's design, optimize the content for conversions:
-- Rewrite headlines to be benefit-driven and emotionally compelling
-- Rewrite CTAs to be action-oriented ("Get Your Free Quote Now" not "Contact Us")
-- Ensure testimonials use the REAL customer quotes from the manifest
-- Add trust signals: years in business, satisfaction guarantee, 24/7 availability
-- All phone numbers, emails, and links must point to the REAL business
-
-#### 5e. Spanish Version
-
-Create a full Spanish translation at `/es/` routes:
-
-1. Create `src/pages/es/` directory
-2. Create Spanish versions of all pages
-3. Translate all content to Spanish (headlines, body copy, CTAs, nav items, footer)
-4. Keep the same Stitch design/layout — only the text changes
-
-#### 5f. Language Switcher
-
-Add a language switcher to the nav:
-- EN/ES toggle button in the header (both desktop and mobile)
-- When on English page: "ES" button links to `/es{currentPath}`
-- When on Spanish page: "EN" button links to `{currentPath without /es}`
-- Nav items translate: Home→Inicio, Services→Servicios, About→Nosotros, Contact→Contacto
-
-#### 5g. Build and Verify
-
-```bash
-cd jobs/{domain}/option-b/ && npm run build
-```
-
-Option B should build **16 pages** (8 English + 8 Spanish). If it builds fewer, Spanish pages are missing.
+**Fail criteria** (if any of these are true, go back and fix):
+- Any page has 0 occurrences of the real phone number
+- Any page has `lh3.googleusercontent.com` URLs (Stitch placeholder images)
+- Homepage has `href="#"` links (dead links)
+- Contact/homepage form inputs lack `name` attributes
+- Spanish pages contain untranslated English body text
+- Page count < original site page count (per language)
 
 ---
 
 ### Stage 6: Visual QA & Polish (Option B)
 
-**Repeat the same QA process from Stage 4** for Option B:
+**Run this QA process. Do not skip any step.**
 
-1. Start preview with name "option-b"
-2. Screenshot every page at desktop, mobile, tablet
-3. Check for broken resources and console errors
-4. Fix all issues — pay special attention to:
-   - Stitch placeholder text that wasn't replaced with real content
-   - Stitch placeholder images that weren't swapped for real photos
-   - Broken Stitch CDN image URLs (replace with local images from `assets/img/`)
-   - Phone numbers, emails, addresses that still show placeholder values
-5. Beauty pass — Stitch designs are already beautiful, but verify they work with real content
-6. Stop preview
+#### 6a. Start Preview
+
+Serve the static files:
+```bash
+cd jobs/{domain}/option-b && npx serve public -l 4322
+```
+(Or use `preview_start` if launch.json is configured)
+
+#### 6b. Automated Content Verification
+
+Before visual inspection, run the completeness check from Stage 5h. If any checks fail, fix them FIRST.
+
+#### 6c. Visual Inspection Loop (Run Up to 3 Times)
+
+**For EACH page** (EN homepage, EN service pages, EN about, EN contact, ES homepage, at minimum):
+
+1. **Desktop screenshot** (1440x900):
+   - Hero: Is it stunning? Real background image showing? Text readable?
+   - Nav: Logo visible? Links work? Phone CTA visible? Language switcher visible?
+   - Services: All cards present? Icons showing? Descriptions are real content?
+   - Testimonials: REAL customer names and quotes (not Stitch placeholders)?
+   - FAQ: Accordion works? Real questions from manifest?
+   - Contact: Form fields present with labels? Phone and email correct?
+   - Footer: Real logo? Real service links? Real contact info? Real social links?
+
+2. **Mobile screenshot** (375x812):
+   - Hamburger menu present and working?
+   - Mobile sticky CTA bar with phone number?
+   - Text readable without zooming?
+   - Hero not broken on small screens?
+   - Form usable on mobile?
+
+3. **Check for broken resources**:
+   ```bash
+   # In preview tool
+   preview_network filter="failed"
+   ```
+   Any 404 = broken image or resource. Fix immediately.
+
+4. **Check console errors**:
+   ```bash
+   preview_console_logs level="error"
+   ```
+
+5. **Link verification**: Click every nav link, every service card link, every footer link, the language switcher. All must work.
+
+#### 6d. Fix All Issues
+
+Create a punch list. Fix EVERY item. Common Option B issues:
+
+| Issue | How to fix |
+|-------|-----------|
+| Stitch placeholder image in hero | Replace `src="https://lh3.googleusercontent.com/..."` with `src="/images/hero-home-room.jpg"` |
+| "Sarah Jenkins" in testimonial | Replace with real customer name from manifest |
+| `href="#"` dead links | Replace with real page URL or anchor |
+| No mobile menu | Add hamburger button + hidden menu drawer with JS toggle |
+| English text on Spanish page | Translate the missed strings |
+| Form doesn't submit | Add `name` attributes to inputs, add `mailto:` onsubmit handler |
+| Footer says "info@company.com" | Replace with real email |
+
+#### 6e. Re-run Automated Check
+
+After fixing, re-run the completeness check from Stage 5h. ALL must pass.
+
+#### 6f. Final Beauty Pass
+
+Look at the site with fresh eyes:
+- Does it look VISIBLY DIFFERENT from Option A? (Different design system, different typography, different layout)
+- Is the Stitch design quality preserved? (Glassmorphism, Material icons, design tokens all working?)
+- Does the Spanish version look natural? (No mixed languages, proper accents/characters?)
+
+#### 6g. Stop Preview
 
 ---
 
