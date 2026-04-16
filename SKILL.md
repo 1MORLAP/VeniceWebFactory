@@ -735,3 +735,5 @@ Present the results to the user:
 - **SPANISH**: Option B includes /es/ routes for all pages. The SiteNav component must accept a `lang` prop and show a language toggle button
 - **PORT CONFLICT**: Option A uses port 4321, Option B uses port 4322. Set the port in `astro.config.mjs` with `server: { port: 4322 }` for Option B
 - **PREVIEW VIEWPORT**: The preview tool may default to a small viewport. Always use `preview_resize` with `width: 1440, height: 900` before taking desktop screenshots
+- **PROTECT FINISHED BUILDS**: Never modify files inside `jobs/{domain}/option-a/` when working on Option B (and vice versa). Worktrees and agents can accidentally overwrite files in the wrong directory. If a finished Option A gets corrupted, the Vercel deployment is the source of truth — the local `jobs/` directory can be re-generated
+- **TEMPLATE FILES ARE TEMPLATES**: Files in `templates/astro-base/` are generic starters. Never overwrite a customer's customized files (in `jobs/{domain}/option-a/`) with template defaults. Customer builds diverge from templates — that's by design
