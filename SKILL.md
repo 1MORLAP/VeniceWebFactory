@@ -303,128 +303,108 @@ Use `preview_stop` to stop the dev server.
 
 ### Stage 5: Build Option B via Google Stitch (Conversion Optimized + Spanish)
 
-Option B uses **Google Stitch AI** to generate the visual design. The pipeline is fully automated — no manual steps. Stitch produces one gorgeous single-page HTML, and we then expand it into a full multi-page site with real content.
+Option B uses **Google Stitch AI** as design inspiration. Stitch generates a single-page design with a unique visual system. We then **extract its design language** and **build all pages from scratch** using real content from the manifest. We NEVER copy Stitch HTML verbatim — it's a mood board, not a template.
 
 #### 5a. Generate Stitch Design via API
 
-Run the automated Stitch generation script. It reads the manifest, builds a prompt from the real business data, creates a Stitch project, generates the design, and downloads the HTML + screenshot:
+Run the automated Stitch generation script:
 
 ```bash
 node scripts/stitch-generate.js {domain}
 ```
 
 This produces:
-- `jobs/{domain}/stitch-output/{screenId}.html` — the generated HTML
+- `jobs/{domain}/stitch-output/{screenId}.html` — the generated HTML (design reference only)
 - `jobs/{domain}/stitch-output/{screenId}.png` — screenshot of the design
 - `jobs/{domain}/stitch-output/design-system.json` — Stitch's design tokens
 - `jobs/{domain}/stitch-output/metadata.json` — project ID, business info
 
-**Verify**: Look at the screenshot PNG to confirm the design generated correctly before proceeding. If it looks wrong, delete the stitch-output folder and re-run with a refined prompt.
+**Verify**: Look at the screenshot PNG to confirm the design looks good. If not, delete stitch-output and re-run.
+
+#### 5b. Extract Design System from Stitch (CRITICAL)
+
+Read the Stitch HTML and screenshot. **Do NOT copy the HTML.** Instead, extract these design decisions into a mental model:
+
+1. **Color tokens** — Read the `tailwind.config` from Stitch HTML. Note the primary, secondary, surface, and accent colors. You'll replicate these in your own Tailwind config.
+2. **Typography** — Note the font families (headline vs body), weights, and sizing patterns.
+3. **Component patterns** — Study how Stitch designed: hero sections, service cards, testimonial cards, FAQ accordions, contact forms, footer layout. Note border radius, shadows, spacing, icon usage.
+4. **Visual effects** — Glassmorphism, gradients, backdrop blur, hover animations, Material Symbols icons.
+5. **Layout structure** — How sections alternate backgrounds, max-width, padding patterns.
+
+Write down a brief summary of the design system you'll be building with. This becomes your style guide.
 
 #### 5c. Set Up Option B Project Structure
-
-Option B is a static HTML site (not Astro) because Stitch generates complete self-contained HTML with Tailwind CDN:
 
 ```bash
 mkdir -p jobs/{domain}/option-b/public/images
 mkdir -p jobs/{domain}/option-b/public/es
 
-# Copy all real images
+# Copy all real images from Option A
 cp jobs/{domain}/option-a/public/images/* jobs/{domain}/option-b/public/images/
-
-# Copy Stitch HTML as the homepage
-cp jobs/{domain}/stitch-output/screen.html jobs/{domain}/option-b/public/index.html
 ```
 
-#### 5d. Content Replacement (CRITICAL — Do Every Item)
+#### 5d. Build ALL Pages From Scratch (CRITICAL — THE CORE STEP)
 
-The Stitch HTML contains placeholder content. You MUST replace ALL of it with real data from the manifest. Go through the HTML and fix **every single item** in this checklist:
+**DO NOT copy Stitch HTML. Build every page yourself using the extracted design system + real manifest content.**
 
-**Identity & branding:**
-- [ ] Replace Stitch's company name with the REAL business name (check nav, footer, all headings)
-- [ ] Replace nav text logo with `<img src="/images/logo.png">` (both nav and footer)
-- [ ] Replace footer logo similarly
+This means every page starts with:
+- Real business name, phone, email from the manifest
+- Nav linking to ALL pages from the manifest (not just what Stitch chose)
+- Real testimonials with real reviewer names
+- Real local images (never Stitch CDN URLs)
+- Proper mobile menu with all pages listed
+- Correct `<title>`, `<meta>`, favicon
 
-**Contact info:**
-- [ ] ALL phone numbers → real phone from manifest (check nav CTA, hero, service cards, contact section, footer)
-- [ ] ALL email addresses → real email from manifest
-- [ ] ALL `href="tel:..."` links → correct phone
-- [ ] ALL `href="mailto:..."` links → correct email
-
-**Testimonials:**
-- [ ] Replace ALL Stitch placeholder testimonial quotes with REAL quotes from the manifest
-- [ ] Replace ALL placeholder reviewer names with REAL names from manifest
-- [ ] Replace ALL placeholder reviewer titles/locations with real ones
-- [ ] Add avatar initial letters (first letter of real name)
-- [ ] Remove any Stitch placeholder avatar images (Google CDN URLs)
-
-**Images:**
-- [ ] Replace hero background image URL (Stitch CDN) with `/images/hero-home-room.jpg` (or appropriate local hero image)
-- [ ] Remove ALL remaining `lh3.googleusercontent.com` image URLs — replace with local images or remove
-- [ ] Verify no broken image references remain
-
-**Links:**
-- [ ] Replace ALL `href="#"` placeholder links in footer with real page links or `#services`, `#faqs`, etc.
-- [ ] Service card "Learn More" links → link to real service pages or anchor sections
-- [ ] Add social media links from manifest (Facebook, etc.)
-
-**Form:**
-- [ ] Add `name` attributes to all form `<input>` and `<textarea>` elements
-- [ ] Add `mailto:` action to the form (see Option A contact page for the pattern)
-- [ ] Ensure form has: name, email, phone, message fields at minimum
-
-**Mobile navigation:**
-- [ ] Add a hamburger menu button for mobile (the Stitch nav likely hides links on mobile with `hidden md:flex`)
-- [ ] Add a mobile menu drawer with all nav links
-- [ ] Add mobile sticky CTA bar (fixed bottom, phone number)
-
-**Footer:**
-- [ ] Replace Stitch footer company description with real business description
-- [ ] Add real service area cities
-- [ ] Fix copyright year to current year
-- [ ] Add real social links
-
-**Meta / head:**
-- [ ] Add `<title>` tag with business name
-- [ ] Add `<meta name="description">` with real description
-- [ ] Add `<link rel="icon" type="image/png" href="/images/logo.png">`
-
-#### 5e. Build Additional Pages (MANDATORY — DO NOT SKIP)
-
-Stitch generates ONE page. **You MUST create every page that exists in Option A.** This is not optional.
-
-**Step 1: List the required pages from Option A:**
+**Step 1: Get the full page list from Option A:**
 
 ```bash
 ls jobs/{domain}/option-a/src/pages/*.astro | sed 's|.*/||; s|\.astro||'
 ```
 
-This gives you the exact page list. Every page in that list MUST exist in Option B.
+Every page in that list MUST exist in Option B.
 
-**Step 2: For each page beyond index.html, create it:**
+**Step 2: Build every page as a complete, standalone HTML file.**
 
-The approach: duplicate `index.html`, then replace the `<main>` body content. Keep everything else identical (same `<head>`, same `<nav>`, same `<footer>`, same design system).
+Each page is a full HTML document with:
+- `<head>` with Tailwind CDN, Google Fonts, Material Symbols, and the Stitch-inspired Tailwind config (color tokens, fonts, border radius)
+- Shared styles (glassmorphism nav, mobile menu transitions, etc.)
+- Full desktop nav with links to ALL pages + language switcher (ES) + phone CTA
+- Full mobile menu (hamburger toggle) with ALL pages + language switcher + phone CTA
+- Page-specific `<main>` content using real text from the manifest
+- Shared footer with logo, service links (ALL pages), contact info, service areas, copyright
+- Mobile sticky CTA bar (fixed bottom, phone number)
 
-For each service page (e.g., `carpet-cleaning.html`):
-1. Copy `index.html` to `{page-slug}.html`
-2. Update the `<title>` tag to match the page's title from the manifest
-3. Replace everything between `</nav>` and `<footer>` with:
-   - A hero section using the page's hero background image (from `public/images/hero-{page}.{ext}`)
-   - The page's full text content from the manifest (headings, paragraphs, lists)
-   - An inline image from `public/images/` in a two-column layout
-   - A CTA section with the phone number
-4. Keep the same `<nav>` and `<footer>` exactly as the homepage
-5. Update nav links: service card links on the homepage should point to these pages
+**For the homepage (index.html):**
+- Hero with local background image, gradient overlay, conversion headline, phone CTA
+- Trust bar with stats (years in business, client count, 24/7, satisfaction guarantee)
+- Service cards grid linking to ALL service pages
+- "Why Choose Us" section with image + trust points
+- Testimonials with REAL customer quotes and names from manifest
+- "Who We Serve" section (homeowners, property managers, businesses)
+- FAQ accordion with real questions from manifest
+- Contact form with mailto action + info sidebar
+- Use the Stitch-inspired visual patterns: card styles, icon usage, section backgrounds, glassmorphism
 
-For the about page:
-- Hero with van photo background
-- Mission/why-choose-us content from manifest
-- Service list with links
+**For each service page (e.g., carpet-cleaning.html):**
+- Hero with relevant background image from `public/images/`
+- Two-column layout: content text (from manifest) + inline image
+- Process steps section (numbered steps)
+- Benefits/features list with check icons
+- CTA banner with phone number
+- Active nav highlight on current page
 
-For the contact page:
-- Contact form (name, email, phone, message) with mailto action
-- Phone number, email, service area info
-- No hero needed — use a colored header section
+**For the about page:**
+- Hero with van/team photo
+- Mission/story content from manifest
+- "Why Choose Us" feature cards
+- Service list with links to all service pages
+- Service area tags
+
+**For the contact page:**
+- Colored header section (no hero image needed)
+- Quick contact bar (phone + email)
+- Split layout: form (left) + info panel (right, dark bg with contact details)
+- Form fields: name, email, phone, city, service dropdown, message — all with `name` attributes and `mailto:` onsubmit
 
 **Step 3: Verify page count matches:**
 
@@ -470,12 +450,22 @@ public/es/carpet-cleaning.html  ← etc.
 
 #### 5g. Language Switcher
 
-Add to the nav bar on EVERY page (both English and Spanish):
-- Desktop: `ES` or `EN` button between the last nav link and the phone CTA
-- Mobile: same button next to the hamburger icon
+The language switcher must look like a **toggle/pill**, NOT a plain text link that blends into the nav menu. It should be visually distinct from navigation links so users instantly recognize it as a language control.
 
-On English pages: `<a href="/es/{current-page}.html">ES</a>`
-On Spanish pages: `<a href="/{current-page}.html">EN</a>`
+**Desktop:** Place between the last nav link and the phone CTA. Style as a small pill/capsule:
+```html
+<!-- English page example -->
+<div class="flex items-center bg-surface-container rounded-full p-0.5 text-xs font-bold">
+  <span class="px-3 py-1 bg-primary text-white rounded-full">EN</span>
+  <a href="/es/{current-page}.html" class="px-3 py-1 text-on-surface-variant hover:text-primary rounded-full transition-colors">ES</a>
+</div>
+```
+The active language gets the filled/primary background. The inactive language is a clickable link. This creates a clear "switch" visual — not just another nav item.
+
+**Mobile:** Place the same pill-style switcher in the nav bar next to the hamburger icon. Also include a full "English"/"Español" link in the mobile menu drawer.
+
+On English pages: active=EN, link=ES pointing to `/es/{current-page}.html`
+On Spanish pages: active=ES, link=EN pointing to `/{current-page}.html`
 
 #### 5h. Pre-Deploy Completeness Check (BLOCKING — ALL MUST PASS)
 
@@ -505,8 +495,21 @@ if [ "$EN_COUNT" -ge "$OPTION_A_COUNT" ] && [ "$ES_COUNT" -ge "$EN_COUNT" ]; the
 fi
 
 echo ""
+echo "=== NAV COMPLETENESS CHECK ==="
+# Verify that index.html's desktop nav links to every page
+HOMEPAGE="jobs/$DOMAIN/option-b/public/index.html"
+for slug in $(ls jobs/$DOMAIN/option-a/src/pages/*.astro | sed 's|.*/||; s|\.astro||' | grep -v index); do
+  if grep -q "/$slug.html" "$HOMEPAGE"; then
+    echo "  ✓ Nav has link to $slug"
+  else
+    echo "  ✗ FAIL: Nav is MISSING link to $slug — Stitch dropped it, add it manually"
+    FAIL=$((FAIL+1))
+  fi
+done
+
+echo ""
 echo "=== PER-PAGE CHECKS ==="
-FAIL=0
+FAIL=${FAIL:-0}
 for f in $(find jobs/$DOMAIN/option-b/public -name "*.html"); do
   PAGE=$(echo "$f" | sed "s|.*/public/||")
   ERRORS=""
@@ -514,7 +517,7 @@ for f in $(find jobs/$DOMAIN/option-b/public -name "*.html"); do
   grep -q "$PHONE" "$f" || ERRORS="$ERRORS phone-missing"
   grep -q "/images/logo" "$f" || ERRORS="$ERRORS logo-missing"
   grep -q "lh3.googleusercontent.com" "$f" && ERRORS="$ERRORS stitch-cdn-images"
-  grep -q "mobile-menu" "$f" || ERRORS="$ERRORS no-mobile-menu"
+  grep -qi "mobile.menu\|mobilemenu\|mobile-menu" "$f" || ERRORS="$ERRORS no-mobile-menu"
 
   if [ -z "$ERRORS" ]; then
     echo "  ✓ $PAGE"
@@ -540,6 +543,7 @@ fi
 **Hard fail criteria** (deployment is BLOCKED if any are true):
 - EN page count < Option A page count
 - ES page count < EN page count
+- Homepage nav missing ANY page from Option A (Stitch commonly drops pages from nav)
 - Any page missing the real phone number
 - Any page missing the logo
 - Any page has Stitch CDN placeholder images (`lh3.googleusercontent.com`)
@@ -599,17 +603,16 @@ Before visual inspection, run the completeness check from Stage 5h. If any check
 
 #### 6d. Fix All Issues
 
-Create a punch list. Fix EVERY item. Common Option B issues:
+Create a punch list. Fix EVERY item. Since we built from scratch (not from Stitch HTML), common issues are:
 
 | Issue | How to fix |
 |-------|-----------|
-| Stitch placeholder image in hero | Replace `src="https://lh3.googleusercontent.com/..."` with `src="/images/hero-home-room.jpg"` |
-| "Sarah Jenkins" in testimonial | Replace with real customer name from manifest |
-| `href="#"` dead links | Replace with real page URL or anchor |
-| No mobile menu | Add hamburger button + hidden menu drawer with JS toggle |
+| Nav missing a page | Cross-reference Option A page list, add the missing link |
+| Broken image 404 | Check filename in `public/images/`, fix the `src` path |
 | English text on Spanish page | Translate the missed strings |
-| Form doesn't submit | Add `name` attributes to inputs, add `mailto:` onsubmit handler |
-| Footer says "info@company.com" | Replace with real email |
+| Form doesn't submit | Verify `name` attributes on inputs and `mailto:` onsubmit handler |
+| Section feels sparse | Add more manifest content or a visual element (icons, cards) |
+| Footer missing a service link | Ensure footer services list matches the nav |
 
 #### 6e. Re-run Automated Check
 
@@ -619,8 +622,9 @@ After fixing, re-run the completeness check from Stage 5h. ALL must pass.
 
 Look at the site with fresh eyes:
 - Does it look VISIBLY DIFFERENT from Option A? (Different design system, different typography, different layout)
-- Is the Stitch design quality preserved? (Glassmorphism, Material icons, design tokens all working?)
+- Does it capture the Stitch-inspired visual language? (Design tokens, glassmorphism, Material icons, component patterns)
 - Does the Spanish version look natural? (No mixed languages, proper accents/characters?)
+- Is every page built with real content? (No placeholder text, no stock images, no `href="#"` links)
 
 #### 6g. Stop Preview
 
@@ -726,7 +730,7 @@ Present the results to the user:
 - **IMAGES**: The manifest has BOTH `images` (img tags) and `backgroundImages` (CSS backgrounds). Use background images as hero backgrounds, regular images as inline content. Every page that had a hero background in the original MUST have one in the rebuild
 - **DEPLOY**: Always `cd` to the correct project directory before running `npx vercel deploy`. Deploying from the wrong directory will deploy the wrong project
 - **SSO**: After deploying, disable Vercel SSO protection so URLs are publicly accessible
-- **OPTION B USES STITCH**: Option B is designed by Google Stitch, not our Astro templates. It will look fundamentally different from Option A. After extracting Stitch HTML, replace ALL placeholder content with real business data from the manifest. If any placeholder text or stock images remain, Option B is wrong
+- **STITCH IS INSPIRATION, NOT A TEMPLATE**: Stitch generates a design reference. NEVER copy its HTML verbatim. Extract the design system (colors, typography, component patterns, visual effects) and build all pages from scratch using real manifest content. This avoids placeholder content, incomplete navs, and Stitch CDN images entirely. If any Stitch placeholder text, `lh3.googleusercontent.com` images, or `href="#"` links exist in the final site, something went wrong
 - **STITCH CLI**: Use `./scripts/stitch.sh <tool> '<json>'` to call Stitch tools. Key tools: `get_screen_code`, `get_screen_image`, `build_site`, `list_projects`
 - **SPANISH**: Option B includes /es/ routes for all pages. The SiteNav component must accept a `lang` prop and show a language toggle button
 - **PORT CONFLICT**: Option A uses port 4321, Option B uses port 4322. Set the port in `astro.config.mjs` with `server: { port: 4322 }` for Option B
