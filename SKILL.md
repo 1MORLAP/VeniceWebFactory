@@ -337,23 +337,57 @@ The Stitch HTML contains placeholder content. You MUST replace ALL of it with re
 - [ ] Add `<meta name="description">` with real description
 - [ ] Add `<link rel="icon" type="image/png" href="/images/logo.png">`
 
-#### 5e. Build Additional Pages
+#### 5e. Build Additional Pages (MANDATORY — DO NOT SKIP)
 
-Stitch generates ONE page. The original site has multiple pages. Create these as separate HTML files, reusing the Stitch design system (same nav, footer, colors, fonts):
+Stitch generates ONE page. **You MUST create every page that exists in Option A.** This is not optional.
 
-**Required pages** (create by duplicating and modifying the Stitch HTML):
-1. `public/index.html` — Homepage (already done from Stitch)
-2. `public/about.html` — About page (use about content from manifest, same nav/footer)
-3. `public/contact.html` — Contact page (full contact form + info, same nav/footer)
-4. One page per service from manifest (e.g., `public/carpet-cleaning.html`)
+**Step 1: List the required pages from Option A:**
 
-For service and inner pages:
-- Keep the same `<head>` (Tailwind CDN, fonts, colors)
-- Keep the same `<nav>` and `<footer>` from the Stitch homepage
-- Replace the `<main>` body with a hero + content layout for that specific page
-- Use the same Stitch design tokens and component styles (same card classes, same section padding, same typography)
+```bash
+ls jobs/{domain}/option-a/src/pages/*.astro | sed 's|.*/||; s|\.astro||'
+```
 
-**At minimum, Option B must have the same number of English pages as Option A.**
+This gives you the exact page list. Every page in that list MUST exist in Option B.
+
+**Step 2: For each page beyond index.html, create it:**
+
+The approach: duplicate `index.html`, then replace the `<main>` body content. Keep everything else identical (same `<head>`, same `<nav>`, same `<footer>`, same design system).
+
+For each service page (e.g., `carpet-cleaning.html`):
+1. Copy `index.html` to `{page-slug}.html`
+2. Update the `<title>` tag to match the page's title from the manifest
+3. Replace everything between `</nav>` and `<footer>` with:
+   - A hero section using the page's hero background image (from `public/images/hero-{page}.{ext}`)
+   - The page's full text content from the manifest (headings, paragraphs, lists)
+   - An inline image from `public/images/` in a two-column layout
+   - A CTA section with the phone number
+4. Keep the same `<nav>` and `<footer>` exactly as the homepage
+5. Update nav links: service card links on the homepage should point to these pages
+
+For the about page:
+- Hero with van photo background
+- Mission/why-choose-us content from manifest
+- Service list with links
+
+For the contact page:
+- Contact form (name, email, phone, message) with mailto action
+- Phone number, email, service area info
+- No hero needed — use a colored header section
+
+**Step 3: Verify page count matches:**
+
+```bash
+OPTION_A_PAGES=$(ls jobs/{domain}/option-a/src/pages/*.astro | wc -l)
+OPTION_B_EN_PAGES=$(find jobs/{domain}/option-b/public -maxdepth 1 -name "*.html" | wc -l)
+echo "Option A: $OPTION_A_PAGES pages"
+echo "Option B EN: $OPTION_B_EN_PAGES pages"
+if [ "$OPTION_B_EN_PAGES" -lt "$OPTION_A_PAGES" ]; then
+  echo "FAIL: Option B has fewer pages than Option A. Build the missing pages before continuing."
+  exit 1
+fi
+```
+
+**DO NOT proceed to Stage 5f until this check passes.**
 
 #### 5f. Spanish Version
 
@@ -391,30 +425,73 @@ Add to the nav bar on EVERY page (both English and Spanish):
 On English pages: `<a href="/es/{current-page}.html">ES</a>`
 On Spanish pages: `<a href="/{current-page}.html">EN</a>`
 
-#### 5h. Pre-Deploy Completeness Check
+#### 5h. Pre-Deploy Completeness Check (BLOCKING — ALL MUST PASS)
 
-Before proceeding to QA, run this automated check. **ALL must pass:**
+Before proceeding to QA, run this automated check. **If ANY check fails, go back and fix it. Do NOT deploy with failures.**
 
 ```bash
-# Run this against every HTML file in public/
-for f in $(find jobs/{domain}/option-b/public -name "*.html"); do
-  echo "=== $f ==="
-  echo -n "  Phone present: "; grep -c "{real_phone}" "$f"
-  echo -n "  Email present: "; grep -c "{real_email}" "$f"
-  echo -n "  Logo present: "; grep -c "/images/logo" "$f"
-  echo -n "  Stitch CDN images remaining: "; grep -c "lh3.googleusercontent.com" "$f"
-  echo -n "  Dead # links: "; grep -o 'href="#"' "$f" | wc -l
-  echo -n "  Form has name attrs: "; grep -c 'name="' "$f"
+DOMAIN="{domain}"
+PHONE="{real_phone}"
+EMAIL="{real_email}"
+OPTION_A_COUNT=$(ls jobs/$DOMAIN/option-a/src/pages/*.astro | wc -l | tr -d ' ')
+
+echo "=== PAGE COUNT CHECK ==="
+EN_COUNT=$(find jobs/$DOMAIN/option-b/public -maxdepth 1 -name "*.html" | wc -l | tr -d ' ')
+ES_COUNT=$(find jobs/$DOMAIN/option-b/public/es -name "*.html" 2>/dev/null | wc -l | tr -d ' ')
+echo "Option A pages: $OPTION_A_COUNT"
+echo "Option B EN pages: $EN_COUNT"
+echo "Option B ES pages: $ES_COUNT"
+
+if [ "$EN_COUNT" -lt "$OPTION_A_COUNT" ]; then
+  echo "✗ FAIL: Option B EN ($EN_COUNT) has fewer pages than Option A ($OPTION_A_COUNT)"
+fi
+if [ "$ES_COUNT" -lt "$EN_COUNT" ]; then
+  echo "✗ FAIL: Option B ES ($ES_COUNT) has fewer pages than EN ($EN_COUNT)"
+fi
+if [ "$EN_COUNT" -ge "$OPTION_A_COUNT" ] && [ "$ES_COUNT" -ge "$EN_COUNT" ]; then
+  echo "✓ Page count OK"
+fi
+
+echo ""
+echo "=== PER-PAGE CHECKS ==="
+FAIL=0
+for f in $(find jobs/$DOMAIN/option-b/public -name "*.html"); do
+  PAGE=$(echo "$f" | sed "s|.*/public/||")
+  ERRORS=""
+
+  grep -q "$PHONE" "$f" || ERRORS="$ERRORS phone-missing"
+  grep -q "/images/logo" "$f" || ERRORS="$ERRORS logo-missing"
+  grep -q "lh3.googleusercontent.com" "$f" && ERRORS="$ERRORS stitch-cdn-images"
+  grep -q "mobile-menu" "$f" || ERRORS="$ERRORS no-mobile-menu"
+
+  if [ -z "$ERRORS" ]; then
+    echo "  ✓ $PAGE"
+  else
+    echo "  ✗ $PAGE:$ERRORS"
+    FAIL=$((FAIL+1))
+  fi
 done
+
+echo ""
+if [ "$FAIL" -gt 0 ] || [ "$EN_COUNT" -lt "$OPTION_A_COUNT" ] || [ "$ES_COUNT" -lt "$EN_COUNT" ]; then
+  echo "========================================="
+  echo "  ✗ COMPLETENESS CHECK FAILED"
+  echo "  Fix all issues before deploying."
+  echo "========================================="
+else
+  echo "========================================="
+  echo "  ✓ ALL CHECKS PASSED — ready for deploy"
+  echo "========================================="
+fi
 ```
 
-**Fail criteria** (if any of these are true, go back and fix):
-- Any page has 0 occurrences of the real phone number
-- Any page has `lh3.googleusercontent.com` URLs (Stitch placeholder images)
-- Homepage has `href="#"` links (dead links)
-- Contact/homepage form inputs lack `name` attributes
-- Spanish pages contain untranslated English body text
-- Page count < original site page count (per language)
+**Hard fail criteria** (deployment is BLOCKED if any are true):
+- EN page count < Option A page count
+- ES page count < EN page count
+- Any page missing the real phone number
+- Any page missing the logo
+- Any page has Stitch CDN placeholder images (`lh3.googleusercontent.com`)
+- Any page missing mobile menu
 
 ---
 
