@@ -1,0 +1,140 @@
+---
+/*
+ * Sample Industrial-Trades Homepage
+ * ---------------------------------
+ * This is a fictional reference page. The customer is "Hartman Plumbing &
+ * Drain" — a generic trades business demonstrating every aesthetic move
+ * available in this inspiration directory: hero with bracket numbering, mono
+ * captions, hi-vis CTAs, file-tab nav, hatched borders, stat strip, service
+ * cards with SVC indices, utility-poster footer.
+ *
+ * The actual customer build would replace ALL the copy with the real customer's
+ * content from the manifest, replace the photos with the real customer's
+ * scraped images, and adapt the palette / fonts to the real customer's brand.
+ * This file exists ONLY to show the worker session what the aesthetic LOOKS
+ * LIKE end-to-end. NEVER copy this verbatim into a customer build.
+ */
+
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Hero from '../components/Hero.astro';
+import StatStrip from '../components/StatStrip.astro';
+import ServiceCard from '../components/ServiceCard.astro';
+
+const businessName = "Hartman Plumbing & Drain";
+
+const services = [
+  {
+    index: '01',
+    title: 'Drain Cleaning',
+    description: 'Hydro-jet and mechanical augers for kitchen, bath, and main lines. Same-day for emergencies.',
+    photoSrc: 'https://images.unsplash.com/photo-1601000938259-9e92002320b2?w=800&q=80',
+  },
+  {
+    index: '02',
+    title: 'Water Heater Service',
+    description: 'Tank, tankless, and hybrid systems. Repair, replacement, and annual flush.',
+    photoSrc: 'https://images.unsplash.com/photo-1581094288338-2314dddb7ece?w=800&q=80',
+  },
+  {
+    index: '03',
+    title: 'Repipe & Re-line',
+    description: 'PEX repipe for full house, copper for spot repairs. Trenchless re-line for sewer mains.',
+    photoSrc: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=800&q=80',
+  },
+  {
+    index: '04',
+    title: 'Emergency Response',
+    description: 'Burst pipes, sewage backups, no hot water. Crew dispatched within the hour, day or night.',
+    photoSrc: 'https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=800&q=80',
+  },
+];
+
+const stats = [
+  { value: '23',     unit: 'YRS',  label: 'IN BUSINESS' },
+  { value: '4,800',  unit: 'JOBS', label: 'COMPLETED' },
+  { value: '4.9',    unit: '★',    label: 'GOOGLE AVG' },
+  { value: '24/7',   unit: '',     label: 'AVAILABILITY' },
+];
+---
+
+<BaseLayout
+  title={`${businessName} — Plumbing & Drain Service`}
+  description="Drain cleaning, water heaters, repipe, and 24/7 emergency response. 23 years serving the area."
+  active="home"
+>
+  <Hero
+    sectionNumber="01"
+    sectionLabel="EMERGENCY · 24/7 · LICENSED"
+    heading="When the pipes give up, we don't."
+    subheading="Crew on the road within the hour, day or night. Drain cleaning, water heaters, repipe, and burst-pipe emergencies. Licensed, insured, 23 years in the trade."
+    photoSrc="https://images.unsplash.com/photo-1565003722271-6e3013ec1611?w=1600&q=80"
+    photoCaption="OAK ST · MARCH '26"
+    ctaPrimary={{ text: 'Call Dispatch', href: 'tel:5555550100' }}
+    ctaSecondary={{ text: 'Quote in 24hrs', href: '/contact' }}
+  />
+
+  <StatStrip stats={stats} variant="dark" />
+
+  {/* Services grid — 4 cards with bracket-numbered SVC indices, distinct photos */}
+  <section class="bg-[var(--color-bone-100)]">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 lg:py-28">
+      <div class="flex items-center gap-3 mb-10 lg:mb-12 fade-up">
+        <span class="label-mono-lg text-[var(--color-crew-600)]">[02]</span>
+        <span class="block w-12 h-[2px] bg-[var(--color-navy-900)]"></span>
+        <span class="label-mono text-[var(--color-ink-muted)]">SERVICES · WHAT WE DO</span>
+      </div>
+      <h2 class="text-3xl lg:text-5xl font-extrabold tracking-tight max-w-3xl text-[var(--color-navy-900)] fade-up">
+        Four crews. One scope. Show up, do the work, stand behind it.
+      </h2>
+      <div class="mt-12 lg:mt-16 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 lg:gap-8">
+        {services.map(s => <ServiceCard {...s} href="/services" />)}
+      </div>
+    </div>
+  </section>
+
+  {/* Caution-tape rule — announces the testimonials section */}
+  <div class="hatched-border-y"></div>
+
+  {/* Testimonial — verbatim per TESTIMONIAL & REVIEW PRESERVATION rule.
+      The reviewer's words stay exactly as written, including any typos. */}
+  <section class="bg-[var(--color-navy-900)] text-[var(--color-bone-100)]">
+    <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-20 lg:py-28">
+      <div class="flex items-center gap-3 mb-8 fade-up">
+        <span class="label-mono-lg text-[var(--color-hivis-400)]">[03]</span>
+        <span class="block w-12 h-[2px] bg-[var(--color-hivis-500)]"></span>
+        <span class="label-mono text-[var(--color-bone-300)]">CUSTOMERS · ON THE RECORD</span>
+      </div>
+      <blockquote class="text-2xl lg:text-3xl leading-snug font-extrabold tracking-tight fade-up">
+        "Burst pipe at 11pm. Crew showed up in 45 minutes, had it fixed and the
+         water back on by 1am. Foreman walked us through what failed and gave us
+         a quote for the repipe right there. No upsell, no panic, just work. We
+         recommend Hartman to everyone now."
+      </blockquote>
+      <div class="mt-6 flex items-center gap-3 label-mono text-[var(--color-bone-300)] fade-up">
+        <span class="text-[var(--color-hivis-400)]">★★★★★</span>
+        <span>—  K., REDACTED · GOOGLE REVIEW · DEC '25</span>
+      </div>
+    </div>
+  </section>
+
+  {/* Final CTA strip — hi-vis, urgent, sticky-bottom signal */}
+  <section class="bg-[var(--color-hivis-500)] text-[var(--color-ink)]">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-16">
+      <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+        <div>
+          <span class="label-mono">[04] · DISPATCH · 24/7</span>
+          <h3 class="mt-2 text-3xl lg:text-4xl font-extrabold tracking-tight">
+            Pipes won't wait. Neither do we.
+          </h3>
+        </div>
+        <a
+          href="tel:5555550100"
+          class="inline-flex items-center gap-2 bg-[var(--color-navy-900)] text-[var(--color-hivis-400)] px-6 py-4 font-bold tracking-tight hover:bg-[var(--color-ink)] transition-colors min-h-[44px]"
+        >
+          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M20 15.5c-1.25 0-2.45-.2-3.57-.57a1 1 0 00-1.02.24l-2.2 2.2a15.07 15.07 0 01-6.59-6.58l2.2-2.21a.96.96 0 00.25-1A11.36 11.36 0 018.5 4a1 1 0 00-1-1H4a1 1 0 00-1 1c0 9.39 7.61 17 17 17a1 1 0 001-1v-3.5a1 1 0 00-1-1z"/></svg>
+          <span>(555) 555-0100</span>
+        </a>
+      </div>
+    </div>
+  </section>
+</BaseLayout>

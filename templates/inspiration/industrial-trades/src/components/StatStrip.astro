@@ -1,0 +1,54 @@
+---
+/*
+ * Industrial StatStrip
+ * --------------------
+ * Mono-captioned stat row — looks like a parts inventory header.
+ * "23 YRS · 4,800 JOBS · 4.9★ · 24/7 RESPONSE"
+ *
+ * Each stat has a hi-vis number and a mono caption. Vertical rules between
+ * stats. Sits flush against the hero or as a standalone strip.
+ *
+ * USE ONLY when the stats are real (FACT GROUNDING — every number must come
+ * from the manifest). NO fabricated "200+ five-star reviews" badges.
+ */
+
+interface Stat {
+  value: string;        // "23+", "4,800", "4.9★", "24/7"
+  unit?: string;        // "YRS", "JOBS", "RATING", "RESPONSE"
+  label: string;        // "EXPERIENCE", "COMPLETED", "GOOGLE", "AVAILABILITY"
+}
+
+interface Props {
+  stats: Stat[];
+  variant?: 'dark' | 'light';
+}
+
+const { stats, variant = 'dark' } = Astro.props;
+const isDark = variant === 'dark';
+---
+
+<section
+  class={`${isDark ? 'bg-[var(--color-navy-900)] text-[var(--color-bone-50)]' : 'bg-[var(--color-bone-200)] text-[var(--color-navy-900)]'}`}
+>
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-10">
+    <div class="grid grid-cols-2 lg:grid-cols-4 divide-x divide-y lg:divide-y-0 divide-[var(--color-navy-700)]/30">
+      {stats.map((stat, i) => (
+        <div class={`px-4 py-4 lg:py-2 lg:px-6 ${i === 0 ? 'lg:pl-0' : ''}`}>
+          <div class="flex items-baseline gap-2">
+            <span class={`text-3xl lg:text-4xl font-extrabold tracking-tight ${isDark ? 'text-[var(--color-hivis-400)]' : 'text-[var(--color-navy-900)]'}`}>
+              {stat.value}
+            </span>
+            {stat.unit && (
+              <span class={`label-mono ${isDark ? 'text-[var(--color-bone-300)]' : 'text-[var(--color-ink-muted)]'}`}>
+                {stat.unit}
+              </span>
+            )}
+          </div>
+          <div class={`label-mono mt-1 ${isDark ? 'text-[var(--color-bone-300)]' : 'text-[var(--color-ink-muted)]'}`}>
+            {stat.label}
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>

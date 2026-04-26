@@ -1,0 +1,174 @@
+@import "tailwindcss";
+
+/*
+ * INDUSTRIAL-TRADES INSPIRATION
+ * -----------------------------
+ * Workwear / safety / utility-poster aesthetic for plumbing, HVAC, electrical,
+ * roofing, landscaping, auto, cleaning. Real photos of trucks/crews/work over
+ * confident sans typography with mono captions.
+ *
+ * Anti-pattern reference: NOT magazine-editorial, NOT pastel-soft,
+ * NOT rounded-everywhere, NOT centered-headline-hero. This is hard-edged,
+ * left-aligned, bracket-numbered, hi-vis-accent design. Trades customers
+ * recognize their industry in this aesthetic instantly.
+ */
+
+@theme {
+  /* Display: Cabinet Grotesk — wide industrial sans with weight character.
+     Replace at use site if you find a better fit (Bricolage Grotesque,
+     Hubot Sans, IBM Plex Sans Condensed are all valid alternatives).
+     Text: Inter for body — neutral, legible, ubiquitous.
+     Mono: JetBrains Mono for callouts, section numbers, file-tab nav,
+     stat strip captions. The mono is non-negotiable for industrial signal. */
+  --font-display: 'Cabinet Grotesk', 'Bricolage Grotesque', system-ui, sans-serif;
+  --font-text: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  /* Workwear navy — primary trust anchor. Deep, confident, authoritative.
+     Used for: nav background, hero overlay, primary CTAs, body text on light. */
+  --color-navy-50: oklch(0.98 0.005 240);
+  --color-navy-100: oklch(0.94 0.012 240);
+  --color-navy-200: oklch(0.86 0.025 240);
+  --color-navy-300: oklch(0.72 0.045 240);
+  --color-navy-400: oklch(0.55 0.065 240);
+  --color-navy-500: oklch(0.40 0.075 240);
+  --color-navy-600: oklch(0.32 0.072 240);
+  --color-navy-700: oklch(0.26 0.062 240);
+  --color-navy-800: oklch(0.20 0.050 240);
+  --color-navy-900: oklch(0.15 0.038 240);   /* deepest workwear navy */
+
+  /* Crew red — secondary brand accent. Used SPARINGLY for: section labels,
+     "URGENT" or "EMERGENCY" callouts, status indicators. Not a CTA color. */
+  --color-crew-500: oklch(0.55 0.18 25);
+  --color-crew-600: oklch(0.48 0.18 25);
+  --color-crew-700: oklch(0.40 0.16 25);
+
+  /* Hi-vis safety yellow — CTA color ONLY. Reserved for primary action buttons,
+     "Call Now" stickers, "Quote in 24hrs" badges. If used elsewhere, it loses
+     its CTA signal. */
+  --color-hivis-400: #fcd34d;
+  --color-hivis-500: #facc15;   /* primary hi-vis */
+  --color-hivis-600: #eab308;
+  --color-hivis-700: #ca8a04;
+
+  /* Bone — page wash / off-white surface. Warm cream signals workwear/canvas
+     rather than cold tech-white. Use as the default body background and card
+     surface. */
+  --color-bone-50: #fefdf9;
+  --color-bone-100: #f9f5ed;    /* primary page wash */
+  --color-bone-200: #f0eadc;
+  --color-bone-300: #e0d8c5;    /* card border / hairlines */
+
+  /* Ink — body text + structural lines. Charcoal-warm, not pure black. */
+  --color-ink: #18181b;
+  --color-ink-muted: #52525b;
+  --color-ink-subtle: #71717a;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Typography setup                                                   */
+/* ------------------------------------------------------------------ */
+
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-family: var(--font-text);
+  background: var(--color-bone-100);
+  color: var(--color-ink);
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+}
+
+body { font-size: 16px; line-height: 1.6; }
+
+/* The label-mono utility: short ALL-CAPS mono labels with bracket numbers,
+   the workwear-document signature ("[01] // RESIDENTIAL", "FILE 02 // ABOUT").
+   Used in hero eyebrows, section labels, breadcrumb-style navigation. */
+.label-mono {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 500;
+}
+.label-mono-lg {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Industrial pattern primitives                                      */
+/* ------------------------------------------------------------------ */
+
+/* Hatched border — diagonal yellow-and-black "caution tape" hairline.
+   Use at top/bottom of strips that announce something serious
+   ("EMERGENCY 24/7 SERVICE", "LICENSED & INSURED"). Don't overdo it. */
+.hatched-border-y {
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--color-hivis-500) 0,
+    var(--color-hivis-500) 8px,
+    var(--color-ink) 8px,
+    var(--color-ink) 16px
+  );
+  height: 6px;
+}
+
+/* Chevron divider — three small ▶ glyphs with mono caption between sections.
+   Industrial wayfinding, not magazine ornament. */
+.chevron-rule {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  color: var(--color-navy-700);
+}
+.chevron-rule::before,
+.chevron-rule::after {
+  content: '▶';
+  color: var(--color-navy-400);
+  font-size: 10px;
+}
+
+/* File-tab nav indicator — the active nav item is treated as a file tab
+   (rectangular highlight, not pill, not underline). Used on the active page. */
+.file-tab-active {
+  background: var(--color-navy-900);
+  color: var(--color-bone-50);
+}
+.file-tab-inactive {
+  color: var(--color-navy-700);
+}
+.file-tab-inactive:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Animations — progressive enhancement (matches scaffold pattern)    */
+/* ------------------------------------------------------------------ */
+
+html.has-animations .fade-up {
+  opacity: 0;
+  transform: translateY(30px);
+  transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+}
+html.has-animations .fade-up.visible { opacity: 1; transform: translateY(0); }
+
+@media (prefers-reduced-motion: reduce) {
+  html.has-animations .fade-up { opacity: 1; transform: none; transition: none; }
+}
+
+/* Selection — hi-vis underlay so customers can SEE they selected text */
+::selection { background: var(--color-hivis-400); color: var(--color-ink); }

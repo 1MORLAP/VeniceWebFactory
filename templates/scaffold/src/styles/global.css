@@ -1,0 +1,130 @@
+@import "tailwindcss";
+
+/*
+ * SCAFFOLD GLOBAL STYLESHEET
+ * --------------------------
+ * Pure structural primitives + animation helpers. NO color choices, NO font
+ * choices, NO opinionated visual style. The customer build MUST extend this:
+ *
+ *   1. Add custom CSS variables to the @theme block below (palette, fonts, etc.)
+ *   2. Override `--brand-display` and `--brand-text` with the chosen typography
+ *      pairing from the design brief
+ *   3. Define `--color-primary-*` / `--color-accent-*` ramps per the brief's
+ *      named-roles palette
+ *
+ * Animation primitives (.fade-up, .stagger) are provided ready-to-use because
+ * they're STRUCTURAL patterns, not visual choices. Your build can disable or
+ * restyle them, but they're available out of the box.
+ *
+ * See `templates/REQUIRED-PATTERNS.md` for what your build MUST satisfy.
+ */
+
+@theme {
+  /* Typography hooks — build MUST set these from the design brief.
+     Intentionally NO defaults so the build fails loudly if forgotten.
+     If you ship without setting these, the page falls back to system serif/sans
+     which clearly signals "design step incomplete" during QA review. */
+  --font-display: var(--brand-display);
+  --font-text: var(--brand-text);
+
+  /* Color hooks — build MUST set the actual ramp values from the design brief.
+     Each color SHOULD have a named role (trust anchor, hi-vis CTA, page wash,
+     ink, etc.) documented in design-brief.json.
+     Suggested 50→900 ramp structure (build can use fewer steps if appropriate): */
+  /* --color-primary-50  through --color-primary-900 */
+  /* --color-accent-50   through --color-accent-700  */
+  /* --color-surface, --color-ink, --color-muted */
+}
+
+/* ------------------------------------------------------------------ */
+/*  Document basics — semantic, mobile-first, accessibility-aware     */
+/* ------------------------------------------------------------------ */
+
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* Body font is applied here; build sets --font-text via @theme above. */
+  font-family: var(--font-text, system-ui, sans-serif);
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display, var(--font-text, system-ui, sans-serif));
+  letter-spacing: -0.02em;
+}
+
+/* Body text minimum 16px on mobile per MOBILE-FIRST DESIGN rule
+   (smaller text triggers iOS zoom-on-focus and feels cramped). */
+body {
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+/* Respect reduced-motion preference globally */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Animation primitives — STRUCTURAL, available to all builds        */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Fade-up reveals + staggered entrance.
+ * Pattern: PROGRESSIVE ENHANCEMENT.
+ *   - Default state: visible, no transform (renders fine without JS)
+ *   - When <html class="has-animations"> is set by JS, elements start hidden
+ *     and reveal on intersection
+ * This avoids the "content invisible without JS" bug class.
+ */
+
+html.has-animations .fade-up {
+  opacity: 0;
+  transform: translateY(30px);
+  transition:
+    opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+html.has-animations .fade-up.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+html.has-animations .stagger > * {
+  opacity: 0;
+  transform: translateY(24px);
+  transition:
+    opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+html.has-animations .stagger.visible > *:nth-child(1) { transition-delay: 0.05s; }
+html.has-animations .stagger.visible > *:nth-child(2) { transition-delay: 0.12s; }
+html.has-animations .stagger.visible > *:nth-child(3) { transition-delay: 0.19s; }
+html.has-animations .stagger.visible > *:nth-child(4) { transition-delay: 0.26s; }
+html.has-animations .stagger.visible > *:nth-child(5) { transition-delay: 0.33s; }
+html.has-animations .stagger.visible > *:nth-child(6) { transition-delay: 0.40s; }
+
+html.has-animations .stagger.visible > * {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Native element resets that builds usually want                    */
+/* ------------------------------------------------------------------ */
+
+details > summary { list-style: none; cursor: pointer; }
+details > summary::-webkit-details-marker { display: none; }
+
+/* Selection color — build CAN override; this is a sensible neutral default. */
+::selection {
+  background-color: rgb(0 0 0 / 0.12);
+  color: inherit;
+}

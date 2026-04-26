@@ -1,9 +1,45 @@
+# ─── Per-build artifacts (huge — 9GB+ of customer data) ──────────────
 jobs/
+logs/
+
+# ─── Node + Astro ─────────────────────────────────────────────────────
 node_modules/
 dist/
 .astro/
+
+# ─── Vercel ───────────────────────────────────────────────────────────
 .vercel/
+.vercel
+
+# ─── Logs / env / temp ────────────────────────────────────────────────
 *.log
 .env
+.env.local
+.env.*.local
+
+# ─── Claude Code runtime ──────────────────────────────────────────────
 .claude/launch.json
 .claude/worktrees/
+.claude/settings.local.json
+
+# ─── OS / editor noise ────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# ─── Orphan-dir prevention (workers occasionally misuse args and ─────
+# ─── create scaffold dirs at the repo root instead of in jobs/) ──────
+# These are the dirs we found accumulating over time — added 2026-04-26
+# to prevent them ever being committed if they reappear at the repo root:
+/option-a/
+/option-a-plus/
+/option-b/
+/option-c/
+/http:/
+
+# ─── Reference inspirations: don't ship build artifacts ──────────────
+templates/inspiration/*/node_modules/
+templates/inspiration/*/dist/
+templates/inspiration/*/.astro/
+templates/scaffold/node_modules/

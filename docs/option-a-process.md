@@ -1,4 +1,6 @@
-# Option A Build Process — Definitive Guide
+# Option A Build Process — Detailed Reference
+
+> **⚠️ Canonical source is SKILL.md, not this file.** This document is a focused walkthrough of the Option A build, written before the three-track A/B/C architecture and the Stage 4c-bis Visual Sanity Pass / Stage 4c-tris Dramatic Improvement Audit / DESIGN QUALITY BAR / mobile-first paradigm landed. Specific commands and stage substructure here may be out of date — when in doubt, defer to `/Users/tomasz/WebFactory/SKILL.md`. Keep this file for the conceptual narrative; trust SKILL.md for the executable steps.
 
 This documents the exact process that produces a high-quality Option A.
 Option A = faithful rebuild (100% original text, dramatically improved design).
@@ -196,19 +198,25 @@ Must produce zero errors. All pages must generate.
 
 **This is what makes the difference between mediocre and great.**
 
-1. Start preview server
-2. For each page:
-   - Desktop screenshot (1440x900) — check hero, typography, cards, whitespace
-   - Mobile screenshot — check stacking, readability, touch targets
-   - Check `preview_network` for 404s (broken images, missing fonts)
-   - Check `preview_console_logs` for JS errors
-3. Fix all issues
-4. Beauty pass — "would a designer be proud of this?"
-5. Rebuild and re-check
+1. Start dev server via Bash (NEVER `preview_start` — that creates `.claude/launch.json` inside the job dir and triggers permission prompts):
+   ```bash
+   cd jobs/{domain}/option-a/
+   npx astro dev --port $PORT_A &
+   ```
+2. Run the deterministic gate (`scripts/qa-check.js`) at BOTH desktop AND mobile viewports — it catches console errors, failed network requests, broken images, low-contrast text, missing nav/footer/h1, etc., all programmatically. NEVER use `preview_network` / `preview_console_logs` — those are banned `preview_*` tools that show visible browser windows.
+3. Run `scripts/qa.cjs` for headless screenshot capture (desktop 1440×900 + mobile 390×844).
+4. For each page:
+   - Read each desktop and mobile screenshot via Read tool
+   - Apply the 17-item Visual Sanity Pass checklist from SKILL.md Stage 4c-bis
+   - Active nav state, image quality, card grid consistency, hero treatment, etc.
+5. Fix all issues
+6. Stage 4c-tris Dramatic Improvement Audit: load original screenshot vs A's screenshot, articulate 3 specific dramatic improvements
+7. Beauty pass — "$80k smell test" per DESIGN QUALITY BAR
+8. Rebuild and re-check
 
 **Common issues found during QA**:
 - Background images not showing (wrong path)
-- Images assigned to wrong pages (e.g., water extraction wand on carpet page)
+- Images assigned to wrong pages (mismatched image/content)
 - Content below hero invisible due to `fade-up` opacity:0 (observer not triggering)
 - Service pages with white text on white background
 - Mobile sticky CTA overlapping footer content

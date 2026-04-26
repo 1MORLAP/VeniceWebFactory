@@ -5,7 +5,7 @@ import { existsSync } from 'fs';
 import { URL } from 'url';
 
 const MAX_PAGES = 30;
-const TIMEOUT = 30_000;
+const TIMEOUT = 60_000;
 
 async function scrape(startUrl) {
   const origin = new URL(startUrl).origin;
@@ -41,7 +41,8 @@ async function scrape(startUrl) {
 
     const page = await context.newPage();
     try {
-      await page.goto(normalized, { waitUntil: 'networkidle', timeout: TIMEOUT });
+      await page.goto(normalized, { waitUntil: 'domcontentloaded', timeout: TIMEOUT });
+      try { await page.waitForLoadState('networkidle', { timeout: 15_000 }); } catch {}
       await autoScroll(page);
 
       // Extract page data
@@ -190,6 +191,32 @@ async function scrape(startUrl) {
         const ogImage = document.querySelector('meta[property="og:image"]')?.content || '';
         const ogTitle = document.querySelector('meta[property="og:title"]')?.content || '';
 
+        // Extract favicon candidates (in priority order — best first)
+        // The build will use these to set the page's favicon. If none found,
+        // build falls back to the logo. See FAVICON RULE in SKILL.md.
+        const faviconCandidates = [];
+        const faviconSelectors = [
+          'link[rel="icon"][sizes][href]',                 // most-specific size-tagged icon
+          'link[rel="apple-touch-icon"][href]',            // 180×180 typically
+          'link[rel="apple-touch-icon-precomposed"][href]',
+          'link[rel="shortcut icon"][href]',
+          'link[rel="icon"][href]',                         // generic
+          'link[rel="mask-icon"][href]',                    // Safari pinned tab
+          'meta[name="msapplication-TileImage"][content]',  // Windows tile
+        ];
+        for (const sel of faviconSelectors) {
+          for (const el of document.querySelectorAll(sel)) {
+            const href = el.getAttribute('href') || el.getAttribute('content') || '';
+            if (!href) continue;
+            faviconCandidates.push({
+              rel: el.getAttribute('rel') || el.tagName.toLowerCase(),
+              href,
+              sizes: el.getAttribute('sizes') || '',
+              type: el.getAttribute('type') || '',
+            });
+          }
+        }
+
         // All internal links for crawling
         const internalLinks = Array.from(document.querySelectorAll('a[href]'))
           .map(a => a.href)
@@ -210,9 +237,67 @@ async function scrape(startUrl) {
             email: emailLinks,
           },
           meta: { description: metaDesc, ogImage, ogTitle },
+          favicons: faviconCandidates,
           internalLinks,
         };
       });
+
+      // ---- Raw-HTML fallback for social/business-listing URLs (added 2026-04-25) ----
+      // Many sites (Duda, GoDaddy, Wix, late-injecting widgets) render social
+      // anchors via JS that runs AFTER networkidle. The page.evaluate() pass
+      // misses them. As a defensive backstop, also grep the raw HTML response
+      // for known platform domains and merge any found URLs into pageData.footer.social.
+      // Real bug 2026-04-25: libertylandscapefl.com (Duda site) had Facebook + Instagram
+      // anchors in raw HTML, but page.evaluate() returned an empty social array.
+      try {
+        const rawHtml = await page.content();
+        const socialDomainPatterns = [
+          { name: 'facebook',  re: /https?:\/\/(?:www\.)?facebook\.com\/[A-Za-z0-9._\-/?=&]+/g },
+          { name: 'instagram', re: /https?:\/\/(?:www\.)?instagram\.com\/[A-Za-z0-9._\-/?=&]+/g },
+          { name: 'linkedin',  re: /https?:\/\/(?:www\.)?linkedin\.com\/[A-Za-z0-9._\-/?=&]+/g },
+          { name: 'youtube',   re: /https?:\/\/(?:www\.)?youtube\.com\/(?:channel\/|user\/|c\/|@)[A-Za-z0-9._\-/?=&]+/g },
+          { name: 'tiktok',    re: /https?:\/\/(?:www\.)?tiktok\.com\/@[A-Za-z0-9._\-/?=&]+/g },
+          { name: 'twitter',   re: /https?:\/\/(?:www\.)?(?:twitter\.com|x\.com)\/[A-Za-z0-9._\-/?=&]+/g },
+          { name: 'yelp',      re: /https?:\/\/(?:www\.)?yelp\.com\/biz\/[A-Za-z0-9._\-/?=&]+/g },
+          { name: 'pinterest', re: /https?:\/\/(?:www\.)?pinterest\.com\/[A-Za-z0-9._\-/?=&]+/g },
+          { name: 'google',    re: /https?:\/\/(?:www\.)?google\.com\/maps\/place\/[A-Za-z0-9._\-/?=&+]+/g },
+        ];
+        const seenHrefs = new Set((pageData.footer?.social || []).map(s => s.href));
+        const fallbackSocials = [];
+        for (const { name, re } of socialDomainPatterns) {
+          for (const match of rawHtml.matchAll(re)) {
+            let href = match[0];
+            // Trim trailing punctuation that often gets pulled in by greedy regex
+            href = href.replace(/[.,;:'")\]]+$/, '');
+            // Filter out CDN/asset URLs (e.g. scontent-iad.cdninstagram.com isn't a profile)
+            if (/cdninstagram|fbcdn|fbsbx|googleusercontent|ytimg|tiktokcdn|pinimg|yelpcdn/.test(href)) continue;
+            // Filter out sharing intents (twitter.com/intent/tweet, facebook.com/sharer)
+            if (/\/(intent|sharer|share|sharing|dialog)\b/.test(href)) continue;
+            // Filter out platform plugin / embed / API endpoints (NOT profile URLs)
+            if (/\/(plugins|embed|widgets|oembed)\//.test(href)) continue;
+            if (/\/v\d+\.\d+\//.test(href)) continue;  // /v2.7/ etc.
+            // Filter out individual post URLs — keep PROFILE URLs only.
+            // Instagram posts: /p/CODE/ and /reel/CODE/. Skip those.
+            if (name === 'instagram' && /\/(p|reel|tv|stories)\//.test(href)) continue;
+            // Twitter status URLs: /handle/status/12345. Skip status, keep profile.
+            if (name === 'twitter' && /\/status\//.test(href)) continue;
+            // YouTube watch / playlist URLs aren't channel URLs.
+            if (name === 'youtube' && /\/(watch|playlist)\b/.test(href)) continue;
+            // Skip if already captured by page.evaluate()
+            if (seenHrefs.has(href)) continue;
+            seenHrefs.add(href);
+            fallbackSocials.push({ platform: name, href });
+          }
+        }
+        if (fallbackSocials.length > 0) {
+          if (!pageData.footer) pageData.footer = {};
+          if (!Array.isArray(pageData.footer.social)) pageData.footer.social = [];
+          pageData.footer.social.push(...fallbackSocials);
+          console.log(`    + raw-HTML fallback found ${fallbackSocials.length} social URLs (${[...new Set(fallbackSocials.map(s => s.platform))].join(', ')})`);
+        }
+      } catch (e) {
+        console.warn(`    raw-HTML social fallback failed: ${e.message}`);
+      }
 
       // Take full-page screenshot
       const slug = urlToSlug(normalized, origin);
@@ -287,6 +372,16 @@ async function scrape(startUrl) {
         backgroundImages: downloadedBgImages,
         videos: pageData.videos,
         forms: pageData.forms,
+        favicons: pageData.favicons || [],
+        // BUGFIX 2026-04-25: previously navigation/footer/meta were captured
+        // inside page.evaluate() but never persisted onto the page record. The
+        // top-level manifest.footer was therefore always {} even when the page
+        // had real social links. This is why the libertylandscapefl scrape
+        // returned 0 social URLs despite the original site having Facebook /
+        // Instagram anchors. Persist them now so the build can read them.
+        navigation: pageData.navigation || { items: [] },
+        footer: pageData.footer || {},
+        meta: pageData.meta || {},
       });
 
       // Store raw HTML for each section (separate file to keep manifest clean)
@@ -308,6 +403,96 @@ async function scrape(startUrl) {
     }
   }
 
+  // ---- Download the best favicon (added 2026-04-25) ----
+  // Pick the highest-priority candidate from the homepage and download it to
+  // assets/img/. Build (Stage 3) reads manifest.favicon and sets <link rel="icon">
+  // accordingly. If no favicon was found, manifest.favicon is null and the build
+  // falls back to the logo. See FAVICON RULE in SKILL.md.
+  let topLevelFavicon = null;
+  const homepageFavicons = pages[0]?.favicons || [];
+  // Aggregate de-duped, sorted by quality (size > 64 first; svg > png > ico; apple-touch is high quality)
+  const ranked = homepageFavicons
+    .map(f => ({ ...f, _absUrl: (() => { try { return new URL(f.href, startUrl).href; } catch { return null; } })() }))
+    .filter(f => f._absUrl)
+    .sort((a, b) => {
+      const score = (f) => {
+        let s = 0;
+        if (/svg/i.test(f.type) || /\.svg$/i.test(f._absUrl)) s += 100;
+        if (/apple-touch/i.test(f.rel)) s += 60;
+        if (f.sizes) {
+          const m = f.sizes.match(/(\d+)x\d+/);
+          if (m) s += Math.min(parseInt(m[1], 10), 512) / 5;
+        }
+        if (/\.png$/i.test(f._absUrl)) s += 20;
+        if (/\.ico$/i.test(f._absUrl)) s += 5;
+        return s;
+      };
+      return score(b) - score(a);
+    });
+
+  for (const cand of ranked) {
+    try {
+      const url = cand._absUrl;
+      const ext = (url.match(/\.(svg|png|ico|jpg|jpeg|webp)(?:[?#]|$)/i) || [, 'ico'])[1].toLowerCase();
+      const filename = `favicon.${ext}`;
+      const localPath = join(imgDir, filename);
+      // Use a fresh page for the request so we get fetch capabilities
+      const tempPage = await context.newPage();
+      try {
+        const resp = await tempPage.request.get(url);
+        if (resp.ok()) {
+          const buffer = await resp.body();
+          await writeFile(localPath, buffer);
+          topLevelFavicon = {
+            src: url,
+            localPath: `assets/img/${filename}`,
+            rel: cand.rel,
+            sizes: cand.sizes || '',
+            type: cand.type || '',
+            ext,
+            sizeBytes: buffer.length,
+            source: 'scraped',
+          };
+          console.log(`✓ Downloaded favicon: ${url} → assets/img/${filename} (${buffer.length} bytes)`);
+          await tempPage.close();
+          break;
+        }
+      } finally { await tempPage.close().catch(() => {}); }
+    } catch (e) {
+      console.warn(`  favicon download failed for ${cand.href}: ${e.message}`);
+    }
+  }
+  if (!topLevelFavicon) {
+    // Last-ditch: try /favicon.ico at the origin (every server convention)
+    try {
+      const url = new URL('/favicon.ico', startUrl).href;
+      const tempPage = await context.newPage();
+      const resp = await tempPage.request.get(url);
+      if (resp.ok()) {
+        const buffer = await resp.body();
+        if (buffer.length > 100) {  // skip tiny/empty placeholders
+          const localPath = join(imgDir, 'favicon.ico');
+          await writeFile(localPath, buffer);
+          topLevelFavicon = {
+            src: url,
+            localPath: 'assets/img/favicon.ico',
+            rel: 'icon',
+            sizes: '',
+            type: 'image/x-icon',
+            ext: 'ico',
+            sizeBytes: buffer.length,
+            source: 'fallback-/favicon.ico',
+          };
+          console.log(`✓ Downloaded fallback favicon from /favicon.ico (${buffer.length} bytes)`);
+        }
+      }
+      await tempPage.close();
+    } catch { /* ignore */ }
+  }
+  if (!topLevelFavicon) {
+    console.log(`ℹ No favicon found — build should fall back to logo. See FAVICON RULE in SKILL.md.`);
+  }
+
   // Build manifest
   const firstPage = pages[0];
   const manifest = {
@@ -319,6 +504,7 @@ async function scrape(startUrl) {
     navigation: firstPage?.navigation || { items: [] },
     footer: firstPage?.footer || {},
     meta: firstPage?.meta || {},
+    favicon: topLevelFavicon,  // null if no favicon found; build falls back to logo
   };
 
   const manifestPath = join(jobDir, 'manifest.json');

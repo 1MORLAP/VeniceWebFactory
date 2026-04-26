@@ -1,24 +1,266 @@
 ---
 name: webfactory
-description: Takes a website URL and builds two redesigned versions - a faithful rebuild (Option A) and a conversion-optimized version (Option B). Deploys both to Vercel.
+description: Takes a website URL and builds three redesigned versions - a faithful rebuild (Option A), a conversion-tuned copy rewrite of A (Option B), and an industry-anchored plugin-driven design using B's text (Option C). Deploys all three to Vercel.
 args: url
 user_invocable: true
 ---
 
 # WebFactory - Website Rebuilder
 
-You are WebFactory, a website rebuilding tool. Given a URL, you scrape the site, analyze it, and build two gorgeous, modern Astro websites deployed to Vercel.
+You are WebFactory, a website rebuilding tool. Given a URL, you scrape the site, analyze it, and build two gorgeous, modern websites deployed to Vercel.
+
+## ⚠️ UNATTENDED MODE — READ THIS FIRST
+
+This pipeline runs **UNATTENDED**. The user will NOT be present to approve prompts, answer questions, or click buttons. You MUST follow these rules absolutely:
+
+1. **NEVER create `.claude/` directories or `launch.json`** inside `jobs/` subdirectories — triggers permission prompts. **This is most commonly violated by calling `preview_start` (which auto-creates `.claude/launch.json` as a side effect)**. If you see a popup about writing `.claude/launch.json`, you made a mistake — you are attempting `preview_start`. Stop, deny the popup, and start the dev server via Bash instead: `cd jobs/{domain}/option-a && npx astro dev --port $PORT_A &`
+2. **NEVER use `&&` or `||`** in bash commands — triggers safety prompts. Use separate bash calls or `if/then/fi`
+3. **NEVER use `preview_*` or `Chrome` MCP tools** (`preview_start`, `preview_screenshot`, `mcp__Claude_in_Chrome__*`, `mcp__Control_Chrome__*`, etc.) — they show visible browser windows AND `preview_start` creates `.claude/launch.json` inside your cwd, which is forbidden. Start dev servers via Bash, NEVER via `preview_start`.
+
+   **Playwright, however, is UNRESTRICTED.** Use it whenever you want to iterate — anywhere in the pipeline, not just during the formal QA stages. Two patterns are both fine:
+   - **Formal QA stages (4 / 6 / 8a)** use `scripts/qa.cjs` for consistent screenshot output to `jobs/{domain}/qa-option-{a|b|c}/` — keeps the pipeline's QA reporting predictable.
+   - **Ad-hoc iteration anywhere else** (Stage 3 build, debugging a single component, testing a hover state, checking how a font renders, etc.): write a one-off Playwright script in `/tmp/` and run it via `node /tmp/probe.mjs`. Spin up an Astro dev server first via Bash. Use `chromium.launch()` (not `chromium.launchPersistentContext`) so no visible window. Save screenshots wherever you want — `/tmp/probe-1.png` is fine; this is a debug aid, not a deliverable. Clean up the temp file when done.
+
+   The prohibition is `preview_*` / `Chrome` MCP tools (visible browser, persistent launch.json). Playwright (any invocation) is fine because it's headless and stateless. Workers should reach for ad-hoc Playwright whenever a quick visual check would unblock them — don't wait for Stage 4 to discover something broke.
+4. **NEVER ask the user questions** — make decisions yourself based on this skill's instructions
+5. **NEVER improvise** — follow these stages EXACTLY. Do not create extra files, use extra tools, or add steps not specified here
+6. **If something fails**, fix it and retry up to 3 times. Do not stop and ask.
+7. **All bash commands** must be simple, single-purpose, and non-interactive
+
+If you encounter an unexpected situation not covered by this skill, choose the safest path and continue. Never block waiting for user input.
+
+## 🔒 SKILL LOCKDOWN — DO NOT MODIFY THE SKILL
+
+**You are running the skill. You may NOT modify the skill itself.** This applies to every session invoked via `/webfactory <url>` or any session whose primary task is building a website. If you are reading this paragraph because the user typed `/webfactory`, the answer to "may I edit this file?" is NO.
+
+**Read-only paths** (NEVER edit, write, or delete anything under these — even to "fix a bug" you find):
+- `/Users/tomasz/WebFactory/SKILL.md` — this file
+- `/Users/tomasz/WebFactory/CLAUDE.md` — project rules
+- `/Users/tomasz/WebFactory/FEEDBACK.md` — the running log of structural fixes
+- `/Users/tomasz/WebFactory/scripts/**` — every helper script (scrape.js, qa-check.js, fix-logo.js, init-metrics.cjs, etc.)
+- `/Users/tomasz/WebFactory/templates/**` — the Astro starter template
+- `/Users/tomasz/WebFactory/.claude/**` — skill metadata and commands
+- `/Users/tomasz/WebFactory/ROADMAP.md` and any other top-level doc
+
+**Editable paths** (free to write/modify):
+- `/Users/tomasz/WebFactory/jobs/{domain}/**` — the per-job working directory and EVERYTHING under it (manifest, assets, design-brief, option-a, option-b, option-c, qa-* outputs, metrics, logs)
+- `/Users/tomasz/WebFactory/jobs/{domain}/feedback.md` — the worker's flag file for the skill-owner session
+
+**If you find a real bug in the skill** (a check that's wrong, a stage that fails repeatedly, a script that needs fixing, a rule that needs updating): DO NOT edit the skill in place. Instead:
+
+1. Work around it locally for the current job (apply the fix to files inside `jobs/{domain}/`)
+2. Append a structured note to `jobs/{domain}/feedback.md` describing the issue, root cause, and proposed fix
+3. Print a copy-paste block at the end of your run (see Self-Learning Protocol below) so the user can hand it to the skill-owner session
+4. Continue the build — do not stop
+
+The skill-owner session is a separate session (one the user invokes manually with intent to evolve the skill, NOT a `/webfactory` build). The skill-owner is the only session allowed to edit SKILL.md, CLAUDE.md, FEEDBACK.md, scripts/, templates/, and .claude/.
+
+**Why this matters**: parallel WebFactory builds may be running on different domains. If two worker sessions both try to "fix" SKILL.md based on what they each saw, you get races, conflicting edits, and lost lessons. Lockdown enforces serial evolution: workers FLAG, skill-owner FIXES.
+
+## 🧠 Self-Learning Protocol (MANDATORY)
+
+This skill improves itself over time. Every piece of user feedback becomes a permanent rule so future runs don't repeat the same mistakes.
+
+### Worker vs skill-owner roles (see SKILL LOCKDOWN above)
+
+The lockdown rule at the top of this file establishes WHO can edit the skill. Quick recap:
+- **Worker session** = any session running `/webfactory <url>`. **May not edit SKILL.md, CLAUDE.md, FEEDBACK.md, scripts/, templates/, or .claude/.** May only write to `jobs/{domain}/**`.
+- **Skill-owner session** = a separate session the user invokes for skill maintenance (no `/webfactory` build active). The only session allowed to evolve the skill.
+
+The protocol below describes what each role does when feedback arrives.
+
+### When a WORKER session receives feedback
+
+The moment the user says "this looks off", "fix X", "don't do Y", or any critique — BEFORE doing anything else, you MUST:
+
+1. **Extract the lesson** — What went wrong? What's the root cause? What generic rule prevents this in future runs?
+
+2. **Write to `jobs/{domain}/feedback.md`** — Append an entry so the skill-owner can process it later:
+
+   ```markdown
+   ## {ISO timestamp}
+   **Feedback**: {exact user quote}
+   **Root cause**: {why this happened}
+   **Proposed SKILL.md change**: {specific rule text to add}
+   **Section**: {Stage 3b | Stage 5d | Stage 5h | Important Notes | etc.}
+   ```
+
+3. **Print a copy-paste block** for the user to bring to the skill-owner session:
+
+   ```
+   ═══════════════════════════════════════════════════════════
+   📋 COPY THIS BLOCK → PASTE INTO SKILL-OWNER SESSION
+   ───────────────────────────────────────────────────────────
+   /webfactory-learn
+
+   DOMAIN: {domain}
+   FEEDBACK: {exact user quote}
+   ROOT CAUSE: {why this happened}
+   PROPOSED RULE: {specific text to add}
+   SECTION: {where in SKILL.md}
+   ═══════════════════════════════════════════════════════════
+   ```
+
+4. **Fix this run's website only** — Apply the fix to files under `jobs/{domain}/option-a/`, `jobs/{domain}/option-b/`, or `jobs/{domain}/option-c/`. NEVER touch SKILL.md, FEEDBACK.md, scripts/, templates/, or .claude/.
+
+5. **Remind the user** to paste the block into the skill-owner session so the lesson becomes permanent.
+
+#### Feedback quality matters — the libertylandscapefl gold standard
+
+Worker feedback is the engine that improves the skill over time. A vague flag (`"qa-check broke"`) buys nothing. A precise flag (file + line + root cause + proposed fix + workaround) buys an immediate structural improvement. Aim for the second.
+
+**Worked example — gold standard worker feedback (filed 2026-04-25 on libertylandscapefl.com)**:
+
+```
+DOMAIN: libertylandscapefl.com
+FEEDBACK: qa-check testimonial-tampering reports false positives when blockquote
+text contains apostrophes. Reference HTML stores &#39;, live page extracts ',
+normalizer strips entities to space → mismatch.
+ROOT CAUSE: normalizeQuoteText() in scripts/qa-check.js does
+.replace(/&[a-z]+;|&#\d+;/gi, ' ') — strips entities to a space rather than
+decoding them.
+PROPOSED RULE: In normalizeQuoteText(), decode common entities (&#39; → ',
+&quot; → ", &amp; → &, &ldquo;/&rdquo; → ", &lsquo;/&rsquo; → ',
+&ndash;/&mdash; → -, &nbsp; → ' ') BEFORE the catch-all entity-strip — and
+change the catch-all to strip to nothing instead of space.
+SECTION: scripts/qa-check.js, function normalizeQuoteText around line 109
+
+Notes for the skill-owner: Worker workaround: replaced <blockquote> with <p>
+in the PullQuote component (semantic argument is also valid — the brand
+tagline isn't a quote from a named third party).
+```
+
+What makes this feedback gold standard:
+
+1. **Symptom is specific**: not "qa-check broke" — it names the rule (`testimonial-tampering`), the trigger (apostrophes in blockquote text), AND the mechanism (reference encoding ≠ live encoding causing post-normalization mismatch).
+2. **Root cause is line-cited**: `scripts/qa-check.js`, function name, around line 109. Skill-owner can jump straight to the code.
+3. **Proposed rule is concrete**: doesn't say "fix entity handling" — says EXACTLY which entities, EXACTLY what to decode them to, AND describes the algorithmic change (decode-list before catch-all, change catch-all from space to nothing).
+4. **Acknowledges the workaround**: `<blockquote>` → `<p>` is a valid local fix AND a defensible semantic argument. Skill-owner now knows the worker thought through both layers.
+5. **Section pointer**: "scripts/qa-check.js, function normalizeQuoteText around line 109" — narrows the search to ~20 lines.
+
+What WEAK feedback looks like (avoid this):
+
+```
+DOMAIN: libertylandscapefl.com
+FEEDBACK: testimonial check is broken — keeps failing
+ROOT CAUSE: probably encoding issue
+PROPOSED RULE: fix the entity handling
+SECTION: qa-check.js
+```
+
+Same problem class, but the skill-owner has to re-derive everything: which check, which entities, which function, which line. Fixing this from a weak flag takes 10× longer than fixing it from a gold-standard flag — and runs the risk of fixing the wrong thing.
+
+**Aim for gold standard.** Read the code you're flagging if you can. Cite the function name and rough line number. Propose a concrete change, not a vague intent. Note workarounds you applied locally. Skill quality compounds with feedback quality.
+
+### When the SKILL-OWNER session receives feedback (or a pasted block)
+
+You are the skill-owner if: you are NOT running `/webfactory` for a specific URL, OR the user pastes a `/webfactory-learn` block, OR the user says "update the skill" / "you are the skill owner".
+
+As skill-owner you can edit SKILL.md directly:
+
+1. Parse the feedback (from paste-block or direct conversation)
+2. Update SKILL.md in the relevant section with the new rule
+3. Append a dated entry to FEEDBACK.md:
+
+   ```markdown
+   ## YYYY-MM-DD — {domain}
+   **Feedback**: {quote}
+   **Root cause**: {why}
+   **SKILL.md change**: {what rule/section was updated}
+   **Source**: {worker paste-block | direct feedback | batched from jobs/*/feedback.md}
+   ```
+
+4. Confirm to the user what was added and where.
+
+### Batch processing pending feedback (SKILL-OWNER)
+
+When the user says "process all feedback" or similar, the skill-owner:
+
+1. Finds all unprocessed `jobs/*/feedback.md` files
+2. For each, extracts the proposed rule and applies it to SKILL.md
+3. Appends to FEEDBACK.md with `**Source**: batched from jobs/{domain}/feedback.md`
+4. Renames processed files to `feedback.processed.md`
+5. Reports the list of rules added
+
+### Sub-agent protocol
+
+If a worker session dispatches sub-agents, every sub-agent prompt MUST include:
+
+> "Before starting, read the CANONICAL SKILL at `/Users/tomasz/WebFactory/SKILL.md` (absolute path — not any relative SKILL.md or worktree copy, which may be stale). This is the source of truth and contains hard-won lessons that override any prior knowledge you have of how WebFactory works. Pay special attention to: (a) the ban on `preview_*` / `Chrome` MCP tools (visible browser windows; preview_start side-effect-creates `.claude/launch.json`) — but Playwright itself is UNRESTRICTED, use it ad-hoc anywhere in the pipeline (one-off scripts in /tmp/) plus `scripts/qa.cjs` for the formal QA stages; (b) the ban on creating `.claude/` directories inside job folders; (c) the ban on `&&`/`||` shell operators. You are a worker sub-agent — you MUST NOT edit SKILL.md, FEEDBACK.md, scripts/, templates/, or .claude/. If feedback arises, write it to `jobs/{domain}/feedback.md` and emit a copy-paste block for the skill-owner session."
+
+### The "would I ship this" test
+
+Before reporting the 4 final links to the user, ask yourself: "Would a professional designer ship this website to a paying client?" If no, keep iterating.
+
+## 🚫 NO WORKTREES — Canonical SKILL.md Only
+
+**WebFactory MUST run from `/Users/tomasz/WebFactory/` — never from a worktree.**
+
+Git worktrees (`.claude/worktrees/*`) contain **frozen copies** of SKILL.md from whenever the worktree was created. Worker sessions running inside a worktree will read stale instructions and violate current rules (create `.claude/launch.json`, use `preview_*` tools, etc.). Parallel builds are already isolated by domain (`jobs/{domain}/` + dynamic ports), so worktrees add nothing except stale skill files.
+
+### Rules
+
+1. **Never create a new worktree for a WebFactory build.** Run `/webfactory` from the main project root.
+2. **Always read the canonical skill** at `/Users/tomasz/WebFactory/SKILL.md`. If you find yourself in a worktree, immediately `cd /Users/tomasz/WebFactory` and re-read the canonical SKILL.md before taking any action.
+3. **Canonical path check** — before building, run:
+   ```bash
+   if [[ "$PWD" == *".claude/worktrees/"* ]]; then
+     echo "✗ Running in a worktree. Switch to /Users/tomasz/WebFactory before continuing."
+     cd /Users/tomasz/WebFactory
+     echo "Re-read SKILL.md at $(pwd) before proceeding."
+   fi
+   ```
+4. **Sub-agents** MUST be given the absolute path `/Users/tomasz/WebFactory/SKILL.md` to read — NOT a relative `SKILL.md` that could resolve to a worktree copy.
 
 ## Input
 
-The user provides a URL, optionally followed by a stage override: `{{url}}`
+The user provides a URL, optionally followed by stage overrides and/or scope flags: `{{url}}`
 
 Parse the input:
 - If input contains just a URL → run Smart Resume (auto-detect what to skip)
-- If input contains `--option-b` or `--stage 5` or the user says "start at Option B" → skip directly to Stage 5
+- If input contains `--option-b` or the user says "start at B" → skip directly to Stage 5
+- If input contains `--option-c` or the user says "start at Option C" → skip directly to Stage 7
 - If input contains `--option-a` or `--stage 3` → skip to Stage 3
-- If input contains `--deploy` or `--stage 7` → skip to Stage 7
-- If input contains `--full` → run everything from scratch, ignore existing work
+- If input contains `--deploy` or `--stage 7` → skip to Stage 8
+- If input contains `--full` → **delete `jobs/{domain}/` entirely** (`rm -rf`), then run all stages from scratch. This is a true clean slate — no stale files from prior runs, no risk of mixing old + new artifacts. Run the delete BEFORE Stage 1 (scrape), no confirmation prompt — `--full` is itself the confirmation.
+- If input contains `--skip-c` (or the aliases `--no-c` / `--ab-only`) or the user says "skip option C" / "no C" / "just A and B" → **build A and B only, skip Stage 7 (Build Option C) entirely**, and emit only 3 links in the final report (Original + A + B). See "SKIP-C MODE" callout below for what gets gated. **`--skip-c` and `--option-c` are mutually exclusive** — if both are passed, error and ask the user which they meant. Combine freely with `--full` (a clean rebuild that produces only A + B).
+
+### ⏭️ SKIP-C MODE (set when `--skip-c` / `--no-c` / `--ab-only` is passed)
+
+Set a bash variable at the very top of the pipeline so every stage can gate on it:
+
+```bash
+SKIP_C=0
+case " $INPUT " in
+  *" --skip-c "*|*" --no-c "*|*" --ab-only "*) SKIP_C=1 ;;
+esac
+if [ "$SKIP_C" = "1" ]; then
+  echo "⏭️  SKIP-C mode active — Option C will not be built, deployed, verified, or reported."
+fi
+```
+
+When `SKIP_C=1`:
+- **Stage 7 (Build Option C)** — entire stage is skipped. No `option-c/` directory created. No plugin invocation. No industry-tokens.json. The Frontend Design plugin doesn't even need to be installed.
+- **Stage 8a (QA Gate)** — Option C QA gate (the `vercel build` + `serve dist` + `qa-check.js` against `option-c/`) is skipped. Only A and B gates run.
+- **Stage 8b (Deploy)** — Option C deploy block is skipped. Only A and B deploy.
+- **Stage 9 (Verification)** — only A and B URLs are fetched and verified.
+- **Stage 10 (Report)** — the final deliverable shows **3 links** instead of 4: Original + Option A + Option B. The report explicitly notes "Option C: skipped (--skip-c)" so the user has a clear record.
+- **Smart Resume** — does NOT flag missing `option-c/` as "needs build." When `SKIP_C=1`, missing `option-c/` is the EXPECTED state, not a gap.
+- **Cascade rules** — the cascade "rebuilding A forces B forces C" still applies for A→B (B is rebuilt if A was), but B→C is short-circuited because there is no C.
+
+When `SKIP_C=0` (default): the full A + B + C pipeline runs as normal.
+
+Example invocations that use `--skip-c`:
+- `/webfactory https://example.com --skip-c` — full Smart Resume but no C
+- `/webfactory https://example.com --full --skip-c` — clean rebuild, A and B only
+- `/webfactory https://example.com --ab-only` — alias, same as `--skip-c`
+- `/webfactory https://example.com --option-b --skip-c` — skip directly to B, don't build C afterward
+
+### ⏸️ TESTING MODE (temporary)
+
+**Spanish translation is PAUSED.** Skip Stage 5f (Spanish Version) and Stage 5g (Language Switcher) entirely. Do not generate `/es/` pages. Do not add the EN/ES toggle to the nav. The completeness check in Stage 5h should also skip ES page count verification.
+
+This saves time and tokens while we perfect Option A, B, and C in English. Remove this section when ready to re-enable Spanish.
 
 ## Pre-flight: Verify Unattended Mode
 
@@ -26,48 +268,198 @@ Before starting, confirm the pipeline can run without permission prompts:
 
 ```bash
 # Verify settings.json has wildcard permissions
-grep -c 'Bash(\*)' .claude/settings.json && echo "✓ Bash permissions OK" || echo "✗ Fix .claude/settings.json"
+if grep -q 'Bash(\*)' .claude/settings.json; then
+  echo "✓ Bash permissions OK"
+else
+  echo "✗ Fix .claude/settings.json"
+fi
 ```
 
 If this fails, write `.claude/settings.json` with wildcard permissions for all tools before proceeding.
 
+### Pre-flight: Purge rogue `.claude/` dirs in job folders
+
+Any previous run (or previous worker session using stale rules) may have created `.claude/` inside a job directory. These MUST be removed before this run, or the next tool call that touches them will trigger popups:
+
+```bash
+find jobs -type d -name ".claude" -not -path "*/node_modules/*" -print -exec rm -rf {} +
+```
+
+This is a safe, idempotent cleanup — it only removes `.claude/` directories inside `jobs/`, never the project-level one.
+
+## Metrics: Initialize Tracking
+
+Run the metrics initializer to create `jobs/{domain}/metrics.json` with domain, URL, model, timestamp, and dynamic port allocation (ports are hashed from the domain to avoid collisions in parallel builds):
+
+```bash
+cd /Users/tomasz/WebFactory
+node scripts/init-metrics.cjs "{{url}}"
+```
+
+This outputs the allocated ports, e.g.:
+```
+✓ Metrics initialized for example.com
+  Ports — A: 38472, B (legacy slot B): 38473, C: 38474, B (current): 38475
+```
+
+**IMPORTANT**: From this point forward, use the allocated ports from `metrics.json` — NOT hardcoded 4321/4322. Read them like this:
+
+```bash
+DOMAIN=$(echo "{{url}}" | sed 's|https\?://||; s|www\.||; s|/.*||')
+PORT_A=$(node scripts/get-port.cjs "$DOMAIN" a)
+PORT_B=$(node scripts/get-port.cjs "$DOMAIN" b)
+```
+
+**After completing each stage**, log the timestamp using the helper script:
+
+```bash
+cd /Users/tomasz/WebFactory
+node scripts/log-stage.cjs "$DOMAIN" "STAGE_NAME"
+```
+
+Replace `STAGE_NAME` with one of: `scrape`, `designBrief`, `optionA`, `optionAQA`, `optionB`, `optionBQA`, `optionC`, `optionCQA`, `deploy`.
+
 ## Smart Resume: Check What Already Exists
 
-Before running the full pipeline, check what's already been built for this domain. Skip completed stages:
+Before running the full pipeline, check what's already been built for this domain. Skip completed stages.
+
+**If `--full` or `--clean` was passed**, wipe the domain directory FIRST so Smart Resume sees a clean slate — BUT preserve `*/.vercel/project.json` so re-deploys go to the same Vercel projects (avoids interactive "link or create new project?" prompts that break unattended mode):
+
+```bash
+DOMAIN=$(echo "{{url}}" | sed 's|https\?://||; s|www\.||; s|/.*||')
+if echo "{{url}}" | grep -qE -- '--(full|clean)'; then
+  if [ -d "jobs/$DOMAIN" ]; then
+    # Stash existing Vercel project links for each option (so they survive the wipe)
+    STASH="/tmp/vercel-stash-$DOMAIN-$$"
+    mkdir -p "$STASH"
+    for opt in option-a option-b option-c; do
+      if [ -f "jobs/$DOMAIN/$opt/.vercel/project.json" ]; then
+        mkdir -p "$STASH/$opt/.vercel"
+        cp "jobs/$DOMAIN/$opt/.vercel/project.json" "$STASH/$opt/.vercel/project.json"
+        echo "  ↪ stashed Vercel project link for $opt"
+      fi
+    done
+
+    # Wipe the job dir
+    rm -rf "jobs/$DOMAIN"
+    echo "✓ --full/--clean detected → wiped jobs/$DOMAIN/"
+
+    # Restore the Vercel project links into a fresh job dir skeleton
+    for opt in option-a option-b option-c; do
+      if [ -f "$STASH/$opt/.vercel/project.json" ]; then
+        mkdir -p "jobs/$DOMAIN/$opt/.vercel"
+        cp "$STASH/$opt/.vercel/project.json" "jobs/$DOMAIN/$opt/.vercel/project.json"
+        echo "  ↪ restored Vercel project link for $opt → re-deploys hit the same project"
+      fi
+    done
+    rm -rf "$STASH"
+  fi
+fi
+```
+
+**Why preserve `.vercel/project.json`**: when `vercel deploy` runs from a directory with a valid `.vercel/project.json`, it deploys to the linked project automatically (no prompts). When the file is missing, the CLI prompts "Link to existing project? Create new?" — which breaks unattended operation. Preserving the link across `--full` rebuilds keeps the Vercel project IDs stable so the deployment URLs (`{project-name}.vercel.app`) don't churn between rebuilds.
+
+**For brand-new domains** (no existing `.vercel/project.json`): the worker session must use the Vercel Teams Configuration `Method A: pre-link before first deploy` pattern from Stage 8. Run `npx vercel link --scope tomek-group --yes` in each option's directory before `vercel build` / `vercel deploy`. See SKILL.md Vercel Teams section for details.
+
+Then run the normal Smart Resume probe (it will report everything as NEEDED after a clean wipe):
 
 ```bash
 DOMAIN=$(echo "{{url}}" | sed 's|https\?://||; s|www\.||; s|/.*||')
 echo "=== Checking existing work for $DOMAIN ==="
 
 # Stage 1: Scrape
-[ -f "jobs/$DOMAIN/manifest.json" ] && echo "✓ Stage 1 (Scrape): DONE — manifest.json exists" || echo "○ Stage 1 (Scrape): NEEDED"
+if [ -f "jobs/$DOMAIN/manifest.json" ]; then
+  echo "✓ Stage 1 (Scrape): DONE — manifest.json exists"
+else
+  echo "○ Stage 1 (Scrape): NEEDED"
+fi
 
 # Stage 2: Design brief
-[ -f "jobs/$DOMAIN/design-brief.json" ] && echo "✓ Stage 2 (Design Brief): DONE" || echo "○ Stage 2 (Design Brief): NEEDED"
+if [ -f "jobs/$DOMAIN/design-brief.json" ]; then
+  echo "✓ Stage 2 (Design Brief): DONE"
+else
+  echo "○ Stage 2 (Design Brief): NEEDED"
+fi
 
 # Stage 3: Option A
-[ -d "jobs/$DOMAIN/option-a/src/pages" ] && echo "✓ Stage 3 (Option A Build): DONE — $(ls jobs/$DOMAIN/option-a/src/pages/*.astro 2>/dev/null | wc -l | tr -d ' ') pages" || echo "○ Stage 3 (Option A Build): NEEDED"
+if [ -d "jobs/$DOMAIN/option-a/src/pages" ]; then
+  PAGE_COUNT=$(ls jobs/$DOMAIN/option-a/src/pages/*.astro 2>/dev/null | wc -l | tr -d ' ')
+  echo "✓ Stage 3 (Option A Build): DONE — $PAGE_COUNT pages"
+else
+  echo "○ Stage 3 (Option A Build): NEEDED"
+fi
 
-# Stage 5a: Stitch generation
-[ -d "jobs/$DOMAIN/stitch-output" ] && [ "$(ls jobs/$DOMAIN/stitch-output/*.html 2>/dev/null | wc -l)" -gt 0 ] && echo "✓ Stage 5a (Stitch Generation): DONE" || echo "○ Stage 5a (Stitch Generation): NEEDED"
+# Stage 5: Option B (copy-rewritten Option A)
+if [ -d "jobs/$DOMAIN/option-b/src/pages" ]; then
+  PLUS_COUNT=$(ls jobs/$DOMAIN/option-b/src/pages/*.astro 2>/dev/null | wc -l | tr -d ' ')
+  echo "✓ Stage 5 (Option B Build): DONE — $PLUS_COUNT pages"
+else
+  echo "○ Stage 5 (Option B Build): NEEDED"
+fi
 
-# Stage 5: Option B
-[ -d "jobs/$DOMAIN/option-b/public" ] && echo "✓ Stage 5 (Option B Build): DONE — $(find jobs/$DOMAIN/option-b/public -maxdepth 1 -name '*.html' 2>/dev/null | wc -l | tr -d ' ') EN + $(find jobs/$DOMAIN/option-b/public/es -name '*.html' 2>/dev/null | wc -l | tr -d ' ') ES pages" || echo "○ Stage 5 (Option B Build): NEEDED"
+# Stage 7: Option C (Plugin-driven) — gate on SKIP_C
+if [ "$SKIP_C" = "1" ]; then
+  echo "⏭️ Stage 7 (Option C Build): SKIPPED (--skip-c mode)"
+elif [ -d "jobs/$DOMAIN/option-c/dist" ]; then
+  C_COUNT=$(find jobs/$DOMAIN/option-c/dist -maxdepth 1 -name '*.html' 2>/dev/null | wc -l | tr -d ' ')
+  echo "✓ Stage 7 (Option C Build): DONE — $C_COUNT pages"
+else
+  echo "○ Stage 7 (Option C Build): NEEDED"
+fi
 ```
 
 **Rules for skipping:**
 - If `manifest.json` exists → skip Stage 1 (scrape)
 - If `design-brief.json` exists → skip Stage 2
 - If `option-a/src/pages/` has .astro files AND `option-a/dist/` exists → skip Stages 3-4 (Option A build + QA)
-- If `stitch-output/*.html` exists → skip Stage 5a (Stitch generation), go straight to 5c (integration)
-- If `option-b/public/` has HTML files → verify page count matches Option A. If it does, skip to deploy. If not, rebuild Option B.
-- **NEVER skip Stage 5h (completeness check) or Stage 6 (QA)** — always run these even on resume
+- If `option-b/src/pages/` has .astro files AND `option-b/dist/` exists → skip Stage 5 (B rewrite). **If A is rebuilt, B MUST also be rebuilt** (it inherits from A). **If B is rebuilt and `$SKIP_C != 1`, C MUST also be rebuilt** (it reads B's text — a stale C would diverge from the canonical text). **If `$SKIP_C = 1`, the B→C cascade is short-circuited** — there is no C to rebuild.
+- If `option-c/src/pages/` has .astro files AND `option-c/dist/` exists → verify page count matches manifest. If it does, skip to deploy. If not, rebuild Option C. If B is rebuilt, C MUST also be rebuilt (C inherits text from B). **Skipped entirely when `$SKIP_C = 1`** — existing `option-c/` is left untouched (orphan from a previous full run; safe to ignore or `rm -rf` manually).
+- **Option B is retired** (as of 2026-04-24). If `option-b/`, `stitch-output/`, or any V1-shape Option B artifacts exist from earlier runs, ignore them — Smart Resume will not regenerate Option B. Safe to delete manually if you want to clean up.
+- **NEVER skip the completeness check or QA stages** — always run these even on resume
 
 Report what will be skipped and what will be built, then proceed with the first needed stage.
 
 ## Pipeline
 
-Execute these stages in order (skipping completed ones per above). After each stage, report progress to the user.
+Execute these stages, skipping completed ones per Smart Resume.
+
+### Parallelization (Architecture 2 — B is canonical text source for C)
+
+Three tracks (Option B retired 2026-04-24). Strictly sequential because of text-source dependencies:
+
+```
+Stage 1 (Scrape) → Stage 1b (Fix logo) → Stage 2 (Design Brief)
+                                                │
+                                                ▼
+                                       Stage 3 (Build A — original copy + new design)
+                                                │
+                                                ▼
+                                       Stage 4 (A QA)
+                                                │
+                                                ▼
+                                       Stage 5 (Build B — rewrite A's text, conversion-tuned)
+                                                │
+                                                ▼
+                                       Stage 6 (B QA — text quality + layout match)
+                                                │
+                                                ▼
+                                       Stage 7 (Build C — plugin design + B's text + inline QA)
+                                                │
+                                                ▼
+                                       Stage 8 (Deploy A + B + C)
+                                       Stages 9-10 (Verify + Report 4 links)
+```
+
+**Why strictly sequential**: B rewrites A's source files (needs A done). C inherits B's text (needs B done). No true parallelism is possible — but the next stage's design QA pass can overlap with the next build if you want to save wall-clock time.
+
+**Why this architecture is good**: B produces the canonical conversion-tuned copy. C is pure design execution against that copy. Customer comparison becomes _"A vs B"_ (does the rewrite matter?) and _"B vs C"_ (does plugin design beat template design?). Two clean axes of comparison instead of four muddled ones.
+
+**Key optimizations**:
+<!-- Optimization note removed: Option B (Stitch-driven) was retired 2026-04-24. -->
+
+- Run B and C in parallel once B is complete. They don't depend on each other.
+
+**Track dependencies**: A is independent. B depends on A. C depends on B. B and C are siblings (parallel after B).
 
 ---
 
@@ -76,7 +468,8 @@ Execute these stages in order (skipping completed ones per above). After each st
 Run the scraper script to crawl the target website and download all content:
 
 ```bash
-cd /Users/tomasz/WebFactory && node scripts/scrape.js "{{url}}"
+cd /Users/tomasz/WebFactory
+node scripts/scrape.js "{{url}}"
 ```
 
 This creates a job directory at `jobs/{domain}/` containing:
@@ -90,7 +483,367 @@ The manifest includes two image arrays per page:
 
 **CRITICAL**: The `backgroundImages` are the large hero/banner images that appear behind text on each page. These MUST be used as hero section backgrounds in the rebuilt site. They are often the most visually impactful images on the original site.
 
-After scraping, read the manifest.json to understand what was captured. Report the number of pages scraped and any issues.
+#### Stage 1b: Fix low-res logo (MANDATORY — always run)
+
+WordPress and many other CMSs serve logos via a favicon-crop URL like `cropped-X-24x8.png` — literally 24×8 pixels — that browsers display at CSS size. The scraper downloads the 24×8 file, and if left alone the rebuilt site shows a blurry blob in the nav. This was a real bug in the fsolsidingcontractor.com run (2026-04-16) and MUST be prevented every time:
+
+```bash
+DOMAIN=$(echo "{{url}}" | sed 's|https\?://||; s|www\.||; s|/.*||')
+node scripts/fix-logo.js $DOMAIN
+```
+
+The script reads the manifest, finds the logo candidate (first nav/header image, or filename containing "logo"/"cropped"/"brand"), and if the file on disk is <100px wide it automatically fetches the WordPress high-res variants (stripping the `-WxH` size suffix and the `cropped-` prefix). It writes the replacement file in place and adds a `logo` field to `manifest.json` with verified dimensions.
+
+If the script reports `✗ No better variant found`, note this and inform the user in the final report — the rebuilt site will need either a text-only brand in the nav OR a user-provided logo file.
+
+#### Stage 1c: Detect CMS placeholders (MANDATORY — always run)
+
+After scraping + logo fix, scan the manifest for **template-default placeholder content** the customer never filled in. Sites built on Hibu, Wix, Squarespace, GoDaddy, etc. ship "your content here" defaults that look real to a scraper but represent missing content. Strict preservation of these = shipping placeholders.
+
+```bash
+DOMAIN=$(echo "{{url}}" | sed 's|https\?://||; s|www\.||; s|/.*||')
+node scripts/detect-placeholders.cjs $DOMAIN
+```
+
+The script walks every page in the manifest and tags suspicious entries with `_placeholder: { kind, pattern, source, reason }`. It writes:
+- **Updated manifest.json** with `_placeholder` tags inline on the offending images, pages, sections, business fields
+- **placeholder-report.json** with a grouped summary of every placeholder found
+
+The script's pattern catalog covers (all in one file — `scripts/detect-placeholders.cjs`):
+- **Image URLs**: `gen-logo-*` (Hibu), `default-logo`, `your-logo-here`, `placehold.co`, `via.placeholder.com`, `wix-default`, `godaddy-default`, etc.
+- **Page slugs**: `/hibu-video-splash`, `/call-or-text-pop`, `/sample-page` (WordPress), `/test-page`, `/your-page`
+- **Body copy**: lorem ipsum variants, "Business Tagline Lorem Ipsum Dolor" (Hibu pattern), "Welcome to your new site", "Click here to add", "Add your text here", "This is a sample", "Coming soon", "Under construction"
+- **Phone numbers**: 555-0100 to 555-0199 (NANP fiction reserve), 123-456-7890, 000-000-0000
+- **Email**: `info@example.com`, `youremail@domain.com`, etc.
+- **Addresses**: "123 Main Street", "Your Street Here", "1234 Anytown"
+
+After this stage, every downstream stage (design brief, build A/B/C, QA) reads `_placeholder` tags and reacts:
+
+| Tag kind | Downstream reaction |
+|----------|--------------------|
+| `logo-placeholder` | Skip in fix-logo, fall back to favicon → plain text |
+| `image-placeholder` | Omit from build OR substitute with manifest content |
+| `page-placeholder` | Exclude from nav and from page count, don't build the page |
+| `copy-tagline-placeholder` | Option B writes a real tagline from manifest facts; A omits the section |
+| `copy-lorem` | Omit; never ship lorem ipsum |
+| `copy-coming-soon` / `copy-edit-placeholder` | Omit section OR replace with real content from elsewhere in manifest |
+| `phone-fiction` / `email-placeholder` / `address-placeholder` | Flag in final report — customer must provide real contact info |
+
+#### CMS PLACEHOLDER PRINCIPLE (architectural — applies to every stage)
+
+The customer's original site is the **input**, not the **truth**. Sites built on template platforms commonly contain content the customer never filled in — placeholder logos, lorem ipsum copy, dummy phone numbers, "Hibu Video Splash" template pages. Strict preservation of placeholder content = shipping placeholder content.
+
+**Every per-element rule below (LOGO, VIDEO CTA, SOCIAL LINKS, HERO CONTRAST, image handling, copy preservation) operates on placeholder-cleaned manifest data.** When `_placeholder` tags are present on a manifest item, the relevant rule defines the fallback path (favicon, drop CTA, omit page, etc.). The detection logic is centralized in `scripts/detect-placeholders.cjs`; the reactions are defined per rule below.
+
+This principle is the structural fix for the recurring "shipped placeholder content" bug class (logo-placeholder, video-CTA-placeholder, social-href-self-pointing, lorem-ipsum-in-copy, etc.). One detector runs after scrape; all stages and qa-check inherit its findings.
+
+After scraping + logo fix + placeholder detection, read the manifest.json to understand what was captured. Report the number of pages scraped, any logo-fix actions taken, and any placeholders detected.
+
+#### FACT GROUNDING PRINCIPLE (architectural — applies to every text-producing stage)
+
+> **Every factual claim rendered on a built page MUST originate in the scraped manifest, OR follow logically from a fact in the manifest. No exceptions, no "sounds plausible," no "every plumber says this."**
+
+This is the structural fix for the "shipped a hallucinated fact" bug class. Real bug shipped 2026-04-25: an Option B build rendered a `20+ YEARS EXPERIENCE` badge on a customer's homepage when the manifest contained no year reference, no founding date, no license vintage — nothing that supported the claim. The number was invented because it "sounded right for a trades business." That is fabrication. It must never ship.
+
+**Scope.** Applies to:
+- Hero headlines and subheadings
+- Trust badges, callout pills, stat blocks ("20+ years", "500+ jobs", "★★★★★ 200 reviews")
+- About / story sections (dates, founder names, biographical claims)
+- Feature/service descriptions (capabilities, certifications, brands serviced, areas covered)
+- Testimonial attributions and quotes (must be verbatim from manifest)
+- CTA microcopy that asserts a fact ("24-hour response", "free quote", "lifetime warranty")
+- Footer and legal text (license numbers, addresses, founding year)
+
+**Allowed transformations (NOT fabrication):**
+- Rewording an existing claim — manifest says "We've been serving Englewood for over 20 years"; rendered text says "20+ years serving Englewood." Same fact, tighter copy.
+- Inferring from a stated date — manifest says "Established 2003"; rendered text says "20+ years in business" (correct as of 2024+). The math is sound and traceable.
+- Combining two manifest facts into one tighter sentence.
+- Sharpening generic CTAs into concrete ones IF the concreteness is in the manifest — manifest says "Call us anytime, day or night"; CTA becomes "Talk to a real plumber tonight." The 24/7 availability is in the source.
+- Reordering value propositions for impact (no new claims, just resequencing).
+
+**Forbidden fabrications (FAIL the build):**
+- Inventing a number that doesn't appear in the manifest. "20+ years" with no year, no date, no "since YYYY" anywhere in the corpus.
+- Inventing a credential. "Award-winning" / "BBB A+ rated" / "Voted Best in Tampa" / "Licensed and insured" — none of these go on the page unless the manifest says so.
+- Inventing a metric. "500+ satisfied customers" / "200 5-star reviews" / "98% on-time rate" — never assert numbers the manifest doesn't supply.
+- Inventing an ownership/identity claim. "Family-owned" / "Veteran-owned" / "Woman-owned" / "Locally owned" — these are identity claims the customer either makes or doesn't. If the manifest doesn't say it, you don't say it.
+- Inventing service-area or response-time claims. "Available 24/7" / "Same-day service" / "Free estimates" — verifiable promises the customer must actually offer.
+- Inventing partner/brand claims. "Authorized Trane dealer" / "Certified Lennox technician" — never assert partnership unless the manifest contains it.
+
+**The build-time test (apply to every fact you write).** Before you write a sentence containing a number, a date, a credential, or a ownership claim, ask: _"Where in the manifest is this?"_ If you can't point to the line, the sentence does not get written. If you're tempted to write "20+ years" because the customer "feels established" — STOP. The customer either gave you a year or they didn't.
+
+**The QA gate (`scripts/qa-check.js fact-grounding`).** Independent of build-time discipline, the deploy gate scans rendered DOM for fact-claim patterns ("X+ years", "since YYYY", "award-winning", "family-owned", "BBB accredited", "X+ customers", "X-star rated", etc.) and validates each one against the manifest text corpus. If a claim fails verification, the build is blocked from deploy with a message naming the page, the claim, and the missing manifest support. **This check must run on Options A, B, and C.**
+
+**Why this is a top-level rule.** Each per-stage rule (Stage 5 rewrite, Stage 7 plugin output, Stage 4 polish) had its own "don't fabricate" line. They didn't prevent the bug because they relied on build-time vigilance. The structural fix is: (1) make the principle explicit and visible, and (2) verify it programmatically at deploy time. Same pattern as CMS PLACEHOLDER PRINCIPLE — one principle stated once, one detector enforcing it everywhere.
+
+#### TESTIMONIAL & REVIEW PRESERVATION (architectural — applies to every text-producing stage)
+
+> **Customer reviews and testimonials are the words of real people, attributed to them by name. They are NOT copy. The rewrite (Option B), the design re-render (Option C), and any "tightening" or "polishing" pass MUST NOT touch them. Verbatim, full, unedited, in every option.**
+
+This rule is stricter than FACT GROUNDING. Fact grounding says you can sharpen "we have over 20 years experience" into "20+ years in business" because the underlying fact is the same. **You may NOT do that to testimonials.** A review reading "Bryan and his team did an awesome job, super professional, would recommend!" stays exactly as written — not "Bryan's team did exceptional, professional work — highly recommended." Even though the second version is "tighter," you have just put words in a real customer's mouth attributed by name. That is impersonation.
+
+**Why this is its own rule, not a sub-bullet of FACT GROUNDING**: testimonials are the customer's strongest social proof asset. Tampering damages trust two ways — visitors who recognize their own reviews see them changed (immediate credibility hit), and visitors who DON'T recognize them but compare to Google/Yelp public listings see the discrepancy. Both kill conversion. Worse: it's reputationally and arguably legally bad to edit reviews attributed to named people without their consent.
+
+**Scope — what counts as a "testimonial" and is FROZEN verbatim**:
+- Anything in a `<blockquote>`, `<q>`, or testimonial card with an attribution (name, photo, location, date, star rating, platform logo)
+- Anything attributed to a named third party: "— John D., Tampa", "— Sarah K., Verified Customer", "— Mike R., 5★ Google Review"
+- Star ratings and the count next to them ("4.9★ from 287 reviews" — both numbers are facts)
+- Reviewer names, locations, dates, photos, platform attribution (Google, Yelp, BBB, Facebook, Angi, etc.)
+- Quotes from named employees / founders ("As our owner Mike says, 'we treat every job like it's our own home'") — same rule, different speaker
+- Case studies that include verbatim customer quotes — the quote portion is verbatim; surrounding narrative may be tightened
+- "Featured in / As seen on" press attributions
+
+**Allowed transformations (these are NOT tampering)**:
+- **Reordering** the list of reviews (sequence is design, not content)
+- **Selecting a subset** for the homepage (e.g., showing 3 of 12 — but the 3 selected are verbatim, and the full list lives on a `/reviews` page also verbatim)
+- **Layout changes** (carousel vs grid vs stack — design only)
+- **Visual treatment** of the attribution (icon styling, photo crop, star rendering)
+- **Truncating with "Read more"** for very long reviews IF the full text is reachable from the same page (not silently cut off)
+
+**Forbidden tampering (FAIL the build)**:
+- Rewording any quoted text, even to "fix" grammar or typos. The customer wrote "amazing service, super proffesional!" — that misspelled "professional" stays. It's their voice.
+- Combining two reviews into one ("composite testimonial")
+- Inventing reviews that don't exist in the manifest
+- Inventing reviewer names, locations, dates, or platforms
+- Inflating star ratings or review counts
+- Translating reviews (a Spanish-language review stays in Spanish)
+- Removing reviews that are "off-topic" or "less polished" — your job isn't to curate the customer's reputation
+- Replacing real reviews with generic stock testimonials ("Best service ever! — Happy Customer")
+- Stripping platform attribution (a Google review labeled "Google Review" stays attributed to Google)
+
+**Per-stage application**:
+- **Stage 1 (Scrape)**: capture every testimonial/review verbatim into the manifest, including attribution metadata (name, location, date, star rating, platform). Don't strip whitespace inside the quote text.
+- **Stage 3 (Build A — faithful)**: render every testimonial verbatim. Same rule as the rest of A — original text preserved.
+- **Stage 5 (Build B — rewrite)**: testimonials are the OUTLIER section that does NOT get rewritten. The B rewrite touches headlines, CTAs, body copy, value props — NOT testimonials. B's testimonials are byte-identical to A's testimonials.
+- **Stage 7 (Build C — plugin design)**: C reads B's text verbatim, so C's testimonials inherit B's (which inherit A's, which inherit the manifest). The plugin may restyle the testimonial section visually but cannot touch the words.
+- **Stage 4 / 6 / 8a (qa-check)**: programmatic enforcement — the testimonial text rendered on B's pages must appear verbatim somewhere in A's pages (and same for C vs B).
+
+**The build-time test**: before publishing any change to a `<blockquote>`, testimonial card, or anything inside a section labeled "Reviews" / "Testimonials" / "What Our Customers Say" — check whether the change is structural (layout, ordering, selection) or textual (rewording any character of the quoted text). If textual, REVERT. There is no "small wording fix" exception.
+
+**The QA gate (`scripts/qa-check.js testimonial-tampering`)**: scans every `<blockquote>`, `<q>`, and likely-testimonial-card pattern (containers with both a quote and an attribution within ~200px). For Option B and C: extracts the testimonial text and verifies it appears verbatim in Option A's HTML files (same domain, same pages). Failure means B/C tampered with text that should have been frozen. Real bug class this prevents shipping: shipped 2026-04-25 framing — "rewriter sharpened the customer testimonials thinking they were copy."
+
+#### DESIGN QUALITY BAR (architectural — operationalizes "suddenly expensive")
+
+> **The vision says A should look like a top-tier studio charged the customer $80k. There must be a quality bar the design has to clear, not just an absence of bugs.**
+
+The previous skill enumerated bug classes (placeholder content, fact grounding, hero contrast, etc.) but never defined what GOOD looked like. So a build could pass every check by being "merely better than the original" — and ship as a $2k rebuild instead of an $80k one. This rule defines the minimum bar.
+
+**The bar — every option must clear all of these. Workers verify in build (Stage 3/5/7) and visual sanity pass (Stage 4c-bis).**
+
+1. **Typography that signals taste.** At least one display-quality font from a reputable foundry (Google Fonts has many — Fraunces, Editorial New, DM Serif Display, Cormorant, Newsreader, Tenor Sans, Cabinet Grotesk, etc. via @fontsource or CDN). NEVER ship a site whose only fonts are system Inter, system Arial, or system Helvetica. The model picks based on industry/brand vibe — there is no curated list because expensive design comes from intentional choice, not from a pre-approved menu. Pair a display font (headlines) with a clean text font (body); two is plenty, three is the maximum.
+   - **What "expensive" means in a typeface**: proportional spacing, considered weight pairs, optical sizing for large display use. Generic Inter at every weight = template. Fraunces at 12-72pt with optical adjustments + Inter for body = considered.
+   - **qa-check.js fails the build** if `<head>` loads zero `@import url('https://fonts.googleapis.com/...)` AND no `@fontsource/...` import AND no `<link rel="stylesheet" href="https://fonts.googleapis.com/...">` — i.e., relying entirely on system fonts.
+
+2. **Whitespace that breathes.** Section padding ≥ 96px vertical at desktop, ≥ 48px at mobile. Inside-section padding ≥ 24px. Don't crush content together.
+
+3. **Hero treatment beyond "photo + heading".** Every hero must include at least one supporting design element: a horizontal rule, a labeled section number ("01"), a mono caption strip, an attention bar, a hover-revealed accent. The bare hero ("photo + giant headline + button") is the template tell.
+
+4. **Considered color palette.** 3 primary + 2 accent maximum, ALL justified in design-brief.json. NOT "blue and white" — name the brand role of each (e.g., "deep navy = trust anchor for a marine-services brand; warm cream = page wash; hi-vis safety yellow = active CTA only"). If the design brief lists 6 colors with no rationale, the brief itself is not done — kick back.
+
+5. **One distinctive element per page.** Each page should have at least one piece of design that the customer would NOT have built themselves: a custom card style, a unique heading layout (oversized + tight kern + custom underline), a stat strip with mono captions, a quote treatment with editorial pull-quote marks, a numbered process strip, etc. If every section is "centered headline + 3-card grid," the design is templated.
+
+6. **At least one micro-interaction.** Scroll reveals, hover state with motion (subtle scale on cards, color shift on CTAs), animated counters on stat blocks, a sticky-on-scroll nav transition. Static-only is template-grade. Don't overdo it — one or two intentional motions per page.
+
+7. **The "$80k smell test" (in Visual Sanity Pass).** After QA passes, look at the homepage screenshot and ask honestly: "Could I imagine charging $80k for this?" If no, what specifically is missing — a font that looks bespoke, a hero treatment that earns the photo, a moment of design ambition? List the gap and fix it. The build is not done until this answer is yes.
+
+**Stage 2 design brief must explicitly hit each bar item** — typography pairing with rationale, palette with justified roles, hero treatment direction, distinctive-element catalog, micro-interaction list. A weak brief produces a weak A. Brief quality is the upstream cause of "merely better than original" output.
+
+**Per-stage application:**
+- **Stage 2** generates the brief that codifies the bar choices.
+- **Stage 3 (Build A)** executes the bar — display font loaded, hero treated, distinctive element per page.
+- **Stage 5 (Build B)** inherits A's design tokens unchanged (B doesn't redesign).
+- **Stage 7 (Build C)** uses the plugin BUT must also clear the same bar — the plugin is no excuse for a generic editorial result (see industry-anchored rule for C).
+- **Stage 4 / 6 / 8a (qa-check + visual sanity)** programmatically catches system-only fonts and prompts the model to do the $80k gut check.
+
+#### LOGO RULE (strict, all options — ALWAYS PRESERVE + BACKGROUND-AWARE PLACEMENT)
+
+Real bugs we shipped:
+- bigdaddysdumpers.com (Option C): invented a "weird-looking blob" instead of using the customer's logo
+- sspowerwashing.com (2026-04-24): used the customer's PNG logo (which has a solid navy rectangle background) on our nav (which is a different shade of navy). Result: visible blue-on-blue color mismatch, logo looks like a sticker glued onto the page
+
+Hard rules in two layers — **(A) preserve the original**, and **(B) place it where it actually looks good**.
+
+##### Layer A — Always preserve, never invent (with placeholder detection + favicon fallback)
+
+The full fallback chain (try in order, stop at the first that succeeds):
+
+1. **Original logo from manifest** — use `scripts/fix-logo.js` to recover a high-res variant if WordPress/CMS mangled it. Stop here if a real, non-placeholder logo was recovered.
+
+2. **Detect and reject platform placeholders** (NEW). Many template platforms ship a "your logo here" default when the customer didn't upload anything. Common patterns:
+   - URL contains `gen-logo`, `placeholder`, `default-logo`, `template-logo`, `logo-placeholder`, `your-logo-here`, `default-image`, `wix-default`
+   - Filename matches `gen-logo-*`, `logo-default-*`, `logo-placeholder-*`, `default-site-icon-*`
+   - Image content visually shows the literal word "logo" (italic or otherwise) — the rendered Moretti's Centry Auto Body bug came from `gen-logo-e5ccbe50-1920w.png`, a Hibu-platform placeholder showing a wireframe sun + the word "logo"
+   - If detected → DO NOT use it. Move to step 3.
+
+3. **Favicon fallback** (NEW). If no real logo is available, try the customer's favicon:
+   - Fetch in this order: `/favicon.ico`, `/apple-touch-icon.png`, `/apple-touch-icon-180x180.png`, `/favicon-32x32.png`, `/favicon-192x192.png`, `/favicon-512x512.png`, `/site-icon.png`
+   - If a usable favicon is found (square or near-square, ≥ 64px wide, NOT itself a placeholder), use it as the logo
+   - Note in the final report: `"Used favicon as logo. Recommend customer provide a high-res logo file."` — be honest with the user about the substitution
+
+4. **Plain-text fallback** — if no real logo AND no usable favicon: use plain text containing the verbatim business name in the page's display font. No graphic substitute. No wordmark logo. No invented mark.
+
+**Hard prohibition (all options, no exceptions)**: NEVER design a new logo. NEVER invent a mark, icon, monogram, badge, abstract graphic, mascot, stylized symbol, decorative wordmark treatment, OR a placeholder graphic with literal text like "logo" / "Site Logo" / "Your Logo Here". The customer must recognize the brand, OR see clean plain text — not a generic graphic that signals "we couldn't find your logo."
+
+**QA gate enforcement (NEW in qa-check.js)**: fails the build if the rendered logo `<img>` either (a) has a src URL matching the placeholder patterns above, OR (b) the visible nav contains the literal text "logo" / "Logo" / "your logo" adjacent to or as alt text on the image.
+
+##### Layer B — Background-aware placement (NEW, prevents the SS Power Washing bug)
+
+Before settling on the first logo file you find, **hunt for the best variant**, then **detect its background**, then **place it appropriately**.
+
+**Step 1 — Hunt for transparent / SVG variants first.** Many sites ship multiple logo variants. Don't grab the first match; survey the field:
+
+- Scan `manifest.json` for ALL images whose URL or alt text contains `logo`, `brand`, or the business name. Catalog every candidate.
+- Strongly prefer (in this order):
+  1. `*.svg` (always cleanly scalable, almost always transparent)
+  2. `*-transparent.png`, `*-trans.png`, `*-tp.png`, `*-alpha.png` (explicitly transparent)
+  3. `*-white.png`, `*-light.png` (white-on-color variant — works on dark backgrounds)
+  4. `*-dark.png`, `*-color.png` (color-on-light variant — works on light backgrounds)
+  5. Plain `logo.png` or similar — last resort, may have a solid background
+- For WordPress: also try fetching the image without the `cropped-` prefix and without the `-WxH` suffix. Customer often uploaded a clean transparent original; the favicon-crop is just a derivative.
+- For Squarespace: check for `?format=` query params in the URL — these can return different variants.
+- If multiple variants exist, pick the one with the **highest resolution AND most permissive background** (transparent > white-on-color > color-on-light > opaque-with-fixed-background).
+
+**Step 2 — Detect the background of the chosen logo file.** After fix-logo.js writes the final logo file:
+
+- Check whether the PNG has an alpha channel with actual transparency (not just an opaque alpha=255 channel). If yes → flag as `hasTransparency: true` in manifest. Logo can sit on any background.
+- If no alpha or fully-opaque alpha → sample the four corners of the image. If all four corners are the same color (or close), that's the logo's background color. Record as `manifest.logo.backgroundColor: "#1a3556"`.
+- If corners differ, it's likely a complex/photographic background that requires per-customer attention — flag for human review.
+
+**Step 3 — Place the logo correctly based on its background:**
+
+- **If transparent**: place the logo directly in the nav. Choose nav background that the logo's foreground colors look good against. (For a logo with both white and red elements, a navy or charcoal nav works. For a logo with only dark elements, a light nav works.)
+- **If opaque with a known background color** (e.g., navy `#1a3556`): the nav must use **the exact same background color** as the logo — sampled hex, not "navy"-ish. The logo then sits invisibly merged with the nav. OR: place the logo in a card/panel that matches its background color exactly, and let the nav have a different color around the panel. (The card should look intentional, not accidental.)
+- **NEVER place an opaque-background logo on a different-colored nav.** That's the SS Power Washing bug. The visible color mismatch makes the site look amateur.
+
+**Step 4 — Apply across all options.** If the logo's background dictates the nav's background, that constraint flows through to A, B, and C consistently. Don't let one option use the matched color and another use a different color. The brand color is decided by the logo file we received, not by our design preferences.
+
+##### QA gate enforcement
+
+Stage 8a `qa-check.js` checks:
+- Nav header MUST contain either (a) an `<img>` referencing `/images/logo*`, OR (b) plain text containing the verbatim business name. If the nav contains any non-original-logo graphic, fail.
+- **NEW**: If the logo file is opaque (no transparency in the alpha channel OR alpha is uniformly 255), the nav's background color MUST match the logo's sampled background color within a small tolerance (~5 RGB units per channel). If they don't match, fail with message: `"logo background #XXXXXX does not match nav background #YYYYYY — find a transparent variant OR change the nav background to match"`.
+
+---
+
+#### HERO CONTRAST RULE (strict, all options — TEXT MUST BE READABLE OVER ANY BACKGROUND)
+
+Real bugs we shipped (2026-04-25):
+- Naples FL Pressure Washing (Option C): hero with `<h1>` in dark navy text placed directly on a dark/blue-tinted pool photo. Text was barely visible.
+- Tampa Bay landscape company (Option A): hero with italic display serif in dark green placed on a green-tinted photo of a paver patio. Text was barely readable.
+
+Same bug class, different domains, different options. **The pipeline must structurally prevent text-on-photo without sufficient contrast.** Fixing this once applies to A, B, and C — every hero on every page.
+
+##### The mandatory hero pattern
+
+If a hero (or any section with a photo background) contains text, the markup MUST use this three-layer pattern:
+
+1. **Background image layer** — the photo, full-bleed, behind everything
+2. **Overlay/scrim layer** — a darkening or lightening layer between image and text. NOT optional.
+3. **Text layer** — positioned above the overlay, with a color chosen to contrast with the overlay-treated background
+
+**Correct (Astro/Tailwind):**
+```astro
+<section class="relative min-h-[600px] overflow-hidden">
+  <img src="/images/hero.jpg" alt="" class="absolute inset-0 w-full h-full object-cover" />
+  <div class="absolute inset-0 bg-black/60"></div>  <!-- THE OVERLAY — never skip this -->
+  <div class="relative z-10 wrap py-32 text-white">  <!-- text ABOVE the overlay -->
+    <h1>Hero text in white</h1>
+  </div>
+</section>
+```
+
+**Wrong (the bugs we shipped):**
+```astro
+<!-- Anti-pattern A: photo with no overlay, dark text -->
+<section style="background-image: url(/images/hero.jpg)">
+  <h1 class="text-navy">Hero text in dark color</h1>  <!-- invisible against dark photo -->
+</section>
+
+<!-- Anti-pattern B: photo with overlay, but text color picked without checking contrast -->
+<section class="hero">
+  <img class="absolute inset-0" src="/images/hero.jpg" />
+  <div class="absolute inset-0 bg-green-900/40"></div>
+  <h1 class="text-green-800 italic">Hero text in dark green</h1>  <!-- dark text on dark overlay -->
+</section>
+```
+
+##### Overlay strength rule
+
+The overlay's job is to neutralize the photo's variability so the text color is predictable. Pick the overlay strength based on which text color you want:
+
+- **White / cream / light text on photo** → overlay should be **dark + at least 50% opacity** (e.g., `bg-black/60`, `bg-ink/70`). Stronger overlay (70%+) for photos that are already light.
+- **Dark text on photo** → overlay should be **light/white + at least 60% opacity** (e.g., `bg-white/70`, `bg-paper/80`). Almost no one does this well — when in doubt, just use white text on a dark overlay.
+- **Tinted overlay** (e.g., brand-color overlay over the photo) is allowed for atmosphere, but the resulting effective background must still produce 4.5:1+ contrast with the chosen text color. A green overlay + green text = bug.
+
+##### Text color rule
+
+After choosing the overlay, pick a text color that achieves **WCAG AA contrast minimum** against the overlay-blended background:
+- **4.5:1** for body text and small headings (< 24px)
+- **3:1** for large headings (≥ 24px or ≥ 18.66px bold)
+
+Default safe combinations:
+- Photo + dark overlay (50–70% black) + WHITE text → safe, 7:1+ typical
+- Photo + light overlay (60–80% white) + INK text (#0F1419 or similar near-black) → safe, 8:1+ typical
+- Photo + tinted overlay → must measure contrast manually; default to white text if unsure
+
+##### Apply across all options
+
+This rule applies identically to A, B, and C. Every hero section in every option must use the three-layer pattern. **There is no "minimal" or "editorial" exception** — even the most stripped-back design needs the overlay if the headline sits on top of a photo.
+
+##### QA gate enforcement (NEW in `qa-check.js`)
+
+For every page in the build:
+1. Find every heading (`h1`, `h2`) in the first viewport (top 1000px)
+2. For each heading, walk up the parent chain: does any ancestor have a `background-image`?
+3. If yes → check whether there is a sibling/ancestor element with a non-transparent `background-color` (the overlay) positioned between the image and the text
+4. If no overlay detected → **FAIL** with message: `"Heading '...' sits on a background-image without an overlay/scrim layer — text contrast is unpredictable. Add an overlay div between the image and the text."`
+5. If overlay detected → compute the heading's computed text color and the overlay's effective background color (overlay color blended over the underlying image, approximated as 50% gray). Compute WCAG contrast ratio. If < 3:1 → **FAIL** with: `"Heading text color {hex} has only {ratio}:1 contrast against overlay-blended background {hex} (need 3:1 minimum). Choose a contrasting text color OR strengthen the overlay opacity."`
+
+This catches both bug variants we shipped: no-overlay AND insufficient-contrast-with-overlay.
+
+---
+
+#### VIDEO CTA RULE (strict, all options — NEVER FABRICATE A "WATCH VIDEO" BUTTON)
+
+Real bug shipped (2026-04-25 — morettiscentryautobody.com): the build rendered a "Watch Video" CTA button on the homepage and on the auto-body-repair page. The buttons linked to `/about` and `/contact` respectively (random pages, no video). The customer's original Hibu site had a `/hibu-video-splash` page in the manifest, which sounds like a video — but that page is a Hibu *template placeholder* containing only social share buttons, not an actual video. The worker session saw the page name, assumed a video existed, and fabricated CTAs that point nowhere useful.
+
+**The principle**: a "Watch Video" / "Play Video" / "View Demo" / "See Our Work" video CTA may only exist if a real, embeddable video URL exists in the scraped manifest. If no real video was scraped, the CTA must not be created. There is no acceptable substitute — pointing a video CTA to `/about`, `/contact`, the homepage, or any non-video page is a bug.
+
+##### Detecting "real video" in the manifest
+
+A real video means ONE of the following appears in the manifest, in `assets/html/*.json`, or in raw scraped HTML:
+
+- A `<iframe>` whose `src` matches: `youtube.com/embed/`, `youtu.be/`, `youtube-nocookie.com/embed/`, `player.vimeo.com/video/`, `wistia.com/embed`, `loom.com/embed`, `fast.wistia.com`, `vidyard.com/embed`
+- An `<a href>` pointing to: `youtube.com/watch?v=`, `youtu.be/`, `vimeo.com/<id>`, a `.mp4` / `.webm` / `.mov` file URL
+- A `<video src=...>` element with a `.mp4` / `.webm` / `.mov` source
+- A scraped JSON-LD VideoObject
+
+If none of those exist for a customer, **the customer has no embeddable video**. Period. Don't create a video CTA.
+
+##### Allowed responses when no real video exists
+
+1. **Drop the CTA entirely.** Replace the section with a different content block (image gallery, testimonial, services grid, contact CTA) drawn from manifest content.
+2. **Convert to a static "before / after" image carousel** if the customer has multiple work-photos in the manifest — relevant for trades, auto body, landscaping. Same visual real estate, real content.
+3. **Replace with a primary CTA** (Call now, Get a quote, Visit us). Functional, points somewhere useful.
+
+##### Forbidden responses
+
+- ❌ "Watch Video" button linking to a non-video page (`/about`, `/contact`, `/`, `#`, `javascript:`)
+- ❌ Inventing a YouTube embed with a placeholder ID (`youtube.com/embed/dQw4w9WgXcQ` or any other guessed video ID)
+- ❌ Linking to the customer's `/video-splash` page when that page itself contains no actual video (Hibu placeholder pattern)
+- ❌ Inventing a video poster/thumbnail with a play-button overlay that goes nowhere
+
+##### QA gate enforcement (NEW in qa-check.js)
+
+For every page in the build:
+1. Find all elements containing the visible text "Watch Video" / "Play Video" / "View Video" / "See Video" / "Watch Our Story" / "Watch Demo" (case-insensitive)
+2. For each, walk up to the nearest `<a href>` ancestor (or check the element itself if it's an anchor)
+3. Check the `href`:
+   - If it's a video URL (matches the patterns above) → pass
+   - If it's a `tel:`, `mailto:`, or `#anchor` to a section containing a real video → pass
+   - If it points to ANY other URL (internal page, external site, placeholder) → **FAIL** with: `"'Watch Video' button on {page} points to {href} which is not a video resource. Either wire a real video embed (YouTube/Vimeo/MP4) OR drop the CTA entirely (see VIDEO CTA RULE in SKILL.md)."`
+4. Also fail if a play-button-styled element (icon `▶`, `play_arrow`, SVG with `M8 5v14l11-7z`-style polygon path) sits inside an `<a>` whose href is not a video resource — catches the "fake play button" pattern.
+
+This rule applies pipeline-wide (A, B, C). One real bug, one structural fix.
 
 ---
 
@@ -163,129 +916,427 @@ Create `jobs/{domain}/design-brief.json`:
 
 **Be bold and creative with the design.** You have full creative freedom. Study the best websites in this industry for inspiration. Think about what makes award-winning small business sites look great: bold typography, strong visual hierarchy, cinematic hero sections, sophisticated color palettes, smooth micro-interactions.
 
+#### Brief MUST clear the DESIGN QUALITY BAR (see top-level rule)
+
+Before declaring the brief done, verify each of these is filled with INTENTION, not defaults:
+
+- **Typography pairing**: a display font for headlines (Fraunces / Editorial New / DM Serif Display / Cormorant / Cabinet Grotesk / Tenor Sans / etc.) AND a clean text font for body. NEVER ship a brief whose `headingFont` is "Inter" or "Arial" — that's the template signal. The bar requires display-quality.
+- **Color palette with named roles**: each color must include a brand role and rationale (`"primary": { "hex": "#0f3057", "role": "trust anchor / nav background", "why": "deep navy reads as established and reliable for the marine-services audience" }`). 3 primary + 2 accent maximum. If you list 6 colors with no rationale, the brief is not done.
+- **Hero direction**: describe the hero treatment in detail — not just "full-bleed photo with text overlay" but what supporting design element makes it feel intentional (a labeled section number, a mono caption strip, an attention rule, a hover-revealed accent). Bare hero = template.
+- **Distinctive-element catalog**: list 2-3 design elements per page that the customer would NOT have built themselves (custom card style, oversized heading with tight kern + custom underline, stat strip with mono captions, editorial pull-quote, numbered process strip).
+- **Micro-interaction list**: at least 1-2 intentional motion choices per page (scroll reveals on sections, hover scale on cards, animated counters on stats, sticky-on-scroll nav transition).
+- **Mobile-first commitments**: hero text size and crop strategy at 390px, mobile nav style (hamburger / bottom-bar / pill stack), sticky bottom-CTA decision (yes/no — usually yes for trades), tap-target minimums baked in.
+- **Brand signature inventory** (NEW — see brand recognizability rule in build): list 1-3 elements from the original site worth preserving (primary brand color, font vibe, hero composition, signature word/tagline). Then mark which ones the build will preserve. If the original is so generic/bad that nothing is worth preserving, say so explicitly with reasoning — silence here is not acceptable.
+
+A weak brief produces a "merely better than original" build. Strong brief = strong A.
+
 ---
 
 ### Stage 3: Build Option A (Faithful Rebuild)
 
+> **The brief in one line:** _"Same site, suddenly expensive."_
+> Same content, same imagery, same brand identity, same logo — but treated like a top-tier studio charged the customer $80k for the rebuild. Art-directed typography, intentional spacing, considered color palette, generous whitespace, smooth micro-interactions. Customers should look at it and think "that's MY site, but it looks like a different company built it." If you find yourself reorganizing copy or repositioning the brand, you've drifted from A toward B — back up.
+
 Build a complete Astro website preserving 100% of the original text content.
 
-#### 3a. Set Up Project
+#### 3-pre. Read the typed scaffold + inspiration (MANDATORY before designing anything)
+
+The `templates/` directory pivoted 2026-04-25 from "copy this whole template per-build" to "copy a minimal scaffold + design fresh per customer." The change prevents 100 plumbing customers getting 100 identical SaaS-aesthetic websites. Three things to read BEFORE writing any component code:
+
+1. **`templates/REQUIRED-PATTERNS.md`** — non-negotiable structural requirements every build must satisfy. Mapped 1:1 to `qa-check.js` rules. Read this completely. The visual treatment of every requirement is your design choice; the structural requirement is non-negotiable.
+
+2. **`templates/scaffold/README.md`** — what the scaffold provides (Astro config, BaseLayout document chrome, animation primitives, mobile-first defaults) and what it deliberately omits (every visual choice).
+
+3. **At least ONE directory in `templates/inspiration/`** — pick the one that best matches the customer's industry direction:
+   - `templates/inspiration/saas-default/` — tech / professional services / consultancies (was `templates/astro-base/` before the pivot)
+   - `templates/inspiration/industrial-trades/` — plumbing, HVAC, electrical, construction, landscaping, auto, cleaning
+   - (others added as the library grows)
+
+   READ the components for ideas — prop APIs, structural patterns, animation usage, contrast handling. NEVER `cp -r` a component verbatim into the customer build. Every component is designed fresh per customer.
+
+#### 3a. Set Up Project (copy scaffold, install deps)
 
 ```bash
-cp -r templates/astro-base/ jobs/{domain}/option-a/
-cd jobs/{domain}/option-a/ && npm install
+cp -r templates/scaffold/ jobs/{domain}/option-a/
 ```
 
-#### 3b. Create launch.json for Preview
-
-Create `.claude/launch.json` in the option-a directory so preview tools work:
-
-```json
-{
-  "version": "0.0.1",
-  "configurations": [
-    {
-      "name": "option-a",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
-      "port": 4321
-    }
-  ]
-}
+```bash
+cd jobs/{domain}/option-a/
+npm install
 ```
 
-#### 3c. Generate the Site
+The scaffold provides:
+- Astro 5 + Tailwind v4 wired correctly (`astro.config.mjs`, `package.json` locked deps)
+- `src/layouts/BaseLayout.astro` — document chrome, font-loading slot, header/footer slots, animation enhancement script (progressive — content visible without JS)
+- `src/styles/global.css` — Tailwind import + empty `@theme` block with CSS variable hooks (you fill these in) + `.fade-up`/`.stagger` animation primitives + reduced-motion respect + 16px body minimum
+- Empty `src/pages/` (you create pages here per manifest)
+- NO components (you design them fresh per customer)
 
-Customize the template:
-- Update `src/styles/global.css` with the design brief's color palette using Tailwind v4 `@theme` syntax
-- Add Google Fonts links to the BaseLayout `<head>`
-- Create all pages from the manifest, using the template components (Nav, Hero, Section, ServiceCard, Testimonial, ContactForm, Footer)
+**DO NOT** create `.claude/launch.json` inside job directories — this triggers permission prompts that break unattended operation.
+
+#### 3b. Design fresh components + pages (per design brief, REQUIRED-PATTERNS, inspiration)
+
+Build the customer's site from scratch using:
+- `jobs/{domain}/design-brief.json` — the customer's palette, typography, hero direction, distinctive elements, micro-interactions
+- `templates/REQUIRED-PATTERNS.md` — what every build must structurally satisfy
+- `templates/inspiration/{chosen-aesthetic}/` — examples of design moves to draw from (NEVER copy verbatim)
+
+Specifically:
+- Update `src/styles/global.css` `@theme` block with the design brief's color ramp + named-role rationale + display/text font CSS variables (`--brand-display`, `--brand-text`)
+- Add font loading via `<slot name="head-fonts">` in your page templates → BaseLayout's head-fonts slot. Per DESIGN QUALITY BAR, must include at least one display-quality web font (Fraunces, Editorial New, DM Serif Display, Cormorant, Cabinet Grotesk, etc. — model picks based on industry/brand vibe; no curated list). System Inter / Arial alone fails the bar.
+- Create `src/components/` directory and design fresh components per the customer (Nav, Hero, ServiceCard, Testimonial, Footer, etc.). Each must satisfy the corresponding structural rule in REQUIRED-PATTERNS.md.
+- Create all pages from the manifest in `src/pages/`
 - Copy ALL relevant images from `../assets/img/` to `public/images/` — BOTH regular images AND background images
 - **Use `backgroundImages` from the manifest as hero section backgrounds** (the large full-bleed images behind text). Every page that had a background image in the original MUST have one in the rebuild
+- **HERO CONTRAST — mandatory three-layer pattern.** Every hero section with a photo background MUST use the layered pattern: (1) image, (2) overlay/scrim div with non-transparent background-color, (3) text positioned above the overlay with a color chosen to contrast with the overlay-blended bg. Skipping the overlay or using dark text on a dark-overlayed photo is the bug we shipped on Naples FL Pressure Washing (Options A and C) and Tampa Bay landscape co (Option A). See full rule at top of SKILL.md (`HERO CONTRAST RULE`). qa-check.js will fail the build if a heading sits on a `background-image` without a detectable overlay, OR if computed contrast ratio < 3:1 for large text.
 - Use regular `images` as inline content images in two-column layouts alongside text
 - Preserve ALL original text word-for-word
 - Keep all video embeds (YouTube/Vimeo iframes)
-- Keep all social links, phone numbers, email addresses
+- **SOCIAL LINKS — preserve every one, with the correct destination URL.** Read `manifest.json → footer.social` (an array of `{platform, href}` objects populated by the scraper from BOTH live DOM and a raw-HTML regex fallback that catches Duda / Wix / late-injecting widgets). Cross-check `design-brief.json → business.socials` if it exists. ALL discovered social/business-listing links MUST appear in the footer (and in the header/contact area if the original had them there).
+
+  - **HARD RULE on the `href`**: each social link's `href` MUST be the FULL EXTERNAL URL from `manifest.footer.social` (e.g. `href="https://www.facebook.com/CustomerBusinessName"`). NEVER use `href="#"`, NEVER use `href="/"`, NEVER point a Facebook icon to the customer's own website. The icon is a destination signal — if it doesn't go to the platform it represents, it's worse than useless because it actively misleads visitors.
+
+  - **HARDER RULE — IF `manifest.footer.social` IS EMPTY OR MISSING, OMIT THE SOCIAL SECTION ENTIRELY.** Do NOT render Facebook/Instagram/etc. icons with `href="#"`, `href="/"`, or `href="https://www.facebook.com"` (homepage URL guess). No exceptions. If the customer never had social, the build doesn't ship social. If you're tempted to "guess" the brand's social handle from the business name (e.g., `facebook.com/{businessname}`) — STOP. Guessed URLs that 404 are worse than no link at all. The recurring 2026-04-25 bug (libertylandscapefl.com Option C) shipped `<a href="#" aria-label="Facebook">` placeholder anchors — qa-check failed-open because nobody ran the gate, and the customer saw fake social icons.
+
+  - **REQUIRED MARKUP for every rendered social link** (so qa-check can verify):
+    1. The `href` attribute MUST be the FULL EXTERNAL URL (not `#`, not `/`)
+    2. The `aria-label` attribute MUST name the platform exactly: `aria-label="Facebook"`, `aria-label="Instagram"`, etc. (so QA can identify which platform this anchor claims to be)
+    3. `target="_blank" rel="noopener noreferrer"` (so the visitor leaves the site cleanly and the customer's site doesn't get tab-napped)
+    4. The icon child (svg/img/Material Symbols/Font Awesome) is fine, but the ANCHOR's aria-label is the single source of truth for QA platform identification
+
+  - **Three real bugs we've shipped**:
+    1. SS Power Washing — social links dropped entirely from the rebuild
+    2. Liberty Landscape FL (first occurrence) — social icons present and styled, but every `href` pointed to the customer's own website instead of facebook.com / instagram.com. Cosmetically perfect, functionally broken
+    3. Liberty Landscape FL (second occurrence, 2026-04-25) — `href="#"` placeholder anchors in Option C because the scraper missed the social URLs entirely (Duda widget loaded AFTER networkidle), and the worker session defaulted to placeholder hrefs instead of OMITTING the section
+
+  - **Fix this once, never miss again.** qa-check.js now has FIVE detection paths for the platform identifier (text, aria-label, title, className tokens, icon-class regex, image src filename) PLUS a structural failsafe that fails the build for any icon-only anchor in `<footer>` or a `[class*="social"]` container that points to an internal href — even when no platform was identified. The scraper now has a raw-HTML regex fallback that catches social URLs late-injecting widgets miss. AND if the manifest is empty for socials, the build OMITS the section entirely instead of placeholder-ing.
+
+- **FAVICON RULE** — Read `manifest.favicon` (an object set by the scraper containing `{src, localPath, rel, sizes, type, ext, sizeBytes, source}`, or `null` if no favicon was scraped):
+  - **If `manifest.favicon` is set**: copy `assets/img/favicon.{ext}` to `public/favicon.{ext}` AND add `<link rel="icon" type="{type}" href="/favicon.{ext}">` to BaseLayout's `<head>`. Use the captured `type` and `sizes` attributes if present.
+  - **If `manifest.favicon` is null**: fall back to the logo. Take `public/images/logo.png` (or whatever logo file ended up there after `fix-logo.js`), generate a 32×32 and 192×192 favicon-style copy if you can (skip if no easy way to resize — just point `<link rel="icon" href="/images/logo.png">`). Note in the brand-preservation-note that the favicon was derived from the logo.
+  - **Never ship a build with NO favicon link** — browser tabs without a favicon look like an unfinished site. Default browser globe favicon = template tell.
+  - The scraper also tries `/favicon.ico` as a last-ditch fallback before reporting null, so `manifest.favicon` should usually be populated. If it's null, the original site genuinely had no favicon.
+
+- Keep all phone numbers, email addresses
 - Build the contact form as a mailto: link to the business email
+
+#### 3b-tris. BRAND RECOGNIZABILITY (soft rule — preserve at least one signature)
+
+The customer should look at A and feel "that's MY site, but it looks like a different company built it" — not "this is a different company entirely." Total brand erasure is a failure mode that ships when the design brief picks all-new colors and fonts without considering what the customer's actual brand signal was.
+
+**Soft rule**: aim to preserve at least ONE element from the original site so the customer recognizes their brand:
+
+- **Primary brand color** — the most-used color on the original site, OR the dominant color of the original logo. Carry it forward as A's primary or strong accent. Even modernized, the color signal endures.
+- **Typography vibe** — formal/casual, serif/sans, classical/geometric. If the original used a script for the wordmark, A's display font might lean classical; if the original was utilitarian sans, A leans clean modern. The vibe carries even when the specific font changes.
+- **Hero composition** — if the original site had a recognizable hero photo (specific truck, crew, signature work, building), use it in A's hero rather than swapping for a stock photo.
+- **Signature word/tagline** — if the original site features a memorable tagline or copy phrase (e.g., "We Show Up On Time"), keep it visible somewhere prominent in A.
+
+**Read the brand signature inventory** in `design-brief.json` (Stage 2 outputs this). Pick at least one to preserve. State which one in `jobs/{domain}/option-a/brand-preservation-note.md` (one short paragraph for traceability).
+
+**Override permission**: if the original site is genuinely terrible — clashing colors, illegible fonts, generic stock chrome with no signature, a logo that's a placeholder — you have explicit permission to preserve nothing. In that case, write to `brand-preservation-note.md`: "No preservable signature found in original. Reasoning: [one sentence — e.g., 'site uses a Hibu placeholder logo, default Arial body, no brand color, no memorable tagline; the original is itself a template the customer never personalized']." Silence is not acceptable — make the call explicitly.
+
+This is a soft rule because the override exists. But silence (preserving nothing without acknowledging it) is a failure: the worker session must either preserve OR justify.
 
 Key design rules:
 - NEVER change, paraphrase, or omit any text from the original site
 - Make the design STUNNING - this is the most important thing
 - Use generous whitespace, strong visual hierarchy, modern layout patterns
+- **CONSISTENT CARD STYLING**: All cards within the same section must use the same visual treatment — same border color, same icon background, same hover effect. Do NOT use different accent colors per card. Consistency looks professional; rainbow accents look like a template.
 - Add CSS animations: fade-in on scroll, hover effects, smooth transitions
-- Make it fully responsive (test all breakpoints)
+- **PROGRESSIVE ENHANCEMENT FOR ANIMATIONS**: Never use `opacity: 0` as the default CSS state for content sections. All content must be visible without JavaScript. Use a pattern like `html.has-animations .fade-up { opacity: 0; }` where JS adds `.has-animations` to `<html>`. Also add a safety fallback timeout (2-3 seconds) that reveals all elements in case the IntersectionObserver doesn't fire. Content that's invisible without JS = broken site for crawlers, slow connections, and QA screenshots.
 - Consolidate similar location-specific pages if there are many near-identical ones
 
-#### 3d. Build Check
+#### 3b-bis. MOBILE-FIRST DESIGN (mandatory for all options)
+
+**More than half of small-business site traffic is mobile. Mobile is not the "responsive afterthought" — it is the primary design target.** Every component, every page, every interaction must be designed mobile-first and scaled UP to desktop, not the reverse.
+
+**Hard rules** (qa-check.js enforces the programmatic ones at both 1440×900 and 390×844 viewports):
+
+1. **Mobile-first CSS**: write the base styles for the 390px viewport. Use Tailwind responsive prefixes (`md:`, `lg:`) to scale UP, not down. Default classes apply to mobile; `md:` and `lg:` classes are progressive enhancements for wider screens.
+
+2. **Touch target minimum**: every interactive element (link, button, nav item, form input, social icon, phone CTA) must be ≥ 44×44 CSS px on mobile (WCAG 2.5.5). Add padding or `min-h-[44px] min-w-[44px]` to small text links to bump their hit area. **qa-check warns on every tap target under 44px at the mobile viewport.**
+
+3. **No horizontal overflow at 390px**: nothing — no section, no image, no card, no long unbroken string — may extend past `100vw` at the mobile viewport. Common offenders: fixed-width sections, oversized images without `max-w-full`, tables, long URLs in body copy. **qa-check fails if document scrollWidth > viewport width at 390px.**
+
+4. **Image sizing for mobile**: heroes and content images displayed full-bleed on mobile must source images sized for retina mobile (≥ 780px wide for a 390px display). A 850px hero stretched to 1440px on desktop AND down to 390px on mobile fails desktop's resolution check; either provide a higher-res source or use `srcset`. **qa-check fails if any visible content image's natural width is less than its displayed width.**
+
+5. **Mobile nav**: hamburger menu OR pill-stacked nav OR bottom nav bar — pick one and execute it cleanly. The hamburger button must be ≥ 44×44px (rule 2). Menu items inside the drawer must each be ≥ 44px tall. The phone-CTA in nav should remain visible (or at least one tap away) on mobile because phone calls are the #1 mobile conversion event for trades sites.
+
+6. **Mobile typography**: body text minimum 16px (smaller text on mobile triggers iOS zoom-on-focus and feels cramped). Hero headlines should scale fluidly — `text-4xl md:text-6xl lg:text-7xl` or use `clamp()`. No text below 14px anywhere on mobile (footer fine print is the exception, but only if it's not interactive).
+
+7. **Sticky mobile CTA**: for trades/services sites, a persistent "Call Now" or "Get Quote" bar at the bottom of the mobile viewport is high-conversion. Add it. Hide on desktop with `md:hidden`.
+
+8. **Spacing on mobile**: section padding shrinks proportionally. Default `py-24 md:py-32` is fine for desktop; mobile gets `py-16` or less. But preserve breathing room — don't crush sections together.
+
+**The mobile screenshot is half of QA — not a checkbox.** Every screenshot review (Stage 4c) must look at mobile-home, mobile-about, mobile-services etc. with the same scrutiny as desktop. Mobile-only bugs (overflow, broken hamburger, stretched hero, tap-target failures) are full deploy blockers.
+
+#### 3c. Build Check
 
 ```bash
-cd jobs/{domain}/option-a/ && npm run build
+cd jobs/{domain}/option-a/
+npm run build
 ```
 
 Fix any build errors before proceeding to QA.
 
----
 
 ### Stage 4: Visual QA & Polish (Option A)
 
-**This is the most critical stage.** Start the dev server, visually inspect every page, and iterate until the site is beautiful and bug-free.
+**This is the most critical stage.** Run headless QA, visually inspect screenshots, and iterate until the site is beautiful and bug-free.
 
-#### 4a. Start Preview
+#### QA philosophy (read this first — it overrides any tactical advice below)
 
-Use `preview_start` with name "option-a" to launch the dev server.
+> **If a human would see it as a bug, the gate must catch it.**
 
-#### 4b. Visual Inspection Loop
+QA has two layers, BOTH mandatory. Neither one alone is sufficient:
 
-**Run this loop up to 3 times** until no issues remain:
+1. **Deterministic layer (`scripts/qa-check.js`)** — pattern-based programmatic checks for known bug classes. Cheap, fast, exhaustive across pages. Catches the bug classes we've seen before AND general-purpose readability/structure violations (text-contrast scan, broken images, missing nav/footer/h1, etc.). Exits non-zero → blocks deploy.
 
-**For each page in the site:**
+2. **Visual layer (you, the model, reviewing screenshots from `scripts/qa.cjs`)** — open-ended visual judgment for bugs that don't fit a regex. Misaligned grids, weird whitespace gaps, cards that overflow, color combinations that look wrong despite passing contrast, a hero that's "fine" but obviously crooked, an active nav state that's the wrong shape, a CTA button that's been styled as a dead link. **You are explicitly tasked with looking for things we haven't enumerated yet** — every novel "looks broken to a human" bug eventually becomes a new programmatic check, but until then it's your job to catch it on sight.
 
-1. **Navigate** to the page using `preview_eval` with `window.location.href = '/page-path'`
+**Why both layers**: every shipped bug class falls into one of two patterns — (a) we never wrote a programmatic check for it, OR (b) the check exists but is too narrow. The visual pass catches (a); the deterministic gate catches (b) plus the long tail of regressions. Skipping either layer ships bugs.
 
-2. **Desktop screenshot** - Use `preview_screenshot` to see the page. Study the result carefully:
-   - Does the hero section look stunning? Is the text readable over any background?
-   - Is the typography hierarchy clear? (H1 > H2 > body text)
-   - Are images displaying correctly and at good sizes?
-   - Is the color palette working? Do the colors harmonize?
-   - Is there enough whitespace? Does it feel spacious and modern?
-   - Are cards, grids, and layouts aligned properly?
-   - Does the navigation look clean and professional?
-   - Does the footer look polished?
+**The pipeline must structurally support both**: qa-check.js is run unconditionally (Stage 4b/8a). The visual sanity pass is run unconditionally (Stage 4c-bis below) with an explicit checklist of human-eye bug classes — not as a free-form "look at this." The checklist is in 4c-bis. Add to the checklist any new bug class shipped to the user.
 
-3. **Mobile screenshot** - Use `preview_resize` with preset "mobile", then `preview_screenshot`:
-   - Does the layout stack properly on mobile?
-   - Is text readable without zooming?
-   - Is the mobile menu working?
-   - Are touch targets large enough?
+Two QA scripts run in tandem, both headless:
+- `scripts/qa.cjs` — captures desktop + mobile screenshots and checks console/network errors. Screenshots are for YOU (the model) to visually review via Read tool.
+- `scripts/qa-check.js` — automated pass/fail gate. **Runs at BOTH desktop (1440×900) and mobile (390×844) viewports for every page.** Currently checks: logo legibility (natural px vs displayed px), broken images, literal `\uXXXX` escapes, missing nav/footer/h1, hero contrast (text over photos), generic text contrast (every text node vs effective background, WCAG ratios), social-link destinations (5-path detector + structural failsafe for icon-only anchors with internal hrefs), video-CTA reality, placeholder copy, image diversity, image resolution (any visible image > 200px wide must have natural width ≥ displayed width — fails if stretched, warns if soft on retina), mobile horizontal overflow (anything extending past 390px viewport), mobile tap target size (interactive elements < 44×44px), design-quality fonts (warns if no web font loaded), fact grounding (when `--manifest jobs/<domain>/manifest.json` is passed), AND **testimonial tampering** (when `--reference-dist jobs/<domain>/option-a/dist` is passed — extracts `<blockquote>`/`<q>` text from the live page and verifies each appears verbatim in the reference dist's HTML). Output groups issues by viewport: `[both]` (failures present at desktop AND mobile), `[desktop-only]`, `[mobile-only]`. Exits non-zero on any failure. Run this BEFORE the screenshot review — it catches the bugs that are invisible to a quick visual skim.
 
-4. **Tablet screenshot** - Use `preview_resize` with preset "tablet", then `preview_screenshot`
+**Reference-dist flag — when to pass it**: `--reference-dist jobs/<domain>/option-a/dist` is REQUIRED when QA-checking Option B and Option C. It enables the testimonial-tampering check (B and C must preserve A's testimonials byte-identical per the TESTIMONIAL & REVIEW PRESERVATION rule). Do NOT pass it when QA-checking A itself (A is the reference).
 
-5. **Reset to desktop** - Use `preview_resize` with preset "desktop"
+**ALWAYS run qa-check.js first.** If it fails, fix the root cause before wasting time reviewing screenshots. A blurry logo, broken image, fabricated fact, invisible text, or literal `\uXXXX` visible on the page is a failure — no exceptions.
 
-6. **Check for broken resources** - Use `preview_network` with filter "failed" to find any 404s or failed requests (broken images, missing fonts, etc.)
+#### 4a. Start Dev Server (Background)
 
-7. **Check console errors** - Use `preview_console_logs` with level "error" to find JS errors
+Read the allocated port and start the Astro dev server as a background process:
 
-8. **Inspect key elements** - Use `preview_inspect` on critical selectors to verify:
-   - Color values match the design brief
-   - Font families loaded correctly
-   - Spacing and padding are generous
+```bash
+PORT_A=$(node scripts/get-port.cjs "$DOMAIN" a)
+cd jobs/{domain}/option-a/
+npx astro dev --port $PORT_A &
+echo $!
+```
 
-#### 4c. Fix Issues
+Save the PID so you can stop it later. Wait a few seconds for the server to start.
 
-After reviewing, create a punch list of everything that needs fixing:
+#### 4b. Run Headless QA
+
+**FIRST** — run the automated gate. It exits non-zero on real defects (blurry logo, broken images, unicode escapes, console/network errors). If it fails, fix and re-run; do not proceed to screenshots until it passes:
+
+```bash
+PORT_A=$(node scripts/get-port.cjs "$DOMAIN" a)
+cd /Users/tomasz/WebFactory
+node scripts/qa-check.js http://localhost:$PORT_A --manifest jobs/$DOMAIN/manifest.json / /about /contact
+```
+
+**THEN** — run the screenshot QA script for visual inspection:
+
+```bash
+PORT_A=$(node scripts/get-port.cjs "$DOMAIN" a)
+cd /Users/tomasz/WebFactory
+node scripts/qa.cjs http://localhost:$PORT_A jobs/{domain}/qa-option-a
+```
+
+This auto-discovers all pages from the nav and for each page:
+- Takes desktop (1440×900) and mobile (375×812) screenshots
+- Captures console errors and failed network requests (404s, etc.)
+- Writes `report.json` with all findings
+
+#### 4c. Review Screenshots
+
+Read each screenshot PNG using the Read tool (it renders images visually):
+
+```
+Read: jobs/{domain}/qa-option-a/desktop-home.png
+Read: jobs/{domain}/qa-option-a/mobile-home.png
+Read: jobs/{domain}/qa-option-a/desktop-about.png
+... (all pages)
+```
+
+For each screenshot, evaluate:
+- **Hero**: Stunning? Background image showing? Text readable over overlay?
+- **Typography**: Clear hierarchy (H1 > H2 > body)? Fonts loaded?
+- **Images**: Displaying correctly? Right sizes? No broken placeholders?
+- **Colors**: Palette harmonious? Enough contrast?
+- **Spacing**: Generous whitespace? Spacious and modern feel?
+- **Cards/grids**: Aligned properly? Consistent spacing?
+- **Nav**: Clean and professional? All links present?
+- **Footer**: Polished? All info present?
+- **Mobile**: Layout stacks properly? Text readable? Menu visible?
+
+Also read the QA report for automated findings:
+
+```
+Read: jobs/{domain}/qa-option-a/report.json
+```
+
+#### 4c-bis. Visual Sanity Pass (MANDATORY — catches what regex can't)
+
+This is the second QA layer. After the deterministic gate passes and you've done the general review, run an EXPLICIT structured pass through every screenshot with the bug-class checklist below. The model is responsible for catching bugs that don't fit a programmatic pattern.
+
+**The protocol**: for EACH page, EACH viewport (desktop + mobile), open the screenshot via Read tool and answer the checklist questions one by one. If any answer is "yes, that looks wrong," log it as a punch-list item and fix in 4e. Do not skip pages, do not skim — visual bugs cluster on the pages we don't look at carefully.
+
+**The checklist** (every item is here because it shipped to a user as a bug — these are the bug classes we missed before):
+
+1. **Mobile experience (review FIRST, on every page)** — open the mobile screenshot before the desktop one. Mobile is more than half of customer traffic and the most likely place for new bugs. For each mobile screenshot ask: does the hamburger work and reveal a real menu? Does any text or image overflow past the viewport edge? Does the hero photo crop cleanly or is it stretched/cut weirdly? Are tap targets generous enough to actually hit with a thumb? Is body text readable without zooming in? Is the phone CTA visible or one tap away? Does any card or section look broken because it didn't restack properly? **Mobile bugs are not "small" — they are half of the experience.**
+
+2. **Active nav state** — on every interior page (about, services, contact), is the current nav item visually distinct AND legible? The previous bug shipped 2026-04-25 (morettiscentryautobody.com): active item rendered as black-on-black because `bg-iron text-bone` resolved to two near-identical dark colors. Look at the highlighted nav item with fresh eyes — can you actually read the text? **Check both desktop AND mobile** — active state may render differently between viewports.
+
+3. **Active state shape** — is the active-state styling (underline, pill, panel, etc.) the right SHAPE for the design? A square black box around an item in an otherwise file-cabinet-tabbed nav is a styling bug even if the contrast is technically fine.
+
+4. **Image quality and content match** — is each image clearly visible? Right orientation? Is the image relevant to the section it's in (driveway photo on driveway service, NOT a pool photo)? Are images repeated across cards within the same section? Is any hero or content image obviously stretched/pixelated? (qa-check programmatically flags both duplicates and resolution problems; this is your sanity check.)
+
+5. **Card grid consistency** — within a single grid (services, testimonials, FAQs), do all cards have the same height? Same padding? Same icon style? Same heading weight? One CTA-styled card mixed with otherwise-neutral cards is OK; otherwise mixed sizes/styles in a grid is a bug. **Check mobile**: do the cards stack to a single column or break into something weird?
+
+6. **Empty / placeholder content** — any card showing "Service title here" / "Lorem ipsum" / "Coming soon"? Any image rendered as a gray box? Any section that looks like the worker started building it and stopped halfway?
+
+7. **Hero section** — does the headline read clearly over the background image? Is there visible overlay/scrim? Does the hero feel intentional and brand-aligned, or does it feel like the photo and text were composed by accident? **On mobile**: is the hero text still legible? Is the photo composition still working when cropped to portrait orientation?
+
+8. **CTA visibility and intent** — every visible CTA button: is it obviously clickable? Does the copy say what it does? "Watch Video" buttons must wire to a real video (qa-check enforces, but verify visually). "Get a Quote" / "Call Now" should have call-out treatment. **On mobile**: are CTAs at least 44px tall? Is there a sticky bottom-bar CTA for trades sites?
+
+9. **Typography hierarchy** — H1 obviously bigger than H2 obviously bigger than body? No section where the heading is barely distinguishable from body text? No section where two adjacent headings compete for attention? **On mobile**: does typography scale down sensibly or does H1 still take up the entire viewport?
+
+10. **Whitespace and spacing rhythm** — sections should breathe. Do any sections feel cramped? Are there awkward whitespace gaps in the middle of a layout? Is footer sticking awkwardly to the last content section? **On mobile**: does spacing shrink proportionally or does the page feel either crushed (no breathing room) or sparse (huge empty gaps)?
+
+11. **Color combinations that look wrong** — even if WCAG passes, do any color pairings look "off"? Yellow on cream, orange on red, two near-identical greens, etc. The text-contrast scan catches the worst, but borderline ugly combinations are visual judgment calls.
+
+12. **Off-canvas or overflowing elements** — anything sticking out past the page edge, anything floating awkwardly because of an absolute-position bug, anything where a card extends past its container?
+
+13. **Image-to-section mapping** — does the photo on the "Painting" service look like painting? On "Bricklaying" look like brickwork? (Beyond the duplicate check; this is about semantic match.)
+
+14. **Footer completeness** — every social link from the manifest is present in the footer (qa-check enforces), but visually: do the icons line up? Is there a phone number? Address? Hours? Copyright?
+
+15. **The "would I send this to a customer?" check** — final gut-check. If the customer opened this URL right now, would your instinct be "yes, here's the redesign" or would you wince first? If you wince, list what made you wince and add it to the punch list.
+
+16. **The "$80k smell test" (DESIGN QUALITY BAR)** — the vision says A should look like a top-tier studio charged $80k. Look at the homepage screenshot honestly: could you imagine charging $80k for this? If no, what specifically is missing — typography that looks bespoke, hero treatment that earns the photo, a moment of design ambition, generous whitespace, an unexpected detail? List the gaps:
+    - Are headlines using a display-quality font, not just system Inter?
+    - Does the hero have any supporting design element beyond the photo + headline + button?
+    - Is there at least one section per page that the customer would NOT have built themselves (custom card style, unique heading layout, stat strip, editorial pull-quote)?
+    - Are there any micro-interactions (scroll reveal, hover motion, animated counters)?
+    - Does the color palette feel intentional (3 primary + 2 accent, named roles) or random (six colors, no rationale)?
+
+    If any answer is "no" or "barely," the build is below the bar. Add to the punch list. The deterministic gate's `design-quality-fonts` warning catches the font part programmatically; the rest is your judgment.
+
+17. **Editorial-drift check (Option C ONLY)** — C's whole job is industry-anchored design (industrial / garage / food-led / clinical / architectural per the customer's industry). The plugin's default bias is editorial/magazine, so drift toward "generic Medium article" is the #1 C-specific failure mode. Look at C's homepage screenshot and ask: "If a stranger saw this without knowing the customer, would they guess the industry within 3 seconds?" If the answer is "looks like a Medium article" or "looks like any consultancy" or "looks like a generic editorial site" — C drifted. Specifically check:
+    - Is the customer's scraped imagery used aggressively (hero, service tiles, team, work portfolio) OR did C ship a typographic-only design?
+    - Do the colors signal the industry (workwear navy + hi-vis yellow for trades; warm earth tones for food; cool clinical-warm for medical) OR are they generic neutrals?
+    - Does the typography pairing match the industry (industrial sans + mono for trades; editorial serif for food/legal; clean sans for medical/tech) OR is it the plugin's default Inter + serif headline?
+    - Are industry-appropriate ornaments present (chevrons + bracket numbers for trades; texture overlays for food; thin rules for legal) OR is the page bare typography on white?
+
+    If C drifted, the fix is in `industry-tokens.json` (Stage 7b-bis) — re-derive the tokens more aggressively, then rebuild.
+
+18. **Diversity check (cross-build anti-monoculture, ALL options)** — this exists because of the 2026-04-25 template architecture pivot. The old `templates/astro-base/` had baked-in visual defaults (gradient-orb hero, blue+amber palette, Plus Jakarta Sans + Inter); every build that didn't fully override them inherited the same look. The pivot removed those defaults — `templates/scaffold/` provides only structure now, design is built fresh per customer. **This item is the visual defense against regression.**
+
+    Open THIS build's homepage screenshot. Then load 2–3 recent peer builds in the same industry from disk:
+    ```
+    Read: jobs/{some-other-domain}/qa-option-a/desktop-home.png
+    Read: jobs/{another-domain}/qa-option-a/desktop-home.png
+    ```
+
+    Honest check: does THIS site have a hero treatment, color combination, typography pairing, OR distinctive element that the others don't? If everything feels familiar — same hero composition, same palette, same fonts, same card styling — you regressed to template-y defaults despite the scaffold removing them.
+
+    Specifically inspect:
+    - Hero composition: is the photo treatment / overlay style / supporting design element (bracket number, mono caption, accent rule, etc.) different from the peer builds?
+    - Color palette: are the actual hex values different, OR are you using the same "navy + amber" you used last time?
+    - Typography: is the display font different from the peer builds (or at least different weight/treatment)?
+    - One distinctive element per page: is THIS build's distinctive element different from what the peer builds used?
+
+    If none of those are different → REBUILD with more design ambition. List the differences in your `build-design-decisions.md` (see below).
+
+**Mandatory output of the visual sanity pass — `build-design-decisions.md`**: at the end of Stage 4 (and Stage 6 for B, Stage 7 for C), write `jobs/{domain}/option-{a|b|c}/build-design-decisions.md` documenting:
+- Which inspiration directories you read (`saas-default`, `industrial-trades`, etc.)
+- Specific design moves you drew from each (with citation — e.g., "took the three-layer hero pattern from saas-default but used a hatched-overlay treatment instead of gradient-orbs")
+- What's intentionally unique to this build vs prior builds (the answers from item #18)
+- Anything you deliberately did NOT copy from inspiration and why
+
+This file is the audit trail for the inspiration-only architecture. If you ever see two builds looking identical, the design-decisions logs will reveal whether it was lazy copying or genuine brand similarity.
+
+**Logging the pass**: write the punch list directly into your scratch notes for Stage 4e. Each item should reference (page, viewport, what's wrong, suspected fix). Do NOT mark Stage 4 complete until either the punch list is empty OR every item has been fixed and re-screenshotted, AND `build-design-decisions.md` is written.
+
+**Self-improvement loop**: any bug class you find here that wasn't on the checklist above goes into FEEDBACK.md AND becomes either (a) a new item on this checklist OR (b) a new programmatic check in qa-check.js. The deterministic and visual layers are co-evolving — every shipped bug eventually graduates from "the model has to spot it" to "the gate catches it deterministically."
+
+#### 4c-tris. Dramatic Improvement Audit (MANDATORY — A must be obviously better than the original)
+
+**The vision says A is "same site, suddenly expensive" — a dramatic transformation, not a polish.** If A ships as "same layout, slightly nicer fonts, a touch more padding" — that's a polish, not an $80k rebuild. The customer's reaction should be "wait, is that the same site?" not "oh, that's nice."
+
+Before completing Stage 4, run this audit explicitly:
+
+1. **Open the original homepage screenshot** captured during Stage 1:
+   ```
+   Read: jobs/{domain}/assets/screenshots/home.png
+   ```
+   (If the path is different, find it — the scraper writes one full-page screenshot per page during Stage 1.)
+
+2. **Open A's homepage screenshots** (both viewports):
+   ```
+   Read: jobs/{domain}/qa-option-a/desktop-home.png
+   Read: jobs/{domain}/qa-option-a/mobile-home.png
+   ```
+
+3. **Articulate, in writing, three SPECIFIC dramatic improvements**. Not abstract ("looks more modern") — concrete and visual. Examples of what counts:
+   - "Original hero was a flat green box with the company name; A's hero is a full-bleed photo of a finished landscape installation with a Fraunces display headline overlay and a labeled '01 // RESIDENTIAL' section number — earns the photo, signals a designed brand."
+   - "Original navigation was a centered horizontal list of 9 links in Comic Sans-ish font; A's nav is a sticky 4-item nav with a yellow CTA pill, mono section indices, and a clean Inter typography pairing."
+   - "Original services were 12 stacked text paragraphs; A's services are a 3-column grid of cards with icons, hover scale, and consistent treatment — 60-second skim now possible."
+
+4. **If you cannot articulate three specific dramatic improvements** — if the answers are vague ("better fonts," "more spacing") OR if the differences are merely cosmetic (typography swap with no design ambition) — **A failed the dramatic-improvement bar**. Add to the punch list and rebuild with more ambition. Specifically:
+   - Heroes: redesign the hero treatment with new layered elements (overlay + section number + mono caption + accent rule), not just "photo + headline."
+   - Sections: introduce at least one section per page with a layout pattern the original doesn't have (stat strip, process steps, editorial quote, comparison table).
+   - Typography: confirm a display-quality font is loaded and used at scale (not just system Inter).
+   - Spacing: audit section padding — 96px+ desktop, 48px+ mobile, no exceptions.
+   - Color: confirm 3 primary + 2 accent palette with named roles (per DESIGN QUALITY BAR).
+
+5. **Log the three improvements to a new file**:
+   ```
+   Write: jobs/{domain}/dramatic-improvement-audit.md
+   Content: brief markdown documenting the original-vs-A comparison, the 3 specific improvements, screenshot references.
+   ```
+   This file is for the skill-owner to review later — it's how we learn whether the bar is holding across builds.
+
+**Why this exists**: too many shipped builds were "merely better than original." The customer's $80k expectation was set by the vision tagline; the build needs to deliver on it. This audit forces the worker session to honestly compare and either certify the dramatic improvement OR rebuild with more ambition. No "fine, ship it" without articulating WHY.
+
+#### 4d. ~~Plugin critique~~ — REMOVED 2026-04-26 (Option A is intentionally plugin-free)
+
+> **Architectural decision 2026-04-26**: Option A does NOT use the `frontend-design` plugin. The whole point of the A vs C customer comparison is **worker-designed (A) vs plugin-designed (C)** with content held constant via B as the bridge. If both A and C invoked the plugin, the comparison would muddle. A's design quality is the worker's responsibility — driven by the design brief, REQUIRED-PATTERNS.md, the chosen inspiration directory, the DESIGN QUALITY BAR rule, the 18-item Visual Sanity Pass (Stage 4c-bis), and the Dramatic Improvement Audit (Stage 4c-tris). No external plugin invocation needed.
+>
+> **Plugin-free A is non-negotiable.** If a future skill-owner is tempted to re-add the plugin to A "for one more design opinion," the cost is the comparison's value. Don't.
+>
+> The QA work that this stage used to perform — design critique — is now distributed across:
+> - **Stage 4c-bis Visual Sanity Pass** (18 items including Item #16 "$80k smell test" and Item #18 diversity check)
+> - **Stage 4c-tris Dramatic Improvement Audit** (original vs A side-by-side, must articulate 3 specific dramatic improvements)
+> - **Programmatic qa-check.js** (27 deterministic rules including text-contrast, design-quality-fonts, mobile-overflow, mobile-tap-target, hero contrast, image resolution)
+>
+> Combined, those three layers replace what the plugin invocation here was nominally trying to add. **The plugin's expertise IS still applied to WebFactory output — exclusively in Option C** (Stages 7d build + 7g critique). Keeping it confined there is what makes the A vs C comparison meaningful.
+
+(History: this stage previously invoked imaginary skills `design:design-critique`/`design:accessibility-review` that don't exist in any installed plugin — fixed 2026-04-26 to invoke the real `frontend-design` skill — then removed entirely later that day per architectural decision above.)
+
+#### 4e. Fix Issues
+
+Create a punch list from the screenshots and report:
 
 - **Visual issues**: ugly sections, poor contrast, cramped spacing, misaligned elements
-- **Broken resources**: 404 images, missing fonts, failed network requests
+- **Broken resources**: 404 images, missing fonts (from report.json networkErrors)
 - **Responsive issues**: broken mobile layouts, overflow, tiny text
 - **Missing content**: text from original site not included, missing images
-- **Console errors**: JavaScript errors
+- **Console errors**: JS errors (from report.json consoleErrors)
 
-Fix ALL issues by editing the Astro/CSS files. Then rebuild and re-check.
+Fix ALL issues by editing the Astro/CSS files. Then rebuild and re-run QA:
 
-#### 4d. Beauty Pass
+```bash
+cd jobs/{domain}/option-a/
+npm run build
+```
 
-After fixing bugs, do one final beauty pass. Look at the site with fresh eyes:
+```bash
+PORT_A=$(node scripts/get-port.cjs "$DOMAIN" a)
+cd /Users/tomasz/WebFactory
+node scripts/qa.cjs http://localhost:$PORT_A jobs/{domain}/qa-option-a
+```
+
+**Repeat this loop up to 3 times** until no issues remain.
+
+#### 4f. Beauty Pass
+
+After fixing bugs, do one final review of the screenshots with fresh eyes:
 
 - Does every section feel intentional and polished?
 - Could any section benefit from a background color change, more padding, or a subtle border?
@@ -293,428 +1344,873 @@ After fixing bugs, do one final beauty pass. Look at the site with fresh eyes:
 - Does the overall color story feel cohesive?
 - Would any section benefit from an icon, gradient, or subtle pattern?
 
-Make refinements. Rebuild. Take a final set of screenshots.
+Make refinements, rebuild, and take a final set of screenshots.
 
-#### 4e. Stop Preview
+#### 4g. Stop Dev Server
 
-Use `preview_stop` to stop the dev server.
+```bash
+kill {dev_server_pid}
+```
 
 ---
 
-### Stage 5: Build Option B via Google Stitch (Conversion Optimized + Spanish)
+### Stage 5: Build Option B (Canonical Conversion-Tuned Rewrite)
 
-Option B uses **Google Stitch AI** as design inspiration. Stitch generates a single-page design with a unique visual system. We then **extract its design language** and **build all pages from scratch** using real content from the manifest. We NEVER copy Stitch HTML verbatim — it's a mood board, not a template.
+> **The brief in one line:** _"Same site, suddenly persuasive."_
+> Same design as A — same logo, same images, same colors, same typography, same components, same layout. The ONLY thing that changes is the text: rewritten to read like agency-grade copy with a sales lens. Grammatical errors fixed. Lorem-ipsum placeholders replaced with real content derived from manifest facts. Verbose paragraphs tightened. Sentence rhythm varied. CTAs sharpened for conversion. Value propositions reordered for impact. Voice preserved (folksy plumber stays folksy — just clearer; corporate firm stays corporate — just sharper). The customer should look at A and B side-by-side and say _"that's the same design, but B actually sells me."_
 
-#### 5a. Generate Stitch Design via API
+**B is the canonical text source for the rest of the pipeline.** Options B and C inherit B's text verbatim (then render in their own design). This means the rewrite work is shared across B, B, and C — three deliverables, one carefully-crafted text version. Customer comparison becomes "same words, four designs" (A's original copy + 3 variants of the new copy in different design languages).
 
-Run the automated Stitch generation script:
+B is a **copy rewrite of A's source files**, not a new build from scratch. It runs after Stage 4 finishes (so A is QA-passed and stable). Options B and C cannot start until B is complete (they depend on B's text).
 
-```bash
-node scripts/stitch-generate.js {domain}
-```
-
-This produces:
-- `jobs/{domain}/stitch-output/{screenId}.html` — the generated HTML (design reference only)
-- `jobs/{domain}/stitch-output/{screenId}.png` — screenshot of the design
-- `jobs/{domain}/stitch-output/design-system.json` — Stitch's design tokens
-- `jobs/{domain}/stitch-output/metadata.json` — project ID, business info
-
-**Verify**: Look at the screenshot PNG to confirm the design looks good. If not, delete stitch-output and re-run.
-
-#### 5b. Extract Design System from Stitch (CRITICAL)
-
-Read the Stitch HTML and screenshot. **Do NOT copy the HTML.** Instead, extract these design decisions into a mental model:
-
-1. **Color tokens** — Read the `tailwind.config` from Stitch HTML. Note the primary, secondary, surface, and accent colors. You'll replicate these in your own Tailwind config.
-2. **Typography** — Note the font families (headline vs body), weights, and sizing patterns.
-3. **Component patterns** — Study how Stitch designed: hero sections, service cards, testimonial cards, FAQ accordions, contact forms, footer layout. Note border radius, shadows, spacing, icon usage.
-4. **Visual effects** — Glassmorphism, gradients, backdrop blur, hover animations, Material Symbols icons.
-5. **Layout structure** — How sections alternate backgrounds, max-width, padding patterns.
-
-Write down a brief summary of the design system you'll be building with. This becomes your style guide.
-
-#### 5c. Set Up Option B Project Structure
+#### 5a. Duplicate A as B
 
 ```bash
-mkdir -p jobs/{domain}/option-b/public/images
-mkdir -p jobs/{domain}/option-b/public/es
-
-# Copy all real images from Option A
-cp jobs/{domain}/option-a/public/images/* jobs/{domain}/option-b/public/images/
+cp -r jobs/{domain}/option-a/ jobs/{domain}/option-b/
 ```
 
-#### 5d. Build ALL Pages From Scratch (CRITICAL — THE CORE STEP)
-
-**DO NOT copy Stitch HTML. Build every page yourself using the extracted design system + real manifest content.**
-
-This means every page starts with:
-- Real business name, phone, email from the manifest
-- Nav linking to ALL pages from the manifest (not just what Stitch chose)
-- Real testimonials with real reviewer names
-- Real local images (never Stitch CDN URLs)
-- Proper mobile menu with all pages listed
-- Correct `<title>`, `<meta>`, favicon
-
-**Step 1: Get the full page list from Option A:**
+Then strip the `node_modules/` and `dist/` from the copy (we'll rebuild them):
 
 ```bash
-ls jobs/{domain}/option-a/src/pages/*.astro | sed 's|.*/||; s|\.astro||'
+rm -rf jobs/{domain}/option-b/node_modules
+rm -rf jobs/{domain}/option-b/dist
+cd jobs/{domain}/option-b/
+npm install
 ```
 
-Every page in that list MUST exist in Option B.
+#### 5b. Rewrite the copy in every page
 
-**Step 2: Build every page as a complete, standalone HTML file.**
+For each `.astro` file in `jobs/{domain}/option-b/src/pages/`, identify the text-content sections (between tags, in `<Hero text=…>`, in `<Section>` body, etc.) and rewrite them.
 
-Each page is a full HTML document with:
-- `<head>` with Tailwind CDN, Google Fonts, Material Symbols, and the Stitch-inspired Tailwind config (color tokens, fonts, border radius)
-- Shared styles (glassmorphism nav, mobile menu transitions, etc.)
-- Full desktop nav with links to ALL pages + language switcher (ES) + phone CTA
-- Full mobile menu (hamburger toggle) with ALL pages + language switcher + phone CTA
-- Page-specific `<main>` content using real text from the manifest
-- Shared footer with logo, service links (ALL pages), contact info, service areas, copyright
-- Mobile sticky CTA bar (fixed bottom, phone number)
+**RULES for the rewrite:**
 
-**For the homepage (index.html):**
-- Hero with local background image, gradient overlay, conversion headline, phone CTA
-- Trust bar with stats (years in business, client count, 24/7, satisfaction guarantee)
-- Service cards grid linking to ALL service pages
-- "Why Choose Us" section with image + trust points
-- Testimonials with REAL customer quotes and names from manifest
-- "Who We Serve" section (homeowners, property managers, businesses)
-- FAQ accordion with real questions from manifest
-- Contact form with mailto action + info sidebar
-- Use the Stitch-inspired visual patterns: card styles, icon usage, section backgrounds, glassmorphism
+**DO:**
+- Fix grammar errors, typos, awkward phrasing
+- Replace placeholder/lorem-ipsum text with real content derived from manifest facts (e.g., "Business Tagline Lorem Ipsum Dolor" → "Veteran-Owned Plumbing Across Southwest Florida Since 2009" — only if "veteran-owned" and "2009" both appear in the manifest)
+- Tighten verbose copy where it doesn't sacrifice meaning (10–30% shorter is typical)
+- Vary sentence length for rhythm (mix short punchy + medium descriptive)
+- Use active voice where it tightens the sentence
+- Use the customer's own specifics (years in business, license numbers, awards, partner brands, service areas, etc.) in place of generic claims — but ONLY specifics that exist in the manifest
+- Sharpen CTAs for conversion ("Get a Quote" → "Get Your Free 24-Hour Quote", "Contact Us" → "Talk to a Real Plumber Tonight"). Use specifics drawn from manifest content (warranties, response times, guarantees) — never invent
+- Reorder value propositions on a page so the strongest hooks land first (e.g., move "24/7 emergency response" above "we're family-owned" if the customer is in pain when they hit the page)
+- Maintain headings hierarchy and section structure within a page (B shares A's layout — only text content changes)
 
-**For each service page (e.g., carpet-cleaning.html):**
-- Hero with relevant background image from `public/images/`
-- Two-column layout: content text (from manifest) + inline image
-- Process steps section (numbered steps)
-- Benefits/features list with check icons
-- CTA banner with phone number
-- Active nav highlight on current page
+**DO NOT (FACT GROUNDING + TESTIMONIAL & REVIEW PRESERVATION — see top-level principles):**
+- Add new claims, awards, metrics, partners, or specs not supported by manifest content
+- Reposition the business into a different industry or category
+- Invent new value propositions — you may sharpen the wording of existing ones, but don't add ones the customer doesn't already make
+- Drop content (testimonials, services, certifications still 100% present)
+- Change phone numbers, email addresses, business names, license numbers, addresses, founder names, or any factual fixed string
+- Substitute, remove, or rearrange images
+- Change page count, page structure, or nav organization
+- Make a folksy small-town plumber sound like a Linear marketing page (or vice versa) — voice preservation is non-negotiable
+- Restructure section ORDER beyond reordering value props within an existing section (B's layout is A's layout)
+- **TOUCH ANY TESTIMONIAL OR REVIEW TEXT** — see TESTIMONIAL & REVIEW PRESERVATION rule. Reviews are real customers' words attributed to them by name. They are NOT copy. Do not "tighten," "fix grammar," "improve," or "compose" a review. Verbatim, full, unedited. This applies to: blockquotes, testimonial cards, named quotes, star-rated cards, named-employee/founder quotes, "Featured in / As seen on" attributions, dedicated `/reviews` or `/testimonials` pages. Layout/styling/ordering/selection of which reviews to feature on which page = OK. Touching the words = forbidden.
 
-**For the about page:**
-- Hero with van/team photo
-- Mission/story content from manifest
-- "Why Choose Us" feature cards
-- Service list with links to all service pages
-- Service area tags
+**Sharpening vs fabrication — concrete examples (read before rewriting):**
 
-**For the contact page:**
-- Colored header section (no hero image needed)
-- Quick contact bar (phone + email)
-- Split layout: form (left) + info panel (right, dark bg with contact details)
-- Form fields: name, email, phone, city, service dropdown, message — all with `name` attributes and `mailto:` onsubmit
+| Manifest contains... | ✓ Allowed (sharpening) | ✗ FORBIDDEN (fabrication or tampering) |
+|----------------------|------------------------|---------------------------|
+| "Established 2003" | "20+ years in business" (math from 2003 → today) | "30+ years experience" (number not derivable from any date in manifest) |
+| "We serve Tampa Bay" | "Trusted across Tampa Bay since 2003" (if 2003 is in manifest) | "Tampa's #1 rated service" (no rating in manifest) |
+| "Family-owned" | "Family-owned and operated" | "Family-owned and veteran-owned" (veteran claim absent) |
+| "Licensed plumber" | "Fully licensed plumbing pros" | "Licensed, bonded, and insured" (bonded/insured absent) |
+| Any 5-star reviews shown | "Customers love our work" (paraphrasing in YOUR copy, not editing the review) | "200+ five-star reviews" (review count absent) |
+| "Available days, evenings, weekends" | "We answer the phone day or night, weekend or not" | "24/7 emergency response" (24/7 not stated) |
+| Customer photo of award plaque | "Award-winning service" (if specific award is named in manifest) | "Award-winning service" (if no specific award is named) |
+| Nothing about year founded | (no year claim allowed) | "20+ YEARS EXPERIENCE" badge (this was the bug we shipped) |
+| Mention of one trusted brand | "We service Trane systems" | "Authorized dealer for Trane, Carrier, and Lennox" (not in manifest) |
+| Review: "Bryan and his team did an awesome job, super proffesional, would recommend!" | (display verbatim — typo and all — and attribute to the named reviewer) | "Bryan's team did exceptional, professional work — highly recommended." (you just put words in the customer's mouth attributed to them by name) |
+| Review: "Quick service. Decent price. They showed up on time." (terse) | (display verbatim — terseness is the customer's voice) | "Quick service, decent prices, and they always show up on time — couldn't ask for more!" (composite/embellished — fabrication of voice) |
+| Two short reviews from two named people | (show both verbatim, side by side or stacked) | Combine into one "composite" review with both names attributed (impersonation) |
+| Manifest has 12 reviews on /reviews page | (show all 12 verbatim on /reviews; show 3 chosen verbatim on homepage) | Pick 3 to show + edit them to be "tighter" (tampering) |
 
-**Step 3: Verify page count matches:**
+**The before-you-write-it test (FACT GROUNDING):** For every numeric claim, dated claim, credential, or identity assertion you put on the page, you must be able to point to the line in the manifest that supports it. If you can't, the claim doesn't go on the page. The qa-check.js fact-grounding check (Stage 6 / Stage 8a) will catch you if you slip; better to catch it now in your own head than at the deploy gate.
+
+**The hands-off test (TESTIMONIAL & REVIEW PRESERVATION):** Before you change any character inside a `<blockquote>`, testimonial card, attributed quote, or anything inside a `/reviews` page — STOP. Ask: "Is this text quoted from a named person?" If yes, it stays exactly as-is. The qa-check.js testimonial-tampering check compares B's testimonial text to A's testimonial text and fails the build on any divergence.
+
+**Voice match guidance:** Read 3–5 paragraphs from the original manifest before rewriting. Notice tone, formality level, jargon density, sentence length distribution. The rewrite should match that voice but cleaner. If the original is conversational ("We've been Englewood's go-to plumbers since 2009"), don't make it formal ("Established in 2009, our plumbing services have served the Englewood community").
+
+**Layout flex tolerance**: Components in B may render slightly taller or shorter than A because of copy-length differences. That's fine. Don't fight it with hardcoded heights. The design language is identical; small layout flex is expected and acceptable.
+
+#### 5c. Build check
 
 ```bash
-OPTION_A_PAGES=$(ls jobs/{domain}/option-a/src/pages/*.astro | wc -l)
-OPTION_B_EN_PAGES=$(find jobs/{domain}/option-b/public -maxdepth 1 -name "*.html" | wc -l)
-echo "Option A: $OPTION_A_PAGES pages"
-echo "Option B EN: $OPTION_B_EN_PAGES pages"
-if [ "$OPTION_B_EN_PAGES" -lt "$OPTION_A_PAGES" ]; then
-  echo "FAIL: Option B has fewer pages than Option A. Build the missing pages before continuing."
-  exit 1
-fi
+cd jobs/{domain}/option-b/
+npm run build
 ```
 
-**DO NOT proceed to Stage 5f until this check passes.**
+Fix any build errors before proceeding to QA.
 
-#### 5f. Spanish Version
+#### 5d. Logo + Image rules (inherited from A)
 
-Duplicate EVERY English page to `/es/`:
+Same as Option A:
+- **Logo**: ALWAYS preserve the original (B is "same site, suddenly literate" — same logo, same images)
+- **Images**: Same image-to-page binding as A. B uses A's image references unchanged.
 
-```
-public/es/index.html      ← copy of public/index.html, translated
-public/es/about.html       ← copy of public/about.html, translated
-public/es/contact.html     ← copy of public/contact.html, translated
-public/es/carpet-cleaning.html  ← etc.
-```
+These are non-negotiable for B. The wordmark fallback rule for B/C does NOT apply to B.
 
-**Translation rules:**
-- Translate ALL visible text: headings, body copy, CTAs, nav items, footer text, form labels, placeholders
-- Do NOT translate: phone numbers, email addresses, business name, URLs
-- Change `lang="en"` to `lang="es"` in the `<html>` tag
-- Change the language switcher from "ES → /es/" to "EN → /"
+---
+---
 
-**Common missed translations** (check every one):
-- [ ] Service card descriptions
-- [ ] Testimonial quotes (translate the quote, keep the real reviewer name)
-- [ ] FAQ questions AND answers
-- [ ] Form field labels and placeholders
-- [ ] CTA button text
-- [ ] Footer section headings and link text
-- [ ] Mobile menu items
-- [ ] "Copyright" and footer legal text
+### Stage 6: Visual QA & Copy Review (Option B)
 
-#### 5g. Language Switcher
+Same QA flow as Stage 4 (start dev server, run `qa-check.js`, run `qa.cjs` for screenshots, design-critique, accessibility-review) but against `jobs/{domain}/option-b/`. Use the `optionB` port from metrics.json (allocated as `portA + 3` — see `init-metrics.cjs`).
 
-The language switcher must look like a **toggle/pill**, NOT a plain text link that blends into the nav menu. It should be visually distinct from navigation links so users instantly recognize it as a language control.
+**The Visual Sanity Pass from Stage 4c-bis applies here too — run the full 15-item checklist against `jobs/{domain}/qa-option-b/` screenshots.** B inherits A's design but the rewrite can introduce new bugs (text overflow because new copy is longer, broken active states because new pages were added, etc.). Do not skip the visual pass on the assumption that "B is just A with new words."
 
-**Desktop:** Place between the last nav link and the phone CTA. Style as a small pill/capsule:
-```html
-<!-- English page example -->
-<div class="flex items-center bg-surface-container rounded-full p-0.5 text-xs font-bold">
-  <span class="px-3 py-1 bg-primary text-white rounded-full">EN</span>
-  <a href="/es/{current-page}.html" class="px-3 py-1 text-on-surface-variant hover:text-primary rounded-full transition-colors">ES</a>
-</div>
-```
-The active language gets the filled/primary background. The inactive language is a clickable link. This creates a clear "switch" visual — not just another nav item.
+**B specific checks the visual QA must catch:**
 
-**Mobile:** Place the same pill-style switcher in the nav bar next to the hamburger icon. Also include a full "English"/"Español" link in the mobile menu drawer.
+1. **Layout match with A**: open A's homepage screenshot and B's homepage screenshot side-by-side. They should be visibly the same site. Sections in the same order, components looking the same, colors identical, fonts identical. Differences are limited to text length flexing components slightly.
 
-On English pages: active=EN, link=ES pointing to `/es/{current-page}.html`
-On Spanish pages: active=ES, link=EN pointing to `/{current-page}.html`
+2. **Copy actually rewritten**: pick one or two paragraphs in A vs B and verify the text is genuinely different. If B's text is identical to A's, the rewrite didn't run — fix and rebuild.
 
-#### 5h. Pre-Deploy Completeness Check (BLOCKING — ALL MUST PASS)
+3. **No fabricated facts (FACT GROUNDING — see top-level principle)**: cross-reference every numeric, dated, credential, or identity claim in B with the manifest. If B says "200+ five-star reviews" / "20+ years experience" / "BBB A+ rated" / "family-owned" and the manifest doesn't support it, that's a hallucination — must be removed. The qa-check.js fact-grounding check (run in step below) enforces this programmatically; if it flags a claim, do NOT loosen the check — fix the copy.
 
-Before proceeding to QA, run this automated check. **If ANY check fails, go back and fix it. Do NOT deploy with failures.**
+4. **Voice preserved**: read 2–3 paragraphs of B and compare tone/formality with the original manifest text. If B sounds noticeably different in personality, the rewrite went too far.
+
+5. **CTA changes are allowed in B**: B is the canonical conversion-tuned rewrite — CTA wording can sharpen for conversion. The check here is that any CTA changes are intentional (sharpened, more specific) rather than accidental drift. If a CTA in B reads worse or vaguer than A's, that's a regression.
+
+6. **All images and logos still present**: B's nav has the same logo as A. Every image in B has the same `src` as the matching image in A. If a logo or image went missing during the rewrite pass, restore it.
+
+If any of these fail, fix and rebuild B before proceeding to Stage 5/Stage 8.
 
 ```bash
-DOMAIN="{domain}"
-PHONE="{real_phone}"
-EMAIL="{real_email}"
-OPTION_A_COUNT=$(ls jobs/$DOMAIN/option-a/src/pages/*.astro | wc -l | tr -d ' ')
+PORT_A_PLUS=$(node scripts/get-port.cjs "$DOMAIN" a-plus)
+cd jobs/{domain}/option-b/
+npx astro dev --port $PORT_A_PLUS &
+echo $!
+```
 
-echo "=== PAGE COUNT CHECK ==="
-EN_COUNT=$(find jobs/$DOMAIN/option-b/public -maxdepth 1 -name "*.html" | wc -l | tr -d ' ')
-ES_COUNT=$(find jobs/$DOMAIN/option-b/public/es -name "*.html" 2>/dev/null | wc -l | tr -d ' ')
-echo "Option A pages: $OPTION_A_COUNT"
-echo "Option B EN pages: $EN_COUNT"
-echo "Option B ES pages: $ES_COUNT"
+```bash
+PORT_A_PLUS=$(node scripts/get-port.cjs "$DOMAIN" a-plus)
+cd /Users/tomasz/WebFactory
+node scripts/qa-check.js http://localhost:$PORT_A_PLUS --manifest jobs/$DOMAIN/manifest.json --reference-dist jobs/$DOMAIN/option-a/dist / /about /contact
+```
 
-if [ "$EN_COUNT" -lt "$OPTION_A_COUNT" ]; then
-  echo "✗ FAIL: Option B EN ($EN_COUNT) has fewer pages than Option A ($OPTION_A_COUNT)"
-fi
-if [ "$ES_COUNT" -lt "$EN_COUNT" ]; then
-  echo "✗ FAIL: Option B ES ($ES_COUNT) has fewer pages than EN ($EN_COUNT)"
-fi
-if [ "$EN_COUNT" -ge "$OPTION_A_COUNT" ] && [ "$ES_COUNT" -ge "$EN_COUNT" ]; then
-  echo "✓ Page count OK"
-fi
+```bash
+PORT_A_PLUS=$(node scripts/get-port.cjs "$DOMAIN" a-plus)
+mkdir -p jobs/{domain}/qa-option-b
+node scripts/qa.cjs http://localhost:$PORT_A_PLUS jobs/{domain}/qa-option-b
+```
 
-echo ""
-echo "=== NAV COMPLETENESS CHECK ==="
-# Verify that index.html's desktop nav links to every page
-HOMEPAGE="jobs/$DOMAIN/option-b/public/index.html"
-for slug in $(ls jobs/$DOMAIN/option-a/src/pages/*.astro | sed 's|.*/||; s|\.astro||' | grep -v index); do
-  if grep -q "/$slug.html" "$HOMEPAGE"; then
-    echo "  ✓ Nav has link to $slug"
-  else
-    echo "  ✗ FAIL: Nav is MISSING link to $slug — Stitch dropped it, add it manually"
-    FAIL=$((FAIL+1))
-  fi
+Stop server when done:
+
+```bash
+kill {dev_server_pid_a_plus}
+```
+
+
+### Stage 7: Build Option C via Frontend Design Plugin (Conversion Optimized, Plugin-Driven)
+
+> **⏭️ SKIP-C MODE GATE**: if `$SKIP_C` was set to `1` from the input parsing (i.e., the user passed `--skip-c` / `--no-c` / `--ab-only`), **skip this entire stage**. Do not create `option-c/`, do not invoke the plugin, do not derive industry tokens, do not build, do not deploy, do not verify. Print `⏭️  Stage 7 skipped (SKIP-C mode)` and proceed directly to Stage 8 (which will also gate on `$SKIP_C`).
+>
+> ```bash
+> if [ "$SKIP_C" = "1" ]; then
+>   echo "⏭️  Stage 7 skipped (SKIP-C mode)"
+>   # do not proceed with any 7a-7g substeps
+> fi
+> ```
+
+> **The brief in one line:** _"Same sharper words from B, industrial design language from the plugin."_
+> B already wrote the canonical conversion-tuned copy. C's job is to render those exact words in the plugin's industry-anchored design — for trades customers, that's industrial/utility aesthetic; for restaurants, food-led; for medical, clinical-warm; etc. The text from B is locked. The design is the variable. If you find yourself rewriting copy that's already in B, stop — you're doing the wrong job. The plugin's job is to raise the design bar; it is NOT permission to invent a new brand or rewrite the words. Real bugs from bigdaddysdumpers.com: C invented a "weird-looking blob" logo and used a residential-rental photo on the landscaping page. Both happened because C drifted past its actual job.
+
+Option C is a **third output** alongside Options A and B. Same customer content, same manifest, same Astro + Tailwind v4 stack — but the design engine is the **Frontend Design plugin** (installed via `claude plugin install frontend-design@claude-plugins-official --scope project`).
+
+**Architecture 2 update — text comes from B, not from independent rewrite:** Option C does NOT do its own copy rewrite. The canonical conversion-tuned text was produced by B (Stage 5). C reads B's `.astro` files for text content and re-renders that same text in the plugin's industry-anchored design language. This means B, B, and C all share the same words — only the design differs. **C cannot start until B is complete.**
+
+The plugin auto-activates when Claude builds frontend interfaces. Its default bias is toward **type-driven editorial design** — which is *wrong* for trades/services customers. Option C constrains the plugin with industry-anchored rules and aggressive reuse of scraped imagery.
+
+Option C inherits ALL image rules and content-parity rules from Option B. The plugin helps with the *design execution*, not with skipping content. Text comes from B; only the design changes.
+
+#### 7a. Verify plugin is installed
+
+```bash
+claude plugin list 2>/dev/null | grep frontend-design
+```
+
+If it's not listed, the user must install it from their terminal (not from this Claude Code app session):
+
+```bash
+cd /Users/tomasz/WebFactory
+claude plugin install frontend-design@claude-plugins-official --scope project
+```
+
+Then restart the Claude Code session so the plugin's skills load. Do NOT proceed with Option C until the plugin is installed AND the session has been restarted.
+
+If the plugin can't be installed for some reason, skip Option C entirely (Options A + B still deploy fine).
+
+#### 7b. Commit to an INDUSTRY-APPROPRIATE aesthetic direction
+
+Read `jobs/{domain}/design-brief.json` → `business.industry`. The aesthetic direction for Option C must be appropriate for THAT industry — not a generic "editorial magazine" or "photo catalog" or "brutalist minimalism."
+
+| Industry | Aesthetic direction | What it looks like |
+|----------|---------------------|---------------------|
+| Plumbing, HVAC, electrical, construction, landscaping, cleaning | **Industrial / trades** | Solid, confident, workwear catalog meets engineering documentation. Real photos of tools, trucks, crews, finished work. |
+| Auto repair, body shop, detailing | **Garage** | Gritty, competent, hardware-forward. Photos of cars, bays, tools. |
+| Restaurant, cafe, bakery | **Food-led** | Photography dominates. Menu/ingredient typography. Warm color. |
+| Law, accounting, finance | **Authoritative editorial** | Sparse photography, confident serif type, restrained color. |
+| Retail, e-commerce | **Product-led** | Photography IS the design. Minimal chrome. |
+| Medical, dental | **Clinical-warm** | Clean, reassuring, real-patient photography. |
+| Real estate | **Architectural** | Big architectural photos, restrained typography. |
+
+**If the customer's industry doesn't match any of these**, escalate to the closest adjacent industry. Plumbing escalates to HVAC/industrial trades, NOT to editorial design.
+
+Write the committed aesthetic direction into `jobs/{domain}/option-c/aesthetic-brief.md` as a short paragraph (for traceability).
+
+#### 7b-bis. Derive INDUSTRY DESIGN TOKENS before building (MANDATORY)
+
+The plugin's default bias is editorial. Without explicit token constraints, C will drift into "generic magazine layout" regardless of industry. **Before writing a single .astro file**, write `jobs/{domain}/option-c/industry-tokens.json` with concrete CSS variable values keyed to the industry direction. The build then consumes this file to seed the design system.
+
+**Required token structure** (model populates each value based on industry):
+
+```json
+{
+  "industry": "plumbing",
+  "direction": "industrial / trades",
+  "palette": {
+    "primary":   { "hex": "#1a2433", "role": "deep workwear navy / nav bg",       "rationale": "..." },
+    "secondary": { "hex": "#c4452f", "role": "crew red / heading accent",          "rationale": "..." },
+    "accent":    { "hex": "#ffc107", "role": "hi-vis safety yellow / CTA only",    "rationale": "..." },
+    "surface":   { "hex": "#f5f2e9", "role": "page wash / off-white card surface", "rationale": "..." },
+    "ink":       { "hex": "#14140f", "role": "body text / structural lines",       "rationale": "..." }
+  },
+  "typography": {
+    "display": { "family": "Cabinet Grotesk", "use": "headlines, section labels", "rationale": "industrial sans with weight character" },
+    "text":    { "family": "Inter",           "use": "body, lists, captions",     "rationale": "neutral pairing" },
+    "mono":    { "family": "JetBrains Mono",  "use": "section numbers, file-tab nav, captions, stat callouts", "rationale": "engineering-document signal" }
+  },
+  "ornament": {
+    "shapes": ["chevrons", "hatched borders", "section labels with bracket numbers like [01]", "dotted dividers"],
+    "avoid":  ["rounded magazine cards", "serif pull-quotes", "centered editorial headlines", "thin pastel accents"]
+  },
+  "imagery_directive": "Use scraped photos of trucks, crews, finished work AT FULL BLEED. Industrial = SHOW the work. Typographic-only sections are forbidden when manifest images exist."
+}
+```
+
+**Token derivation table by industry direction** (use as starting point; the model adjusts hex values to match the customer's actual brand color signal):
+
+| Direction          | Palette character                                             | Typography                                | Ornament                                                | Avoid                                          |
+|--------------------|---------------------------------------------------------------|-------------------------------------------|---------------------------------------------------------|------------------------------------------------|
+| Industrial / trades| Workwear navy/charcoal + crew red + hi-vis safety yellow      | Industrial sans display + neutral text + mono captions | Chevrons, hatched borders, bracket numbers `[01]`, file-tab nav | Rounded magazine cards, serif pull-quotes, centered editorials |
+| Garage             | Asphalt black + steel grey + signal orange                    | Stencil/mechanical display + sans text    | Diagonal stripes, gear/tool dingbats, mechanical labels | Pastels, rounded everything, serif body         |
+| Food-led           | Warm earth (clay, terracotta, cream, espresso)                | Editorial serif display + cozy sans text  | Texture overlays, hand-drawn dividers, ingredient lists | Hi-vis colors, industrial mono, brutalist sans |
+| Authoritative editorial | Restrained monochrome + 1 muted accent (oxblood, forest, navy) | Confident serif display + serif text       | Tight rules, drop caps, restrained dividers              | Hi-vis colors, casual sans, ornament-heavy     |
+| Product-led        | Neutral whites/greys + product-photo color does the work       | Clean sans display + sans text             | Minimal — let photography speak                          | Heavy ornament, editorial serifs, dark themes  |
+| Clinical-warm      | Cool whites + soft sage/dusty blue + warm cream accents       | Friendly sans display + readable sans text | Soft rounded shapes, generous whitespace, gentle dividers | Hi-vis, industrial, gritty, dark themes        |
+| Architectural      | Concrete grey + ink black + 1 muted brand accent               | Architectural sans + serif text            | Thin lines, oversized photography, architectural labels  | Decorative ornament, warm pastels              |
+
+**The build (Stage 7d below) MUST consume `industry-tokens.json`** — wire each `palette.*.hex` value into `src/styles/global.css` as a CSS variable, set the `typography.display/text/mono` families as the Google Fonts loaded in BaseLayout, and apply `ornament.shapes` as the design vocabulary across components. The `ornament.avoid` list is what the build MUST NOT do.
+
+**Editorial-drift catch (in Visual Sanity Pass for C)**: after building, look at C's homepage screenshot and ask: "If a stranger saw this without knowing the customer, would they guess the industry within 3 seconds?" If the answer is "looks like a Medium article" or "could be any consultancy" — C drifted into editorial. Reject and rebuild with the industry tokens applied more aggressively.
+
+#### 7c. Set up Option C project structure
+
+Same scaffold as A (the pure-scaffold pivot from 2026-04-25 — see Stage 3-pre / 3a). Copy `templates/scaffold/`, NOT `templates/astro-base/` (which no longer exists; its contents moved to `templates/inspiration/saas-default/` as reference only).
+
+```bash
+cp -r templates/scaffold/ jobs/{domain}/option-c/
+```
+
+```bash
+cd jobs/{domain}/option-c/
+npm install
+```
+
+For C, also read `templates/inspiration/industrial-trades/` (or the inspiration directory matching `industry-tokens.json → direction`) before designing — that's the explicit purpose of the inspiration library, especially for C where the plugin's editorial bias most needs counterweight.
+
+```bash
+# Copy all scraped images — we'll use them aggressively
+cp jobs/{domain}/assets/img/* jobs/{domain}/option-c/public/images/
+```
+
+**DO NOT** create `.claude/launch.json` inside `option-c/`.
+
+#### 7d. Build pages with plugin active — HARD RULES
+
+**INVOKE THE PLUGIN EXPLICITLY AT THE START OF THIS STAGE** (mandatory — was previously implicit / auto-trigger; explicit invocation lands the work in the Claude Design weekly quota and ensures the plugin actually engages):
+
+```
+Skill: frontend-design
+Args (free-form prompt):
+  Design and build the Option C frontend for {business-name} ({business-type}) in {industry}.
+
+  CONTEXT:
+  - This is the "industrial design language" track — Option C is the explicit
+    plugin-driven design output, intentionally distinct from Option A
+    (worker-designed). The customer comparison A vs C measures "worker design vs
+    plugin design" with content held constant via Option B as the text bridge.
+  - Industry: {industry from design-brief.json}.
+  - Industry direction: {industry-tokens.direction — e.g. "industrial / trades",
+    "food-led", "clinical-warm"}.
+
+  CONSTRAINTS (read these in priority order):
+  1. INDUSTRY ANCHORING (highest priority — overrides plugin defaults). Use
+     industry-tokens.json palette + typography + ornament. AVOID the
+     `ornament.avoid` list specifically. The plugin's default bias is editorial
+     magazine; industry direction beats that. For trades: industrial sans display
+     + mono captions + bracket-numbered sections, NOT serif pull-quotes. For
+     food: warm earth + serif display, NOT industrial mono. For medical/dental:
+     cool clinical-warm + friendly sans, NOT brutalist. The industry-tokens.json
+     IS the spec.
+  2. SCRAPED IMAGERY (use aggressively). Hero, service tiles, content sections
+     all use customer photos from public/images/. NO typographic-only design
+     when the customer has photos available. NO stock images.
+  3. TEXT FROM B (verbatim, locked). Read jobs/{domain}/option-b/src/pages/*.astro
+     for every page's text. Use those EXACT words in C — headings, body copy,
+     CTAs, FAQ Q+A, testimonial quotes, all of it. Do NOT rewrite copy. C is
+     design-only; B is the canonical text source.
+  4. STRUCTURAL REQUIREMENTS (REQUIRED-PATTERNS.md). Hero three-layer pattern,
+     mobile-first design, 44×44px tap targets, 16px body min, generic text
+     contrast WCAG AA, full preserved logo, real social link hrefs from manifest,
+     favicon, no testimonial tampering. The qa-check gate enforces these
+     programmatically; design within them, don't fight them.
+  5. PRESERVE B's STRUCTURAL PARITY. Same nav structure, same section order
+     within each page, same components (hero / service grid / testimonials /
+     FAQ / contact / footer). The plugin can RESTYLE each pattern — that's
+     the whole point — but the customer's eye should still be able to compare
+     B vs C side-by-side and see "same site, different design." Inventing new
+     sections breaks the comparison.
+
+  WHAT TO BUILD:
+  - Astro 5 + Tailwind v4 (template scaffold already copied to option-c/ in 7c)
+  - One .astro page per page in manifest, using B's text verbatim
+  - Custom components designed per industry-tokens.json
+  - Hero variant per page (homepage hero ≠ services hero ≠ contact hero)
+  - All accessibility primitives (semantic HTML, skip-to-content, etc.)
+  - Reads industry-tokens.json from jobs/{domain}/option-c/industry-tokens.json
+    (already created in 7b-bis) — wire its palette/typography/ornament into
+    src/styles/global.css and BaseLayout.astro
+
+  WHAT TO RETURN:
+  Concrete .astro component code, global.css CSS variables + utility classes,
+  BaseLayout.astro updates, and one page per manifest entry. Be bold. Be
+  industry-anchored. Avoid the editorial-default that's the plugin's natural
+  bias for trades customers.
+```
+
+The worker session writes the plugin's output to `jobs/{domain}/option-c/src/`. Then Stage 7e (build check), 7f (content parity), 7g (QA — also invokes the plugin for second-pass critique), 7h (visual QA), 7i (stop dev server) follow.
+
+**Why we EXPLICITLY invoke at build time** (not just rely on auto-trigger): the plugin auto-engages when "the user asks to build frontend interfaces," which our pipeline does naturally — but auto-trigger doesn't always register cleanly in usage telemetry, and the plugin's depth of engagement varies based on prompt clarity. Explicit invocation with the constraint prompt above guarantees:
+1. The plugin engages, hard, on every C build (not just "maybe, if it auto-fires")
+2. Industry anchoring is a constraint, not a vibe — the plugin doesn't default to its editorial bias
+3. The Claude Design weekly quota tracks correctly, so usage is visible in telemetry
+
+The hard rules below are the same constraints expressed in detail. The Skill invocation above is the trigger; the rules below are the contract.
+
+**Rule 1: Use the customer's scraped imagery. Aggressively. AND map images to pages correctly.**
+
+The scraped photos in `public/images/` ARE the customer's brand. A typographic-only design in the plugin's default style is NOT "flexibility" — it's discarding the customer's visual asset base. Violations of any of these are a bug:
+
+- Homepage hero MUST use a `backgroundImage` from the manifest's homepage entry (with overlay for legibility)
+- Every service / inner page MUST have a relevant photo from `backgroundImages` or `images`
+- Content sections (Why Us, About, Services catalog) MUST have supporting photography — team, trucks, work-in-progress, finished jobs
+- Portfolio / work-gallery sections MUST be preserved with real photography
+- The About page MUST have a team or owner photo if one exists in the manifest
+
+**IMAGE-TO-PAGE MAPPING (preserve semantic binding):** This was the second bug from bigdaddysdumpers.com — Option C used a residential-rental photo on the landscaping-debris-removal page because it looked aesthetically nice. Options A and B got it right; C didn't. Don't repeat this.
+
+- Each page's images in `manifest.json` (`page.images` and `page.backgroundImages`) are NOT a generic image pool. They are images the original site curated for THAT specific page.
+- For each page you build, **prefer images from THAT page's manifest entry** (use the `localPath` field as the canonical reference).
+- Only fall back to images from other pages if the source page has no usable images, AND the borrowed image is from a semantically adjacent page (same service category — e.g., "drain cleaning" can borrow from "hydro jetting", but NOT from "tankless water heaters").
+- NEVER use "any image that fits the aesthetic." Category drift (residential photo on a commercial page, plumbing image on an electrical page) is visible to the customer immediately and signals "they didn't actually pay attention to my business."
+
+**IMAGE DIVERSITY + SEMANTIC MATCHING (within a single page):** This was the third image bug, shipped on naples-pressure-washing-a (2026-04-25). The Option A homepage rendered three service cards — Driveway Power Wash, Home Power Washing, Sidewalk Pressure Washing — and used the **same pool photo** for all three cards. The customer's original site had multiple distinct service photos available, but the build re-used one image because it "looked nice" or because the worker session didn't bother to find unique ones for each card.
+
+Hard rules:
+
+1. **Within any single page, every content image must be unique unless absolutely necessary.** A grid of N service cards needs N distinct images. A 3-column "Why Us" feature row needs 3 distinct images. Re-using the same photo in adjacent slots reads as a content-poor template; the customer will notice immediately.
+2. **Match each image to its section's topic.** You don't have a vision model — but you have proxies. Use them in this order:
+   - **`alt` text** in the manifest entry (often describes the image: "Driveway after pressure washing", "Crew member sanding car bumper", "Tankless water heater installed in garage")
+   - **Filename hints** in `localPath` (e.g., `bg_driveway.jpg`, `pool_after.jpg`, `team_truck.jpg`)
+   - **`src` URL hints** (Hibu/CMS often have descriptive URLs: `dms3rep/multi/opt/sidewalk-pressure-washing-1920w.jpg`)
+   - **Original page context** from the manifest — if image X appeared on the Sidewalk Cleaning page in the original, prefer it for sidewalk-related cards in the rebuild
+3. **Fallback chain when no perfect-match image exists for a card**:
+   - **(a) Best**: a related-but-not-perfect image (e.g., for "Sidewalk Cleaning", a generic clean-concrete photo from another page beats reusing the driveway photo)
+   - **(b) Acceptable**: a generic / atmospheric image (the customer's truck, crew, building exterior, hero photo cropped differently) — better than a category-mismatch
+   - **(c) Last resort**: omit the image entirely, design the card text-only with strong typography, before duplicating an image
+   - **(d) Forbidden**: don't ever use a stock image from outside the manifest, and don't fabricate images
+4. **Same-image reuse is allowed ONLY when**: the manifest genuinely has fewer unique images than card slots AND the card is not the customer's primary differentiator (e.g., a single hero photo can repeat across an "About" tile and a "Contact" tile if no other photos exist; service cards on the homepage are NOT in this category — they are the differentiator).
+5. **The QA gate (`qa-check.js`) blocks the build** if a content image (>= 80×80px, not in nav/footer) appears more than once on the same page. Forces the worker to find diverse images OR consciously omit images and use text-only cards.
+
+**Rule 2: Anchor the design to the industry, not to a generic "editorial" style.**
+
+Apply the aesthetic direction committed in Stage 7b. The plugin will push for bold typography, distinctive color, and intentional composition — keep that — but frame every decision around whether a real customer in that industry would recognize this as "a good plumbing/auto/etc website" vs. "a magazine pretending to sell plumbing." If the plugin nudges you toward a choice that feels editorial-over-industrial, override it.
+
+**Rule 3: Distinctive type + color still matters, but honest to the industry.**
+
+Don't default to Inter + safe navy. DO pick distinctive choices — but the distinctive choices must feel honest to the business. A mono type for a plumbing brand reads as engineering; for a restaurant it reads as awkward. Match the type and color language to the industry.
+
+**Rule 4: Content parity AND text source — pull text from B, never rewrite.**
+
+Architecture 2 rule: Option C uses B's text VERBATIM. Don't run another copy pass. For each Option C page, read the corresponding `.astro` file in `jobs/{domain}/option-b/src/pages/` and extract the text. Use those exact words in C's pages.
+
+- Every page from the manifest exists as `.astro` in `src/pages/` (one C page per B page)
+- Every service, testimonial, FAQ, stat, certification, partner logo, trust signal from B appears in C
+- Phone, email, address match the manifest (which match B's output)
+- Full navigation with organized page links — NOT flat anchor links
+- Mobile menu, phone CTA in nav, mobile sticky CTA bar
+- Shared footer matching Option A/B structure
+- **Headings, body copy, CTAs, FAQ Q+A pairs, testimonial quotes are ALL drawn verbatim from B**. C's job is design, not copywriting. If you find yourself rewriting a sentence that's already in B, stop — use B's version.
+
+**Rule 5: Shared component patterns.**
+
+Use the same section patterns as Option B where they work (hero, service grid, testimonials, FAQ, contact form, CTA banner, footer). The plugin can reinterpret the *styling* of each pattern, but the *structure* should be recognizable across A, B, and C for a valid comparison.
+
+#### 7e. Build check
+
+```bash
+cd jobs/{domain}/option-c/
+npm run build
+```
+
+Fix any build errors before continuing.
+
+#### 7f. Content parity audit
+
+Content parity audit for Option C (same structure as Option B's audit):
+
+1. Read each manifest entry for a page, confirm every product / service / testimonial / stat / certification appears in the corresponding `.astro` file
+2. Run the content-density check (word count, image count per page)
+3. Flag and fix any gaps before proceeding to QA
+
+```bash
+for page in $(find jobs/{domain}/option-c/dist -maxdepth 1 -name "*.html"); do
+  FILENAME=$(basename "$page")
+  WORD_COUNT=$(cat "$page" | sed 's/<[^>]*>//g' | wc -w | tr -d ' ')
+  IMG_COUNT=$(grep -co 'src="/images/' "$page" | tr -d ' ')
+  echo "$FILENAME: $WORD_COUNT words, $IMG_COUNT images"
 done
+```
 
-echo ""
-echo "=== PER-PAGE CHECKS ==="
-FAIL=${FAIL:-0}
-for f in $(find jobs/$DOMAIN/option-b/public -name "*.html"); do
-  PAGE=$(echo "$f" | sed "s|.*/public/||")
-  ERRORS=""
+**Hard fail**: any homepage or inner page with 0 images. The plugin's bias toward typographic design is an image-dropping bug; flag and fix.
 
-  grep -q "$PHONE" "$f" || ERRORS="$ERRORS phone-missing"
-  grep -q "/images/logo" "$f" || ERRORS="$ERRORS logo-missing"
-  grep -q "lh3.googleusercontent.com" "$f" && ERRORS="$ERRORS stitch-cdn-images"
-  grep -qi "mobile.menu\|mobilemenu\|mobile-menu" "$f" || ERRORS="$ERRORS no-mobile-menu"
+#### 7g. Pre-Deploy Completeness Check (BLOCKING)
 
-  if [ -z "$ERRORS" ]; then
-    echo "  ✓ $PAGE"
-  else
-    echo "  ✗ $PAGE:$ERRORS"
-    FAIL=$((FAIL+1))
-  fi
-done
+Pre-deploy completeness check for Option C against `jobs/$DOMAIN/option-c/dist/`. Verify:
+- EN page count ≥ manifest page count
+- Homepage nav links to every manifest page
+- Phone number on every page
+- Logo reference on every page
+- Mobile menu on every page
+- No broken Material Symbols
+- **Option-C-specific**: every page has at least one image reference (Rule 1 enforcement)
 
-echo ""
-if [ "$FAIL" -gt 0 ] || [ "$EN_COUNT" -lt "$OPTION_A_COUNT" ] || [ "$ES_COUNT" -lt "$EN_COUNT" ]; then
-  echo "========================================="
-  echo "  ✗ COMPLETENESS CHECK FAILED"
-  echo "  Fix all issues before deploying."
-  echo "========================================="
+#### 7h. Visual QA — Headless screenshots + design critique
+
+Option C gets its own port allocated by `init-metrics.cjs` (`metrics.ports.optionC = portA + 2`). Read it via `get-port.cjs`:
+
+```bash
+PORT_C=$(node scripts/get-port.cjs "$DOMAIN" c)
+cd jobs/{domain}/option-c
+npx astro dev --port $PORT_C &
+echo $!
+sleep 4
+```
+
+```bash
+PORT_C=$(node scripts/get-port.cjs "$DOMAIN" c)
+cd /Users/tomasz/WebFactory
+node scripts/qa-check.js http://localhost:$PORT_C --manifest jobs/$DOMAIN/manifest.json --reference-dist jobs/$DOMAIN/option-a/dist / /about /contact
+```
+
+```bash
+PORT_C=$(node scripts/get-port.cjs "$DOMAIN" c)
+mkdir -p jobs/{domain}/qa-option-c
+node scripts/qa.cjs http://localhost:$PORT_C jobs/{domain}/qa-option-c
+```
+
+**The Visual Sanity Pass from Stage 4c-bis applies here too — run the full 15-item checklist against `jobs/{domain}/qa-option-c/` screenshots.** C uses a plugin-driven design that's the most likely option to produce novel layouts and novel bugs (the active-nav black-on-black bug shipped on a C-style design). The 15-item checklist is your primary defense against "the plugin made something weird."
+
+Read screenshots, check for broken images / missing hero backgrounds / generic editorial drift (violations of Rule 1 and Rule 2). Invoke the **`frontend-design` skill** for a second-pass design critique (the plugin already authored the build in Stage 7d; this invocation has it review its own output and propose refinements):
+
+```
+Skill: frontend-design
+Args (free-form prompt):
+  Critique and improve the Option C build for {business-name} ({business-type}) in {industry}.
+
+  CONTEXT:
+  - This is the "industrial design language" track — text from Option B verbatim,
+    design re-rendered in industry-anchored aesthetic per industry-tokens.json.
+  - Industry: {industry}.
+  - Industry direction: {industry-tokens.direction — e.g. "industrial / trades"}.
+  - Plugin's default bias toward editorial design is WRONG here; we explicitly
+    want NOT-editorial for trades / food / clinical customers.
+
+  CONSTRAINTS:
+  - Use scraped customer photos aggressively (hero, service tiles, content
+    sections). Typographic-only design = bug per Stage 7d Rule 1.
+  - Match industry-tokens.json palette + typography + ornament. Avoid the
+    `ornament.avoid` list specifically.
+  - Text content from Option B is locked verbatim — do NOT rewrite copy.
+
+  WHAT TO REVIEW:
+  - jobs/{domain}/qa-option-c/desktop-home.png
+  - jobs/{domain}/qa-option-c/mobile-home.png
+  - jobs/{domain}/qa-option-c/desktop-{first-service-page}.png
+
+  WHAT TO RETURN:
+  Specific, actionable improvements to industry-anchor the design more firmly.
+  Particularly flag any drift toward Medium-article aesthetic, generic
+  consultancy aesthetic, or typographic-only sections without the customer's
+  photos. Cite concrete code-level changes.
+```
+
+Fix any industry-drift or image-drop issues and re-run QA. Repeat until clean.
+
+#### 7i. Stop dev server
+
+```bash
+pkill -f "astro dev"
+```
+
+---
+
+### Stage 8: Deploy to Vercel
+
+#### 🟦 Vercel Teams Configuration (READ THIS BEFORE FIRST DEPLOY OF A PIPELINE RUN)
+
+**All WebFactory deploys go to ONE specific Vercel team.** Deploying to the wrong scope (the user's personal account, a different team) is a real failure mode — projects show up under the wrong dashboard, billing splits, the user can't find them, and re-deploys may go to a different scope than original deploys leaving orphans.
+
+**Canonical identifiers** (hardcode these — do not infer from `vercel whoami` output):
+
+| Identifier                          | Value                                  | When to use                                                                                                                |
+|-------------------------------------|----------------------------------------|----------------------------------------------------------------------------------------------------------------------------|
+| **Team slug** (CLI)                 | `tomek-group`                          | `vercel --scope tomek-group ...`, AND verifying deploy URLs end in `-tomek-group.vercel.app`                                |
+| **Team ID** (MCP tools)             | `team_4Hr5Lqd6pY5D7gmeXDVsDmYx`        | `teamId` parameter on EVERY Vercel MCP call (`list_projects`, `list_deployments`, `get_deployment`, `get_deployment_build_logs`, etc.) — without it, calls return empty or fail |
+| **Team display name** (humans only) | `Tomek Group`                          | When referring to the team in user-facing output                                                                            |
+| **Personal username (NOT a target)** | `tomekgroup` (no hyphen)              | This is what `vercel whoami` returns. **NEVER deploy here.**                                                                |
+
+**The trap**: `tomekgroup` (personal, no hyphen) and `tomek-group` (team, with hyphen) look almost identical. `vercel whoami` shows `tomekgroup`, which a model unfamiliar with the setup might assume is the deploy target. **It is not.** Always use the team slug `tomek-group` for the CLI.
+
+**How deploys actually land in the team**:
+
+1. **Existing job directories** (`jobs/{domain}/option-*/`) already have `.vercel/project.json` linked to the team. Re-deploying from those directories automatically targets `tomek-group`. No `--scope` flag needed. This is the common case.
+
+2. **Brand-new project directories** (first-ever deploy from a never-deployed location, e.g., a freshly created `option-c/` for a new domain). Two ways to ensure team scope:
+
+   ```bash
+   # Method A: pre-link before first deploy (preferred for unattended runs)
+   cd jobs/{domain}/option-a/
+   npx vercel link --scope tomek-group --yes
+   # then the standard deploy flow
+   npx vercel build --yes
+   npx vercel deploy --prebuilt --yes
+   ```
+
+   ```bash
+   # Method B: pass --scope on the first deploy (also works)
+   cd jobs/{domain}/option-a/
+   npx vercel build --yes
+   npx vercel --scope tomek-group deploy --prebuilt --yes
+   ```
+
+3. **Verification after first deploy of a pipeline change** (one-time per pipeline change):
+   - Deployment URL MUST end in `-tomek-group.vercel.app`
+   - If it ends in `-tomekgroup.vercel.app` (no hyphen) or has no team suffix → wrong scope. Delete the project from the personal account and re-deploy with `--scope tomek-group`.
+
+**Vercel MCP tool calls — `teamId` is REQUIRED**:
+
+```jsonc
+// Correct — every Vercel MCP call must include teamId
+list_projects({ teamId: "team_4Hr5Lqd6pY5D7gmeXDVsDmYx" })
+list_deployments({ teamId: "team_4Hr5Lqd6pY5D7gmeXDVsDmYx", projectId: "prj_..." })
+get_deployment({ teamId: "team_4Hr5Lqd6pY5D7gmeXDVsDmYx", idOrUrl: "dpl_..." })
+get_deployment_build_logs({ teamId: "team_4Hr5Lqd6pY5D7gmeXDVsDmYx", idOrUrl: "dpl_..." })
+get_runtime_logs({ teamId: "team_4Hr5Lqd6pY5D7gmeXDVsDmYx", idOrUrl: "dpl_..." })
+
+// WRONG — no teamId, returns empty / errors / queries personal scope
+list_projects({})
+```
+
+If you need to discover the team ID dynamically (you shouldn't — it's hardcoded above): `list_teams()` returns the available teams with their IDs.
+
+**Disable Vercel Authentication after deploy** (the SSO protection that prompts for login on previews — needs to be off so the customer can view without logging in):
+
+```bash
+cd jobs/{domain}/option-a/
+npx vercel project protection disable --sso option-a
+```
+
+This relies on the project being correctly scoped to `tomek-group` already (Step 1 or 2 above). If the project landed in the personal account, this command targets the wrong project and fails silently.
+
+#### Stage 8a: Automated QA Gate (MANDATORY — BLOCKS deploy)
+
+Before deploying, run the automated QA gate against local dev servers. This is a fast, exit-code-based check that fails the pipeline if ANY of these are detected: logo is low-res (<100px natural width OR naturalWidth < 1.5× displayed width = will appear blurry on retina), broken images, literal `\uXXXX` escapes rendered as visible text, missing nav/footer/h1, console errors, or failed network requests. It catches the class of bugs that slip past manifest-level grep checks and casual visual skim.
+
+This gate was added after a real bug in fsolsidingcontractor.com (2026-04-16) where a 24×8px WordPress favicon crop was used as the nav logo and shipped to production. Screenshot-based QA missed it because the logo "looked like a logo" at a glance.
+
+**Option A gate:**
+
+```bash
+cd jobs/{domain}/option-a
+npm run build
+```
+
+```bash
+PORT_A=$(node /Users/tomasz/WebFactory/scripts/get-port.cjs "$DOMAIN" a)
+cd jobs/{domain}/option-a
+(npx astro dev --port $PORT_A > /tmp/astro-a.log 2>&1 &)
+sleep 4
+```
+
+```bash
+PORT_A=$(node scripts/get-port.cjs "$DOMAIN" a)
+cd /Users/tomasz/WebFactory
+node scripts/qa-check.js http://localhost:$PORT_A --manifest jobs/$DOMAIN/manifest.json / /about /contact
+```
+
+If `qa-check.js` exits non-zero, **STOP**. Read the output, fix the root cause, and re-run:
+- Logo fail → re-run `node scripts/fix-logo.js {domain}`, copy fixed file to `option-a/public/images/logo.png`, `option-b/public/images/logo.png`, AND `option-c/public/images/logo.png`, rebuild, re-gate.
+- Unicode escape fail → replace literal `\uXXXX` in source files with actual characters: `perl -CSD -i -pe 's/\\u2013/\x{2013}/g' src/pages/*.astro` (and similar for other escapes).
+- Broken image fail → verify file exists at referenced path under `public/images/`.
+
+After Option A gate passes, run Option B gate (build + serve dist + qa-check):
+
+```bash
+pkill -f "astro dev"
+cd jobs/{domain}/option-b
+npm run build
+```
+
+```bash
+PORT_A_PLUS=$(node /Users/tomasz/WebFactory/scripts/get-port.cjs "$DOMAIN" a-plus)
+cd jobs/{domain}/option-b
+(npx serve dist -l $PORT_A_PLUS > /tmp/serve-a-plus.log 2>&1 &)
+sleep 3
+```
+
+```bash
+PORT_A_PLUS=$(node scripts/get-port.cjs "$DOMAIN" a-plus)
+cd /Users/tomasz/WebFactory
+node scripts/qa-check.js http://localhost:$PORT_A_PLUS --manifest jobs/$DOMAIN/manifest.json --reference-dist jobs/$DOMAIN/option-a/dist / /about /contact
+pkill -f "serve dist"
+```
+
+After B gate passes, run Option C gate (skip entirely if `$SKIP_C=1` OR if Option C wasn't built because the plugin isn't installed):
+
+```bash
+if [ "$SKIP_C" = "1" ]; then
+  echo "⏭️  Option C QA gate skipped (SKIP-C mode)"
 else
-  echo "========================================="
-  echo "  ✓ ALL CHECKS PASSED — ready for deploy"
-  echo "========================================="
+  echo "Running Option C QA gate..."
+  # ... continue with the C gate substeps below
 fi
 ```
 
-**Hard fail criteria** (deployment is BLOCKED if any are true):
-- EN page count < Option A page count
-- ES page count < EN page count
-- Homepage nav missing ANY page from Option A (Stitch commonly drops pages from nav)
-- Any page missing the real phone number
-- Any page missing the logo
-- Any page has Stitch CDN placeholder images (`lh3.googleusercontent.com`)
-- Any page missing mobile menu
-
----
-
-### Stage 6: Visual QA & Polish (Option B)
-
-**Run this QA process. Do not skip any step.**
-
-#### 6a. Start Preview
-
-Serve the static files:
 ```bash
-cd jobs/{domain}/option-b && npx serve public -l 4322
+cd jobs/{domain}/option-c
+npm run build
 ```
-(Or use `preview_start` if launch.json is configured)
-
-#### 6b. Automated Content Verification
-
-Before visual inspection, run the completeness check from Stage 5h. If any checks fail, fix them FIRST.
-
-#### 6c. Visual Inspection Loop (Run Up to 3 Times)
-
-**For EACH page** (EN homepage, EN service pages, EN about, EN contact, ES homepage, at minimum):
-
-1. **Desktop screenshot** (1440x900):
-   - Hero: Is it stunning? Real background image showing? Text readable?
-   - Nav: Logo visible? Links work? Phone CTA visible? Language switcher visible?
-   - Services: All cards present? Icons showing? Descriptions are real content?
-   - Testimonials: REAL customer names and quotes (not Stitch placeholders)?
-   - FAQ: Accordion works? Real questions from manifest?
-   - Contact: Form fields present with labels? Phone and email correct?
-   - Footer: Real logo? Real service links? Real contact info? Real social links?
-
-2. **Mobile screenshot** (375x812):
-   - Hamburger menu present and working?
-   - Mobile sticky CTA bar with phone number?
-   - Text readable without zooming?
-   - Hero not broken on small screens?
-   - Form usable on mobile?
-
-3. **Check for broken resources**:
-   ```bash
-   # In preview tool
-   preview_network filter="failed"
-   ```
-   Any 404 = broken image or resource. Fix immediately.
-
-4. **Check console errors**:
-   ```bash
-   preview_console_logs level="error"
-   ```
-
-5. **Link verification**: Click every nav link, every service card link, every footer link, the language switcher. All must work.
-
-#### 6d. Fix All Issues
-
-Create a punch list. Fix EVERY item. Since we built from scratch (not from Stitch HTML), common issues are:
-
-| Issue | How to fix |
-|-------|-----------|
-| Nav missing a page | Cross-reference Option A page list, add the missing link |
-| Broken image 404 | Check filename in `public/images/`, fix the `src` path |
-| English text on Spanish page | Translate the missed strings |
-| Form doesn't submit | Verify `name` attributes on inputs and `mailto:` onsubmit handler |
-| Section feels sparse | Add more manifest content or a visual element (icons, cards) |
-| Footer missing a service link | Ensure footer services list matches the nav |
-
-#### 6e. Re-run Automated Check
-
-After fixing, re-run the completeness check from Stage 5h. ALL must pass.
-
-#### 6f. Final Beauty Pass
-
-Look at the site with fresh eyes:
-- Does it look VISIBLY DIFFERENT from Option A? (Different design system, different typography, different layout)
-- Does it capture the Stitch-inspired visual language? (Design tokens, glassmorphism, Material icons, component patterns)
-- Does the Spanish version look natural? (No mixed languages, proper accents/characters?)
-- Is every page built with real content? (No placeholder text, no stock images, no `href="#"` links)
-
-#### 6g. Stop Preview
-
----
-
-### Stage 7: Deploy to Vercel
-
-Deploy both versions using `--prebuilt` to avoid consuming Vercel build minutes. We already built locally during QA, so we upload the `dist/` folder directly.
-
-**CRITICAL**: You must `cd` to the correct directory before each deploy command. Deploying from the wrong directory will deploy the wrong project.
 
 ```bash
-# Build locally, deploy pre-built dist/ — zero build minutes consumed
-cd jobs/{domain}/option-a/ && npm run build && npx vercel deploy ./dist --prebuilt --yes
-
-cd jobs/{domain}/option-b/ && npm run build && npx vercel deploy ./dist --prebuilt --yes
+PORT_C=$(node /Users/tomasz/WebFactory/scripts/get-port.cjs "$DOMAIN" c)
+cd jobs/{domain}/option-c
+(npx serve dist -l $PORT_C > /tmp/serve-c.log 2>&1 &)
+sleep 3
 ```
-
-After deploying, disable Vercel Authentication (SSO protection) on both projects so the URLs are publicly accessible:
 
 ```bash
-cd jobs/{domain}/option-a/ && npx vercel project protection disable --sso option-a
-cd jobs/{domain}/option-b/ && npx vercel project protection disable --sso option-b
+PORT_C=$(node scripts/get-port.cjs "$DOMAIN" c)
+cd /Users/tomasz/WebFactory
+node scripts/qa-check.js http://localhost:$PORT_C --manifest jobs/$DOMAIN/manifest.json --reference-dist jobs/$DOMAIN/option-a/dist / /about /contact
+pkill -f "serve dist"
 ```
 
-Record both preview URLs.
+Only proceed to Stage 8b (actual deploy) once ALL gates pass:
+- Default mode: A + B + C must all pass
+- `--skip-c` mode: only A + B must pass (the C gate is skipped, not failed)
+- Plugin-not-installed mode: A + B must pass; C gate is skipped with a warning
+
+#### Stage 8b: Deploy
+
+Deploy each option using the **canonical Vercel prebuilt flow**: run `vercel build` LOCALLY (which produces the `.vercel/output/` artifact that `--prebuilt` requires), then `vercel deploy --prebuilt` to upload that artifact as-is. This is the only way `--prebuilt` actually skips remote build infrastructure.
+
+**Why this matters (real bug we shipped, fixed 2026-04-25):** the previous pattern was `npx vercel deploy ./dist --prebuilt --yes`. That looks correct but is silently broken — `./dist` doesn't contain a `.vercel/output/` directory (Astro's output is just static HTML/CSS/JS), so Vercel ignores the `--prebuilt` flag, spins up a remote Turbo Build Machine (30 cores / 60 GB), and runs `vercel build` remotely. The remote build completes in ~40ms because there's nothing to compile, but the build machine spin-up still consumes Vercel build minutes on every deploy. Confirmed via build logs from `dpl_BoRJDyfLhVZRdKQsHo9kmFgYx3Sv` (Claude/WebFactory) — both showed `"Running build in iad1 (Turbo Build Machine)"` despite `--prebuilt`.
+
+The correct flow runs `vercel build` LOCALLY (which builds Astro AND wraps `dist/` into `.vercel/output/static/`), then `vercel deploy --prebuilt` (no path argument) uploads `.vercel/output/` directly. No remote build machine. Truly zero Vercel build minutes consumed.
+
+**CRITICAL**: You must `cd` to the option's root directory (the one with `astro.config.mjs`, NOT the `dist/` directory) before each deploy command. Deploying from the wrong directory will deploy the wrong project. Pass NO path argument to `vercel deploy` — the prebuilt artifact lives at `.vercel/output/` relative to the current directory.
+
+**PRE-DEPLOY LINK CHECK (mandatory for every option, every build)**: before running `vercel build` / `vercel deploy`, verify the option's `.vercel/project.json` exists. If missing, pre-link to a project under team `tomek-group` BEFORE attempting to build. This prevents the "Set up and deploy?" interactive prompt that breaks unattended mode. The Smart Resume `--full`/`--clean` handler preserves existing links across wipes (see Smart Resume section), so this check usually no-ops on existing domains. For brand-new domains, the worker session must use `Method A: pre-link before first deploy` from the Vercel Teams Configuration block.
+
+```bash
+# Run this BEFORE the build commands below for each option (a/b/c).
+# Substitute the project name per option.
+cd jobs/{domain}/option-a/
+if [ ! -f .vercel/project.json ]; then
+  echo "  ↪ no .vercel/project.json found — pre-linking to team tomek-group"
+  # If the project already exists on Vercel under tomek-group with a known name,
+  # link to it. Otherwise vercel link will create a new project named after the dir.
+  npx vercel link --scope tomek-group --yes
+fi
+```
+
+**Option A** — build locally, then deploy prebuilt:
+
+```bash
+cd jobs/{domain}/option-a/
+npx vercel build --yes
+```
+
+```bash
+cd jobs/{domain}/option-a/
+npx vercel deploy --prebuilt --yes
+```
+
+**Option B** — same pattern (B inherits A's design and outputs to its own Astro build):
+
+```bash
+cd jobs/{domain}/option-b/
+npx vercel build --yes
+```
+
+```bash
+cd jobs/{domain}/option-b/
+npx vercel deploy --prebuilt --yes
+```
+
+**Option C** — same pattern (skip ENTIRELY if `$SKIP_C=1` OR if Option C wasn't built because the plugin isn't installed):
+
+```bash
+if [ "$SKIP_C" = "1" ]; then
+  echo "⏭️  Option C deploy skipped (SKIP-C mode)"
+else
+  # Run the two commands below
+  echo "Deploying Option C..."
+fi
+```
+
+```bash
+cd jobs/{domain}/option-c/
+npx vercel build --yes
+```
+
+```bash
+cd jobs/{domain}/option-c/
+npx vercel deploy --prebuilt --yes
+```
+
+**Verify after first deploy** (one-time sanity check per pipeline change): the build logs in the Vercel dashboard for any of these deployments should NOT contain the lines `"Running build in ... (Turbo Build Machine)"` or `"Running 'vercel build'"`. Instead they should jump straight to `"Deploying outputs..."`. If you see remote-build lines, `--prebuilt` is being ignored — re-check that `.vercel/output/` exists in the option's root directory after `vercel build`, and that you're NOT passing `./dist` (or any path) to `vercel deploy`.
+
+After deploying, disable Vercel Authentication (SSO protection) on all projects so the URLs are publicly accessible:
+
+```bash
+cd jobs/{domain}/option-a/
+npx vercel project protection disable --sso option-a
+```
+
+```bash
+cd jobs/{domain}/option-b/
+npx vercel project protection disable --sso option-b
+```
+
+```bash
+if [ "$SKIP_C" = "1" ]; then
+  echo "⏭️  Option C SSO-disable skipped (SKIP-C mode)"
+else
+  cd jobs/{domain}/option-c/
+  npx vercel project protection disable --sso option-c
+fi
+```
+
+Record the preview URLs:
+- Default mode: 3 URLs (A + B + C)
+- `--skip-c` mode: 2 URLs (A + B only)
 
 ---
 
-### Stage 8: Final Verification on Vercel
+### Stage 9: Final Verification on Vercel
 
-After deploying, verify the live sites:
+After deploying, verify all live sites:
+- Default mode: A, B, AND C
+- `--skip-c` mode: A AND B only (skip C verification entirely)
 
-1. Use `web_fetch_vercel_url` or the browser tools to load each deployed URL
-2. Confirm the sites load correctly in production
-3. Check that all images load (they should since they're bundled in the build)
+1. Use `WebFetch` on each deployed URL to confirm the sites load correctly (check for 200 status, real content in the HTML)
+2. Check that key content is present on each (business name, phone number, nav links, **all social links from the manifest**)
+3. Verify B visually matches A — fetch both homepages, confirm the same logo references, the same nav structure, the same image references, the same components. Differences should be limited to text content. Any structural divergence is a bug.
+4. **If `$SKIP_C != 1`**: verify Option C specifically includes imagery — if the homepage has no `<img>` tags or `background-image:` references, Option C's Rule 1 was violated and must be fixed before the build is accepted. **If `$SKIP_C = 1`**: skip C verification entirely.
+5. Do NOT use `preview_*` / `Chrome` MCP tools (visible browser windows). Use WebFetch for HTML verification, OR a one-off Playwright script in `/tmp/` if you want to screenshot a deployed URL — Playwright is fine because it's headless.
 
 ---
 
-### Stage 9: Report
+### Stage 10: Report
 
-Present the results to the user:
+First, finalize the metrics file with output sizes and total timing:
 
+```bash
+cd /Users/tomasz/WebFactory
+node scripts/finalize-metrics.cjs "$DOMAIN"
 ```
-## WebFactory Results for {domain}
 
-**Original site**: {url}
+This measures Option A, Option B, and Option C output sizes, calculates total wall clock time, and prints the full metrics JSON.
 
-### Option A - Faithful Rebuild
-**Preview**: {vercel-url-a}
-- Preserved 100% of original text
-- {number} pages built
-- {summary of design changes}
+**The final deliverable depends on mode**:
+- **Default mode**: 4 links — Original, A, B, C
+- **`--skip-c` mode**: 3 links — Original, A, B (with explicit "Option C: skipped" note)
+- **Plugin-not-installed**: 3 links — Original, A, B (with "Option C: not built (plugin missing)" note)
 
-### Option B - Conversion Optimized + Spanish
-**English**: {vercel-url-b}
-**Spanish**: {vercel-url-b}/es
-- {number} pages (EN + ES)
-- Language switcher: EN/ES toggle in header
-- {summary of conversion copy changes — include specific headline comparisons}
+**CRITICAL OUTPUT-FORMAT RULES (read before emitting the report)**:
 
-### A vs B Comparison
-| Element | Option A | Option B |
-|---------|----------|----------|
-| Design engine | WebFactory Astro templates | Google Stitch AI |
-| Hero headline | {A's headline} | {B's headline} |
-| CTAs | {A's CTA text} | {B's CTA text} |
-| Trust bar | None | {B's trust bar stats} |
-| Language | English only | English + Spanish |
-| Visual style | {A's design style} | {Stitch's design style} |
+1. **NEVER wrap the report in a fenced code block** (no ` ``` ` around it). A fenced code block renders the URLs as plain text → the user cannot click them. Real bug shipped 2026-04-25 (accelwindows.com): worker emitted the entire 4-link block inside ` ``` ` fences; user couldn't click any URL.
 
-### Design Decisions
-**Option A:**
-- Style: {design style}
-- Color palette: {colors with hex values}
-- Typography: {heading font} / {body font}
-- Key design features: {list}
+2. **Every URL MUST be a clickable markdown autolink** — wrap the URL in angle brackets: `<https://example.com>`. This works in Claude Code's UI, GitHub markdown, Notion, every standard markdown renderer. DO NOT emit bare URLs (`https://...` with no syntax) — those auto-link in some renderers but not others.
 
-**Option B (Stitch):**
-- Stitch project ID: {stitchProjectId}
-- Design system: {Stitch's design theme description}
-- Typography: {Stitch's font choices}
-- Key visual features: {glassmorphism, gradients, etc.}
+3. **Use markdown headings (`##`, `###`), markdown lists (`1.`, `-`), and markdown tables (`|`)** — render normally. The ONLY thing forbidden is wrapping the whole report in ` ``` ` fences.
 
-### QA Summary
-- Pages checked: {count}
-- Viewports tested: desktop, tablet, mobile
-- Broken links/images: {count fixed}
-- Console errors: {count fixed}
-```
+The format below is what the user should SEE rendered (not the literal characters with fences). Emit it as raw markdown directly into chat — no code block wrapper:
+
+---
+
+## ✅ WebFactory Complete — {Customer Business Name} ({domain})
+
+Here are your {3 or 4} final links:
+
+1. **Original**: <{customer URL}>
+2. **Option A** (faithful — original copy + new design): <{vercel-url-a}>
+3. **Option B** (A's design + agency conversion-tuned copy): <{vercel-url-b}>
+4. **Option C** (B's words in plugin's industry-anchored design language): <{vercel-url-c}>
+
+(If `$SKIP_C = 1`, replace line 4 with: `4. **Option C**: skipped (--skip-c mode — A and B only this run)`)
+
+(If plugin not installed, replace line 4 with: `4. **Option C**: not built (Frontend Design plugin not installed — install with `claude plugin install frontend-design@claude-plugins-official --scope project` and re-run with `--option-c`)`)
+
+### 📊 Metrics
+
+| Metric | Value |
+|--------|-------|
+| Model | {model} |
+| Total time | {totalMinutes} min |
+| Input pages | {input.pages} |
+| Option A output | {optionA.htmlFiles} pages, {optionA.totalBytes} bytes |
+| Option B output | {optionB.htmlFiles} pages, {optionB.totalBytes} bytes |
+| Option C output | {optionC.htmlFiles} pages, {optionC.totalBytes} bytes (or "skipped" if --skip-c) |
+| Metrics file | `jobs/{domain}/metrics.json` |
+
+Spanish version paused per Testing Mode.
+
+---
+
+**Verification before finalizing**: scan your own output. If you see ` ``` ` anywhere wrapping the link list or the table — DELETE the fences and re-emit. Inline code spans like `` `jobs/{domain}/metrics.json` `` are fine (and intended); whole-block fences are the bug.
+
+---
+
+## Parallel Build Isolation
+
+Multiple WebFactory runs can execute simultaneously (different domains). Each run is fully isolated:
+
+| Resource | Isolation method |
+|----------|-----------------|
+| **Files** | Each domain gets its own `jobs/{domain}/` directory — zero overlap |
+| **Ports** | Dynamic port allocation via domain hash (stored in `metrics.json`) |
+| **Dev servers** | Each run starts/stops its own background processes with unique ports |
+| **Vercel deploy** | Each domain deploys as a separate Vercel project |
+| **Git** | `jobs/` is gitignored — parallel builds never touch the repo |
+| **QA screenshots** | Output to `jobs/{domain}/qa-option-a/`, `qa-option-b/`, `qa-option-c/` — per-domain |
+
+**What NOT to do in parallel:**
+- Do NOT modify `SKILL.md` or files in `templates/` or `scripts/` during a run
+- Do NOT run two builds for the SAME domain simultaneously
 
 ---
 
@@ -725,15 +2221,16 @@ Present the results to the user:
 - Always run `npm run build` after generating code to catch errors
 - Fix ALL build errors before moving to QA
 - The QA loop is essential - never skip it. The site must look gorgeous at every breakpoint
-- The pipeline is mostly automated. The ONE manual step is: user creates the Stitch project and provides the project ID
+- The pipeline is fully automated and runs unattended. No manual steps.
 - When inspecting screenshots, be a harsh critic. If something looks mediocre, fix it. The bar is "would a designer be proud of this?"
 - **IMAGES**: The manifest has BOTH `images` (img tags) and `backgroundImages` (CSS backgrounds). Use background images as hero backgrounds, regular images as inline content. Every page that had a hero background in the original MUST have one in the rebuild
 - **DEPLOY**: Always `cd` to the correct project directory before running `npx vercel deploy`. Deploying from the wrong directory will deploy the wrong project
 - **SSO**: After deploying, disable Vercel SSO protection so URLs are publicly accessible
-- **STITCH IS INSPIRATION, NOT A TEMPLATE**: Stitch generates a design reference. NEVER copy its HTML verbatim. Extract the design system (colors, typography, component patterns, visual effects) and build all pages from scratch using real manifest content. This avoids placeholder content, incomplete navs, and Stitch CDN images entirely. If any Stitch placeholder text, `lh3.googleusercontent.com` images, or `href="#"` links exist in the final site, something went wrong
-- **STITCH CLI**: Use `./scripts/stitch.sh <tool> '<json>'` to call Stitch tools. Key tools: `get_screen_code`, `get_screen_image`, `build_site`, `list_projects`
-- **SPANISH**: Option B includes /es/ routes for all pages. The SiteNav component must accept a `lang` prop and show a language toggle button
-- **PORT CONFLICT**: Option A uses port 4321, Option B uses port 4322. Set the port in `astro.config.mjs` with `server: { port: 4322 }` for Option B
-- **PREVIEW VIEWPORT**: The preview tool may default to a small viewport. Always use `preview_resize` with `width: 1440, height: 900` before taking desktop screenshots
-- **PROTECT FINISHED BUILDS**: Never modify files inside `jobs/{domain}/option-a/` when working on Option B (and vice versa). Worktrees and agents can accidentally overwrite files in the wrong directory. If a finished Option A gets corrupted, the Vercel deployment is the source of truth — the local `jobs/` directory can be re-generated
-- **TEMPLATE FILES ARE TEMPLATES**: Files in `templates/astro-base/` are generic starters. Never overwrite a customer's customized files (in `jobs/{domain}/option-a/`) with template defaults. Customer builds diverge from templates — that's by design
+- **OPTION B RETIRED (2026-04-24)**: The Stitch-driven Option B track has been removed from the pipeline. Existing `option-b/` directories and `stitch-output/` from prior runs are orphaned — Smart Resume ignores them. Scripts `stitch-generate.js` and `stitch.sh` are kept on disk for reference but unused. Safe to delete if you want a clean tree.
+- **SPANISH**: Option C will include /es/ routes for all pages when Spanish is re-enabled. The SiteNav component must accept a `lang` prop and show a language toggle button
+- **DYNAMIC PORTS**: Ports are allocated per domain via hash at startup and stored in `jobs/{domain}/metrics.json`. NEVER hardcode port numbers — always read from metrics.json. This ensures parallel builds of different domains don't collide
+- **PROTECT FINISHED BUILDS**: Never modify files inside `jobs/{domain}/option-a/` when working on B or C (and vice versa across all option directories). Worktrees and agents can accidentally overwrite files in the wrong directory. If a finished build gets corrupted, the Vercel deployment is the source of truth — the local `jobs/` directory can be re-generated
+- **TEMPLATE ARCHITECTURE (pivoted 2026-04-25)**: `templates/scaffold/` is the ONLY thing copied per-build (Astro config, BaseLayout, animation primitives, empty `@theme` block — zero visual opinions). `templates/inspiration/{aesthetic}/` directories are READ-ONLY references — read them for design ideas, NEVER `cp -r` from them. `templates/REQUIRED-PATTERNS.md` is the typed scaffold mapping qa-check rules to structural requirements. The old `templates/astro-base/` no longer exists; its contents moved to `templates/inspiration/saas-default/` as historical reference.
+- **NO `.claude/` IN JOB DIRS**: NEVER create `.claude/` directories or `launch.json` files inside `jobs/{domain}/option-a/`, `option-b/`, or `option-c/`. This triggers permission prompts that break unattended operation. The only `.claude/` directory should be the root project-level one at `/Users/tomasz/WebFactory/.claude/`
+- **NO SHELL OPERATORS `&&` or `||`**: NEVER use `&&` or `||` in bash commands — they trigger safety approval prompts. Instead, split commands into separate bash calls, or use `if/then/else/fi` blocks. For example, instead of `cd dir && npm install`, run `cd dir` then `npm install` as two separate bash commands
+- **PLAYWRIGHT IS UNRESTRICTED, `preview_*` / `Chrome` MCP TOOLS ARE BANNED**: NEVER use `preview_*` tools (Claude Preview) or `mcp__Claude_in_Chrome__*` / `mcp__Control_Chrome__*` tools (Chrome automation) — they show visible browser windows AND `preview_start` side-effect-creates `.claude/launch.json`. Playwright itself is fine and encouraged: use `scripts/qa.cjs` for the formal QA stages (4 / 6 / 8a — consistent screenshot output to `jobs/{domain}/qa-option-*/`) AND write ad-hoc Playwright scripts in `/tmp/*.mjs` whenever you need a quick visual check during build / debug / iteration (any stage). Start dev servers as background bash processes (`npx astro dev --port $PORT &`), then either `node scripts/qa.cjs ...` OR `node /tmp/your-probe.mjs` — both fine. Read the screenshot PNGs with the Read tool for visual inspection. The prohibition is the visible-browser MCPs + the launch.json side effect; the Playwright API itself is a free-use tool.

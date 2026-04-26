@@ -1,0 +1,13 @@
+# Inspiration directories: built artifacts and installed deps don't ship.
+# To preview an inspiration locally: `cd inspiration/{name} && npm install && npm run dev`
+inspiration/*/node_modules/
+inspiration/*/dist/
+inspiration/*/.astro/
+inspiration/*/.vercel/
+
+# Scaffold ships clean — node_modules is created per-build via npm install,
+# never committed to the scaffold itself
+scaffold/node_modules/
+scaffold/dist/
+scaffold/.astro/
+scaffold/.vercel/

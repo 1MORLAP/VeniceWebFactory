@@ -1,0 +1,9 @@
+# This directory is intentionally empty in the scaffold.
+# The build creates pages here per the customer's manifest:
+#   src/pages/index.astro
+#   src/pages/about.astro
+#   src/pages/services.astro
+#   etc.
+#
+# Do NOT pre-populate page templates in the scaffold. Pages are designed
+# fresh per-customer per the design brief and REQUIRED-PATTERNS.md.

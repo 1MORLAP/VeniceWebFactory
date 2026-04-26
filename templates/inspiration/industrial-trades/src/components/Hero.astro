@@ -1,0 +1,108 @@
+---
+/*
+ * Industrial Hero
+ * ---------------
+ * Three-layer pattern (image / overlay / text) per HERO CONTRAST RULE.
+ * Composition: full-bleed photo on left, dark overlay scrim on right where
+ * the headline sits. Bracket-numbered section label as eyebrow. Mono caption
+ * on the photo announcing what's depicted. Hi-vis CTA pill, navy secondary.
+ *
+ * Anti-pattern: NOT centered headline, NOT gradient orbs, NOT noise textures,
+ * NOT pastel scrim. Hard edges. Workwear ambition.
+ */
+
+interface Props {
+  sectionNumber?: string;       // e.g., "01"
+  sectionLabel?: string;        // e.g., "RESIDENTIAL · COMMERCIAL"
+  heading: string;
+  subheading?: string;
+  photoSrc: string;             // full-bleed background photo
+  photoCaption?: string;        // mono caption on the photo (e.g., "OAK ST · MARCH '26")
+  ctaPrimary?: { text: string; href: string };
+  ctaSecondary?: { text: string; href: string };
+}
+
+const {
+  sectionNumber = '01',
+  sectionLabel = 'EMERGENCY · 24/7',
+  heading,
+  subheading,
+  photoSrc,
+  photoCaption,
+  ctaPrimary,
+  ctaSecondary,
+} = Astro.props;
+---
+
+<section class="relative bg-[var(--color-navy-900)] text-[var(--color-bone-50)] overflow-hidden">
+  <div class="grid grid-cols-1 lg:grid-cols-12 min-h-[600px] lg:min-h-[720px]">
+
+    {/* Photo column — full-bleed image */}
+    <div class="relative lg:col-span-7 min-h-[280px] lg:min-h-0">
+      <img
+        src={photoSrc}
+        alt=""
+        class="absolute inset-0 w-full h-full object-cover"
+        loading="eager"
+      />
+      {/* Diagonal scrim from right edge so headline gets readable backdrop on lg+ */}
+      <div class="absolute inset-0 lg:bg-gradient-to-r lg:from-transparent lg:via-transparent lg:to-[var(--color-navy-900)]"></div>
+
+      {/* Mobile-only overlay so headline is legible at narrow viewports */}
+      <div class="absolute inset-0 bg-[var(--color-navy-900)]/60 lg:hidden"></div>
+
+      {/* Photo caption — mono, bottom-left, like a contact sheet annotation */}
+      {photoCaption && (
+        <div class="absolute bottom-4 left-4 lg:bottom-6 lg:left-6 z-10">
+          <span class="inline-block bg-[var(--color-navy-900)]/90 px-3 py-1.5 label-mono text-[var(--color-hivis-400)]">
+            {photoCaption}
+          </span>
+        </div>
+      )}
+    </div>
+
+    {/* Headline column — dark, left-aligned, bracket-numbered */}
+    <div class="relative lg:col-span-5 px-6 sm:px-10 lg:px-12 py-12 lg:py-20 flex flex-col justify-center z-10">
+
+      {/* Section eyebrow with bracket number */}
+      <div class="flex items-center gap-3 mb-6 lg:mb-8 fade-up">
+        <span class="label-mono-lg text-[var(--color-hivis-400)]">[{sectionNumber}]</span>
+        <span class="block w-12 h-[2px] bg-[var(--color-hivis-500)]"></span>
+        <span class="label-mono text-[var(--color-bone-200)]">{sectionLabel}</span>
+      </div>
+
+      {/* Headline — display font, weight 800, tight tracking, oversized */}
+      <h1 class="text-4xl sm:text-5xl lg:text-6xl font-extrabold leading-[1.02] tracking-tight text-[var(--color-bone-50)] fade-up">
+        {heading}
+      </h1>
+
+      {subheading && (
+        <p class="mt-5 lg:mt-6 text-base lg:text-lg text-[var(--color-bone-200)] max-w-xl leading-relaxed fade-up">
+          {subheading}
+        </p>
+      )}
+
+      {(ctaPrimary || ctaSecondary) && (
+        <div class="mt-8 lg:mt-10 flex flex-wrap gap-3 fade-up">
+          {ctaPrimary && (
+            <a
+              href={ctaPrimary.href}
+              class="inline-flex items-center gap-2 bg-[var(--color-hivis-500)] text-[var(--color-ink)] px-6 py-4 font-bold tracking-tight hover:bg-[var(--color-hivis-400)] transition-colors min-h-[44px]"
+            >
+              {ctaPrimary.text}
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M17 8l4 4m0 0l-4 4m4-4H3" /></svg>
+            </a>
+          )}
+          {ctaSecondary && (
+            <a
+              href={ctaSecondary.href}
+              class="inline-flex items-center gap-2 border border-[var(--color-bone-200)]/40 text-[var(--color-bone-50)] px-6 py-4 font-semibold tracking-tight hover:bg-white/5 transition-colors min-h-[44px]"
+            >
+              {ctaSecondary.text}
+            </a>
+          )}
+        </div>
+      )}
+    </div>
+  </div>
+</section>

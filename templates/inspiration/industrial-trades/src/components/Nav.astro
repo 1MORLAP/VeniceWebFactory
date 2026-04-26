@@ -1,0 +1,123 @@
+---
+/*
+ * Industrial Nav — file-tab pattern
+ * ----------------------------------
+ * The active page is highlighted as a black FILE TAB (rectangular, dark,
+ * cream text), not a pill or underline. Inactive items are mono-labeled
+ * with bracket numbers ([00], [01], ...) — workwear-document signal.
+ *
+ * The phone number sits to the right as a hi-vis-yellow CTA button — it's
+ * the #1 mobile conversion event for trades, must be one tap away.
+ */
+
+interface Props {
+  active?: string;
+  businessName?: string;
+  phone?: string;
+}
+
+const {
+  active = 'home',
+  businessName = 'Industrial Trades Co.',
+  phone = '(555) 555-0100',
+} = Astro.props;
+
+const items = [
+  { key: 'home',     label: 'Index',          href: '/',                index: '00' },
+  { key: 'services', label: 'Repair Services', href: '/services',        index: '01' },
+  { key: 'about',    label: 'The Shop',       href: '/about',           index: '02' },
+  { key: 'contact',  label: 'Contact',        href: '/contact',         index: '03' },
+];
+
+const phoneHref = `tel:${phone.replace(/[^\d+]/g, '')}`;
+---
+
+{/* Top utility strip — file metadata signal */}
+<div class="bg-[var(--color-navy-900)] text-[var(--color-bone-200)] py-2 px-4 sm:px-6 lg:px-8 hidden md:block">
+  <div class="max-w-7xl mx-auto flex items-center justify-between text-[10px] tracking-[0.2em] uppercase">
+    <span class="label-mono">FILE · {businessName} · LICENSED · INSURED</span>
+    <span class="label-mono">HRS · MON–FRI 7:00–17:00 · SAT 8:00–14:00</span>
+  </div>
+</div>
+
+{/* Hatched rule — caution-tape signal between top strip and main nav */}
+<div class="hatched-border-y"></div>
+
+<header class="bg-[var(--color-bone-100)] border-b border-[var(--color-bone-300)] sticky top-0 z-40">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="flex items-center justify-between h-16 md:h-20 gap-4">
+
+      {/* Wordmark — left-aligned, weight character, no graphic mark */}
+      <a href="/" class="flex flex-col leading-none shrink-0">
+        <span class="font-[var(--font-display)] text-[var(--color-navy-900)] text-lg md:text-xl font-extrabold tracking-tight uppercase">
+          {businessName}
+        </span>
+        <span class="label-mono text-[var(--color-ink-subtle)] mt-0.5">
+          EST · LIC ·  ·
+        </span>
+      </a>
+
+      {/* Desktop nav — file-tab pattern */}
+      <nav class="hidden md:flex items-center gap-1">
+        {items.map(item => (
+          <a
+            href={item.href}
+            class={`group flex items-center gap-2 px-3 py-2 transition-colors ${
+              active === item.key ? 'file-tab-active' : 'file-tab-inactive'
+            }`}
+          >
+            <span class={`label-mono opacity-70 ${active === item.key ? 'opacity-100' : ''}`}>
+              [{item.index}]
+            </span>
+            <span class="text-xs font-semibold uppercase tracking-[0.12em]">
+              {item.label}
+            </span>
+          </a>
+        ))}
+      </nav>
+
+      {/* Phone CTA — hi-vis yellow, always visible */}
+      <a
+        href={phoneHref}
+        class="hidden md:inline-flex items-center gap-2 bg-[var(--color-hivis-500)] text-[var(--color-ink)] px-4 py-2 font-bold tracking-tight hover:bg-[var(--color-hivis-400)] transition-colors min-h-[44px]"
+      >
+        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M20 15.5c-1.25 0-2.45-.2-3.57-.57a1 1 0 00-1.02.24l-2.2 2.2a15.07 15.07 0 01-6.59-6.58l2.2-2.21a.96.96 0 00.25-1A11.36 11.36 0 018.5 4a1 1 0 00-1-1H4a1 1 0 00-1 1c0 9.39 7.61 17 17 17a1 1 0 001-1v-3.5a1 1 0 00-1-1z"/></svg>
+        <span>{phone}</span>
+      </a>
+
+      {/* Mobile menu toggle — 44×44 minimum */}
+      <button
+        class="md:hidden flex items-center justify-center w-12 h-12 text-[var(--color-navy-900)]"
+        aria-label="Toggle menu"
+        onclick="document.getElementById('mobile-menu').classList.toggle('hidden')"
+      >
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" /></svg>
+      </button>
+    </div>
+  </div>
+
+  {/* Mobile drawer */}
+  <nav id="mobile-menu" class="md:hidden hidden border-t border-[var(--color-bone-300)] bg-[var(--color-bone-100)]">
+    {items.map(item => (
+      <a
+        href={item.href}
+        class={`flex items-center justify-between px-4 py-4 border-b border-[var(--color-bone-300)] min-h-[44px] ${
+          active === item.key ? 'file-tab-active' : 'file-tab-inactive'
+        }`}
+      >
+        <span class="flex items-center gap-3">
+          <span class="label-mono opacity-70">[{item.index}]</span>
+          <span class="text-sm font-semibold uppercase tracking-[0.12em]">{item.label}</span>
+        </span>
+        <span class="label-mono opacity-50">→</span>
+      </a>
+    ))}
+    <a
+      href={phoneHref}
+      class="flex items-center justify-center gap-2 bg-[var(--color-hivis-500)] text-[var(--color-ink)] px-4 py-4 font-bold tracking-tight min-h-[44px]"
+    >
+      <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M20 15.5c-1.25 0-2.45-.2-3.57-.57a1 1 0 00-1.02.24l-2.2 2.2a15.07 15.07 0 01-6.59-6.58l2.2-2.21a.96.96 0 00.25-1A11.36 11.36 0 018.5 4a1 1 0 00-1-1H4a1 1 0 00-1 1c0 9.39 7.61 17 17 17a1 1 0 001-1v-3.5a1 1 0 00-1-1z"/></svg>
+      <span>Call {phone}</span>
+    </a>
+  </nav>
+</header>

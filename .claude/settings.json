@@ -10,10 +10,30 @@
       "Agent(*)",
       "WebFetch(*)",
       "WebSearch(*)",
+      "TodoWrite(*)",
+      "ToolSearch(*)",
+
       "mcp__Claude_Preview__*",
       "mcp__stitch__*",
+      "mcp__mcp-registry__*",
+
       "mcp__067745f9-8ae5-4617-ba33-1524f0691bde__*",
-      "mcp__mcp-registry__*"
+      "mcp__vercel__*",
+      "mcp__vercel-*",
+
+      "mcp__scheduled-tasks__*",
+      "mcp__ccd_session__*",
+      "mcp__ccd_directory__*"
+    ],
+    "additionalDirectories": [
+      "/Users/tomasz/WebFactory",
+      "/Users/tomasz/WebFactory/jobs",
+      "/Users/tomasz/WebFactory/scripts",
+      "/Users/tomasz/WebFactory/templates"
     ]
+  },
+  "enabledPlugins": {
+    "frontend-design@claude-plugins-official": true,
+    "vercel@claude-plugins-official": true
   }
 }

@@ -1,0 +1,1231 @@
+# WebFactory Feedback Log
+
+Permanent log of user feedback and the skill improvements made in response. Every entry here corresponds to a rule or check added to `SKILL.md`.
+
+**Format for new entries** (newest at top):
+
+```markdown
+## YYYY-MM-DD — {domain}
+**Feedback**: {exact user quote or paraphrase}
+**Root cause**: {why this happened}
+**SKILL.md change**: {what rule/section was updated}
+**Files modified**: {list}
+```
+
+---
+
+## 2026-04-16 — V1.5 Ship: Stack Unification (Option A + Option B both on Astro 5 + Tailwind v4)
+**Feedback**: Conversation with the user about why Option B was pure HTML + Tailwind CDN. User asked: "why Option B is not Astro 5, why just Pure HTML? I do not know the pros and cons of Astro and Tailwind. Knowing what you know what should we be using for option A and Option B? I want to build efficiently and beautifully." After architectural review, user asked to "Ship V2.2 Changes now, call it V 1.5".
+**Root cause**: V1 Option B was originally pure static HTML + Tailwind CDN as a shortcut during early Stitch integration — Stitch outputs HTML, so HTML-out was the path of least resistance. But this meant Option B (pitched as the "conversion-optimized" version) actually shipped a worse product than Option A: 10–20× larger CSS bundle, no image optimization, duplicated nav/footer across every page, manual parallel `/es/*.html` files, worse Lighthouse scores. Stack asymmetry was a design bug, not a trade-off.
+**SKILL.md change**: Full refactor of Stage 5, 6a, and 7 (all Option B references):
+  - Stage 5c: `cp -r templates/astro-base/` into `option-b/` (same pattern as Option A). `npm install`. Images go to `public/images/`.
+  - Stage 5d Step 1: page list becomes `.astro` file paths in `src/pages/`.
+  - Stage 5d Step 2: rewrote to customize the Astro template — design tokens in `src/styles/global.css` via Tailwind v4 `@theme`, BaseLayout with Google Fonts + Material Symbols, pages as Astro components.
+  - Stage 5d Step 6: page count check targets `src/pages/*.astro` instead of `public/*.html`.
+  - Stage 5d Step 7 (NEW): build check — `npm run build` — before content audit.
+  - Stage 5d Step 8: Content Parity Audit now reads the built `dist/*.html` output.
+  - Stage 5f: marked as PAUSED (Testing Mode). When re-enabled, will use Astro's built-in i18n routing (sibling `src/pages/es/` files + `Astro.currentLocale`) instead of parallel `/es/*.html` files.
+  - Stage 5g: language switcher becomes a reusable `LangSwitch.astro` component that reads `Astro.currentLocale` and computes the opposite-locale URL. One source of truth; no per-page string substitution.
+  - Stage 5h: all completeness-check grep targets changed from `option-b/public/` → `option-b/dist/`. Nav link regex accepts both `.html` and non-`.html` routes.
+  - Stage 6a: `npx astro dev --port $PORT_B` instead of `npx serve public` (matches Option A's Stage 4a).
+  - Stage 7 Option B: `npm run build; npx vercel deploy ./dist --prebuilt --yes` (matches Option A).
+  - Stage 7a Option B gate: builds and serves `./dist` with `npx serve dist`, tests the production artifact.
+  - Smart Resume: detects old V1-shape Option B (`public/*.html` without `src/pages/`) and flags it for full rebuild.
+**Files modified**: SKILL.md (Stage 5c, 5d, 5f, 5g, 5h, 6a, 7, 7a, Smart Resume), ROADMAP.md (V1.5 section added, V2.2 removed), CLAUDE.md (Option B stack description), FEEDBACK.md
+**Source**: Direct session conversation + ROADMAP review
+**Deliberately deferred to V2**: shared component library between A and B (each still copies its own template), Astro `<Image>` optimization for scraped assets (images still served as plain `public/images/` files), Astro i18n configuration (remains paused per Testing Mode).
+
+---
+
+## 2026-04-26 — Playwright is UNRESTRICTED, not "for QA stages only" — clarify the rule wording
+
+**Feedback** (verbatim, with context — worker session quoted SKILL.md back at the user as if it forbade ad-hoc Playwright): "If an agent wants to use preview, I think it makes sense to allow them to use Playwright at whatever time they want. I don't think we need to be strict with saying 'only use Playwright QA.' At any point that they want to use Playwright to iterate, let them use Playwright. So the prohibition is: don't use preview, but yes, use Playwright whenever you feel like it."
+
+**Bug**: SKILL.md and CLAUDE.md were over-constraining the rule. The actual prohibition is on `preview_*` MCP tools (Claude Preview — auto-creates `.claude/launch.json`) and `Chrome` MCP tools (visible browser windows). Both are forbidden because they break unattended mode in concrete ways. But the original wording slid into "use ONLY `scripts/qa.cjs` for ALL visual QA," which a worker session correctly read as "no ad-hoc Playwright outside the formal QA stages." That's not what the rule was supposed to mean.
+
+The cost of the over-constraint: workers couldn't iterate visually mid-build. They had to defer all visual checks to Stage 4 / 6 / 8a even when a 30-second one-off Playwright probe would have unblocked them. Worse: when the worker DID want to do a quick visual check during Stage 3 build, they reached for `preview_start` (the only "browser-ish" tool they remembered being allowed for casual use) — which is exactly what's banned and creates the `.claude/launch.json` side effect. The rule's wording was generating the bug class it was supposed to prevent.
+
+**The corrected rule**:
+- BANNED: `preview_*` MCP tools (`preview_start`, `preview_screenshot`, etc.) + Chrome MCP tools (`mcp__Claude_in_Chrome__*`, `mcp__Control_Chrome__*`). These show visible browser windows AND `preview_start` side-effect-creates `.claude/launch.json`.
+- UNRESTRICTED: Playwright itself, in any invocation. Two patterns are both fine:
+  - `scripts/qa.cjs` for the formal QA stages (4 / 6 / 8a — consistent screenshot output to `jobs/{domain}/qa-option-{a|b|c}/`)
+  - Ad-hoc one-off Playwright scripts in `/tmp/*.mjs` at any pipeline stage (build, debug, iteration, single-component test, deployed-URL screenshot, etc.). Spin up an Astro dev server via Bash first; use `chromium.launch()` for headless; clean up the `/tmp/` file when done.
+
+The rule reframed: **the prohibition is the visible-browser MCPs + the launch.json side effect; the Playwright API itself is a free-use tool.**
+
+**SKILL.md changes** (4 locations updated):
+1. **UNATTENDED MODE rule #3** (line 18-24): rewritten to ban `preview_*`/`Chrome` MCPs explicitly AND add a new paragraph encouraging ad-hoc Playwright use at any pipeline stage. Spelled out the two patterns (scripts/qa.cjs for formal QA, /tmp/ scripts for iteration) so workers don't have to guess.
+2. **Sub-agent prompt** (line 189): same rewrite — "ban on `preview_*` / `Chrome` MCP tools — but Playwright itself is UNRESTRICTED, use it ad-hoc anywhere in the pipeline plus `scripts/qa.cjs` for the formal QA stages."
+3. **Stage 9 verification** (line 2133): "Do NOT use browser tools — headless only" → "Do NOT use `preview_*` / `Chrome` MCP tools. Use WebFetch for HTML verification, OR a one-off Playwright script in `/tmp/` if you want to screenshot a deployed URL — Playwright is fine because it's headless."
+4. **Important Notes** (line 2236): renamed bullet from "PLAYWRIGHT FOR ALL QA" to "PLAYWRIGHT IS UNRESTRICTED, `preview_*` / `Chrome` MCP TOOLS ARE BANNED" with the same spelled-out two patterns.
+
+**CLAUDE.md change** (1 location):
+- "Operational bans" line: rewritten to ban `preview_*` / `Chrome` MCP tools explicitly while stating "Playwright itself is UNRESTRICTED — use `scripts/qa.cjs` for the formal QA stages AND write ad-hoc Playwright scripts in `/tmp/*.mjs` for any iteration / debugging / single-component check at any pipeline stage. The ban is on visible-browser MCP tools, not on Playwright."
+
+**MEMORY.md change** (user-level memory file): updated the operational-bans line so any new session in this project also sees the corrected rule from the start.
+
+**Files modified**: SKILL.md (4 rule locations), CLAUDE.md (Operational bans), MEMORY.md (operational bans line), FEEDBACK.md (this entry)
+
+**Why this matters operationally**: workers under the OLD rule were either (a) deferring all visual iteration to Stage 4/6/8a — slower builds, harder debugging, OR (b) reaching for `preview_start` for "quick visual checks" — exactly the prohibited tool, which trips the launch.json side-effect bug. The corrected rule lets workers iterate visually whenever they need to, via the actually-safe pattern (Playwright). Removes the perverse incentive to violate the rule that was supposed to keep them safe.
+
+**Pattern note**: rules need to state what they're FOR, not just what they're against. "Use ONLY scripts/qa.cjs" sounded restrictive about Playwright when the actual concern was the `preview_*`/`Chrome` MCP side effects. State the affordance ("Playwright is unrestricted, here are the two patterns to use it") alongside the prohibition ("preview_*/Chrome MCP tools are banned, here's why"). Workers honor rules better when they understand what's safe to do, not just what's forbidden.
+
+---
+
+## 2026-04-26 — Plugin allocation: A and B intentionally plugin-free; C uses plugin in BOTH build and QA
+
+**Feedback** (verbatim): "I do not want A or B to use Claude Design at all. But I want C to use in all relevant stages as you suggest, so in Build and QA."
+
+**Architectural decision**: the `frontend-design@claude-plugins-official` plugin is now strictly confined to Option C, invoked at BOTH the build phase (Stage 7d) and the QA-critique phase (Stage 7g). Option A and Option B do NOT invoke it.
+
+**Why this allocation matters**: the entire customer comparison structure depends on three clean, distinct deliverables.
+
+| | Option A | Option B | Option C |
+|---|---|---|---|
+| Designer | Worker (model + REQUIRED-PATTERNS + inspiration + design brief) | Inherits A's design | Plugin (`frontend-design`) |
+| Text | 100% original from manifest | Agency-rewritten conversion-tuned (B is canonical text source for C) | B's text verbatim |
+| Plugin used | NO | NO | YES (build + QA) |
+| Customer compares | A vs B = value of copy improvement | B vs C = value of plugin-driven design | A vs C = worker-designed vs plugin-designed |
+
+If A used the plugin, A and C would converge in aesthetic and the A vs C comparison would muddle. If B used the plugin, B's design would drift from A and the A vs B comparison (testing copy in isolation) would lose its purity. The plugin only belongs in C.
+
+**SKILL.md changes**:
+
+### Stage 4d (Option A QA "Plugin Critique") — REMOVED
+Previous state: this stage explicitly invoked `Skill: frontend-design` to critique A's screenshots and suggest improvements (added earlier 2026-04-26 to fix the imaginary-skill bug).
+
+New state: the section header remains as a tombstone (`#### 4d. ~~Plugin critique~~ — REMOVED 2026-04-26 (Option A is intentionally plugin-free)`) with a callout explaining the architectural decision: the A vs C comparison value requires A to stay plugin-free. The QA work that this stage was nominally doing is now distributed across:
+- **Stage 4c-bis Visual Sanity Pass** (18-item checklist including "$80k smell test" and diversity check)
+- **Stage 4c-tris Dramatic Improvement Audit** (original-vs-A side-by-side, must articulate 3 specific improvements)
+- **Programmatic qa-check.js** (27 deterministic rules including text-contrast, design-quality-fonts, mobile-overflow, mobile-tap-target, hero contrast, image resolution)
+
+The tombstone explicitly warns future skill-owner sessions: "If a future skill-owner is tempted to re-add the plugin to A 'for one more design opinion,' the cost is the comparison's value. Don't."
+
+### Stage 7d (Build C) — NEW explicit plugin invocation at the START
+Previous state: Stage 7d had a header "Build pages with plugin active" that described 5 hard rules, but never explicitly invoked the Skill tool. The plugin was expected to auto-trigger because the worker was "building frontend interfaces." Auto-trigger doesn't always register cleanly in usage telemetry, and the plugin's depth of engagement varies based on prompt clarity.
+
+New state: Stage 7d opens with an explicit `Skill: frontend-design` invocation containing a comprehensive constraint prompt:
+1. **Industry anchoring** (highest priority — overrides plugin's editorial bias). Use `industry-tokens.json` palette/typography/ornament. Avoid the `ornament.avoid` list. For trades: industrial sans + mono captions + bracket numbers. For food: warm earth + serif. For medical: cool clinical-warm + friendly sans.
+2. **Scraped imagery aggressively** (no typographic-only design when customer photos exist).
+3. **Text from B verbatim** (read from `option-b/src/pages/*.astro`, use exact words, do NOT rewrite).
+4. **Structural requirements** (REQUIRED-PATTERNS.md — hero three-layer pattern, mobile-first, 44px tap targets, 16px body min, generic text contrast WCAG AA, preserved logo, real social link hrefs, favicon, no testimonial tampering).
+5. **Preserve B's structural parity** (same nav, same section order, same components — plugin restyles, structure stays comparable for the B vs C comparison).
+
+The 5 detailed hard rules below the invocation remain as the contract; the Skill invocation is the trigger.
+
+### Stage 7g (QA C) — kept as-is, second-pass critique
+Stage 7g still explicitly invokes `Skill: frontend-design` for a second-pass critique of the built C output. Updated wording to clarify this is a SECOND-PASS critique (the plugin authored the build in 7d; this invocation has it review its own work). Removed the stale "this is the same plugin used in Stage 4d for Option A" reference (4d is gone).
+
+**CLAUDE.md changes**:
+Tech Stack section's three Option lines rewritten with explicit plugin allocation:
+- Option A: "Worker-designed from scratch using scaffold + REQUIRED-PATTERNS + inspiration. **Does NOT use the Frontend Design plugin** — A is the worker-designed half of the A vs C comparison."
+- Option B: "Inherits A's design verbatim. **Does NOT use the Frontend Design plugin** (no design changes in B)."
+- Option C: "**Plugin-driven design** via the `frontend-design@claude-plugins-official` plugin — invoked at BUILD time (Stage 7d) AND QA-critique time (Stage 7g)."
+
+A new model reading CLAUDE.md as project memory now sees the allocation up front, before they touch any pipeline stage.
+
+**Files modified**: SKILL.md (Stage 4d removed with architectural-decision tombstone, Stage 7d gets explicit plugin invocation at start with comprehensive constraint prompt, Stage 7g wording updated to "second-pass critique"), CLAUDE.md (Tech Stack > three Option lines explicitly state plugin allocation), FEEDBACK.md (this entry)
+
+**Verification**: grep confirms exactly 2 `Skill: frontend-design` invocations in SKILL.md, both in Option C stages (7d build + 7g QA). Zero invocations in Option A or B stages. CLAUDE.md cleanly states the allocation at the Tech Stack level.
+
+**Cost trade-off**: explicit plugin invocation at BOTH build and QA roughly doubles the Claude Design quota usage per Option C build vs the previous "auto-trigger maybe + post-build critique" approach. This is intentional — the previous "0% usage" telemetry was an under-utilization bug, and concentrating the plugin's engagement in C is what makes the A vs C comparison value real. The user explicitly approved this trade-off.
+
+**Pattern note**: every architectural decision has a "this is how we deliberately constrain the system" component AND an "if a future skill-owner doesn't understand the constraint, they'll silently break it" component. The Stage 4d tombstone exists for the second component — it's the only way to prevent a well-intentioned future fix ("hey, A could use plugin critique too!") from quietly destroying the comparison value. State the constraint where the temptation will arise.
+
+---
+
+## 2026-04-26 — qa-check.js OKLab→sRGB conversion was broken (Tailwind v4 colors got garbage contrast)
+
+**Feedback** (verbatim worker copy-paste from `jobs/usplumbing.net/feedback.md`):
+
+> scripts/qa-check.js crashes with SyntaxError: Identifier 'b' has already been declared when any oklab() color is encountered. Tailwind v4 emits oklab() for arbitrary-value classes after first cache warm, so this fires on most runs. ROOT CAUSE: rgbToHexFromComputed() in scripts/qa-check.js (around line 564) declares const l, a, b, alpha from the okm match (line 570), then declares const r, g, b from the float-to-int conversion (lines 584-586). PROPOSED RULE: rename const r, g, b to const rOut, gOut, bOut and update the return literal.
+
+The flag was gold-standard — exact file, exact function, exact line numbers, named the mechanism (variable shadowing in JS lexical scope), proposed concrete code change. Skill-owner could jump straight to the fix.
+
+**Bug — TWO layers, not just one**:
+
+**Layer 1 (the worker's reported symptom — already partially patched)**: in some prior state of the file, `rgbToHexFromComputed` had `const r, g, b` colliding with `const l, a, b` from the oklab destructuring → JS ran the function and threw `SyntaxError: Identifier 'b' has already been declared` inside the Playwright `page.evaluate()` context, breaking the entire qa-check run on any page using oklab() colors. Someone (a previous worker session via the local-fix-only allowance? a previous skill-owner?) had already partially patched this with `const bVal` rename — current file no longer crashes.
+
+**Layer 2 (the deeper bug the worker's flag missed)**: the OKLab → sRGB conversion math itself was made-up garbage that never actually computed correct color values. Smoke test against the function:
+- `oklab(1 0 0)` (pure white) → `{r:203, g:154, b:255}` ❌ should be `{r:255, g:255, b:255}`
+- `oklab(0.5 0 0)` (mid-gray) → wrong values
+- Every other oklab color → wrong values
+
+The math used non-standard formulas with constants like `16/11`, `0.067523`, `0.131486`, `0.162393` that don't match any documented OKLab transformation I can find. It looked like someone tried to write the conversion from memory and got it almost-but-not-quite right. Result: all Tailwind v4 pages using oklab colors got incorrect RGB values, which meant `text-contrast` and `hero-low-contrast` checks computed wrong WCAG ratios — false positives AND false negatives both possible. Real cost: every contrast-bug call on a Tailwind v4 site for the past several days has been computed with garbage color math.
+
+**Pattern**: this is a "shipped-because-it-doesn't-crash" bug class. The function ran without throwing, so no error surfaced — but the OUTPUT was wrong. Worker's flag caught the syntax-error symptom; my smoke test caught the deeper output bug. Together = full fix.
+
+**scripts/qa-check.js change**:
+
+- Extracted a single canonical `oklabToSrgb(L, a, b, alpha)` helper using Björn Ottosson's published OKLab → linear-sRGB → sRGB-gamma-encoded conversion ([formulas](https://bottosson.github.io/posts/oklab/)). Standard 3-step pipeline: OKLab → LMS via inverse matrix; cube each LMS value; LMS → linear sRGB via published matrix; linear → gamma-encoded sRGB via standard piecewise formula.
+- Both `rgbToHexFromComputed` (line 572) AND `rgbStringToRgb` (line 1099) now call the same helper. Eliminates the bug-duplication that allowed Layer 2 to persist after Layer 1 was partially fixed in only one location.
+- Removed all the broken "16/11" / "0.067523" / etc. constants. Replaced with the real Ottosson matrix coefficients.
+- Variable naming uses `rLin/gLin/bLin` (linear) and a separate `toSrgb()` helper for gamma encoding — no possible shadow with outer `const a, b` from the oklab destructuring.
+
+**Smoke verification (sanity points against canonical math)**:
+- `oklab(1 0 0)` → `{r:255, g:255, b:255}` ✓ (pure white)
+- `oklab(0 0 0)` → `{r:0, g:0, b:0}` ✓ (pure black)
+- `oklab(0.5 0 0)` → `{r:99, g:99, b:99}` ✓ (mid-gray, matches OKLab→sRGB lookup tables)
+- `oklab(0.628 0.225 0.126)` → `{r:255, g:0, b:0}` ✓ (pure red)
+- `oklab(0.520 -0.140 0.108)` → `{r:2, g:128, b:0}` ✓ (pure green)
+- `oklab(0.452 -0.032 -0.312)` → `{r:2, g:0, b:255}` ✓ (pure blue)
+
+**End-to-end smoke verification (live Playwright run on a synthetic Tailwind-v4-style page using `background: oklab(...)` and `color: oklab(...)`)**: script ran without crashing, correctly converted oklab colors to sRGB for contrast computation, AND correctly identified the deliberately-low-contrast text I planted in the test page (a default-blue `<a>` link inside an `oklab(0.45 0 0)` nav bar, computed at 1.26:1 contrast — real failure, correctly caught).
+
+**Files modified**: scripts/qa-check.js (extracted `oklabToSrgb` helper with canonical math; both call sites now use it; removed the duplicated broken implementation), FEEDBACK.md (this entry)
+
+**No SKILL.md change needed** — the bug was entirely in qa-check.js implementation. The skill's reliance on qa-check for contrast checks is unchanged; the underlying check is just correct now.
+
+**Pattern note (from this debugging)**: when a worker flags a syntax/crash bug, ALSO smoke-test the function for output correctness. Variable-naming bugs are visible at parse time (worker catches them); algorithmic bugs are silent at parse time but produce wrong outputs (only smoke testing catches them). Both can coexist. Per the libertylandscape feedback gold-standard guidance now in SKILL.md: a worker's precision-focused flag is valuable, AND skill-owner sessions should still smoke-test the surrounding code rather than just patching the reported line. This catches Layer 2 bugs the worker couldn't see without running the function.
+
+---
+
+## 2026-04-26 — Frontend Design plugin showed 0% usage because SKILL.md referenced imaginary skills
+
+**Feedback** (verbatim, with screenshot of Claude Code usage panel showing "Weekly · Claude Design: 0%"): "seems we are not using Claude Design at all"
+
+**Bug**: SKILL.md Stage 4d (Option A QA) and Stage 7g (Option C QA) invoked two skills via the Skill tool that do not exist anywhere in the installed plugin set:
+- `design:design-critique` — does not exist
+- `design:accessibility-review` — does not exist
+
+The `frontend-design@claude-plugins-official` plugin exposes exactly ONE skill: `frontend-design`. Verified by reading `/Users/tomasz/.claude/plugins/cache/claude-plugins-official/frontend-design/unknown/.claude-plugin/plugin.json` and inspecting the `skills/` directory — only `skills/frontend-design/SKILL.md` is present.
+
+When worker sessions reached Stage 4d or Stage 7g and tried to invoke the imaginary skills, the Skill tool either rejected the call silently OR the worker session noticed the failure and skipped the step entirely. Either way: zero plugin invocation, zero Claude Design weekly quota usage, AND zero design-critique benefit on every WebFactory build despite the plugin being installed AND enabled in `.claude/settings.json`.
+
+**Why this slipped through**: when I (the skill-owner session, earlier in this conversation series) wrote the Stage 4d / Stage 7g invocations, I assumed plugin skills followed a `{plugin-name}:{skill-name}` namespacing convention that doesn't actually exist in Claude Code. The real invocation is just `Skill: {skill-name}` where `{skill-name}` matches the SKILL.md `name` field inside the plugin's `skills/{name}/SKILL.md` file. For frontend-design, the only valid name is `frontend-design`.
+
+**Real cost of the bug**: every Option A and Option C build for the past ~10 days has shipped without ever engaging the design-critique skill that's specifically designed to catch generic AI aesthetics, weak typography choices, and missed design opportunities. The user has been paying for plugin capacity that the pipeline never exercised. This is one of the more directly costly bugs we've shipped (in terms of "value left on the table per build").
+
+**SKILL.md changes**:
+
+### Stage 4d rewritten — Frontend Design Plugin Critique (MANDATORY for Option A)
+- Removed both broken `design:design-critique` and `design:accessibility-review` invocations.
+- Replaced with a single `Skill: frontend-design` invocation with a brand-faithful constraint prompt: critique Option A while preserving the customer's brand signal (BRAND RECOGNIZABILITY rule), industry-anchor design choices, preserve images / social links / testimonials / facts (enforced by qa-check rules anyway). Returns specific actionable improvements to apply to `.astro` files.
+- Documented WHY we explicitly invoke instead of relying on auto-trigger: the plugin auto-engages when "the user asks to build frontend interfaces," but our critique-mode language doesn't naturally trigger that; explicit Skill tool call ensures consistent engagement AND visibility in the Claude Design weekly quota.
+- Documented that accessibility review is now handled programmatically by qa-check.js (`text-contrast`, `mobile-tap-target`, `mobile-overflow`, `hero-low-contrast`, `image-low-resolution`, structural checks) — no separate plugin call needed because the deterministic gate is comprehensive.
+- Added a `> Bug fixed 2026-04-26` callout at the top of the section so future readers see the history (and don't re-introduce the imaginary skill names).
+
+### Stage 7g rewritten — same plugin, industry-anchored constraint
+- Removed the broken `design:design-critique` invocation.
+- Replaced with `Skill: frontend-design` invocation with industry-anchored constraint prompt: industry direction explicit (industrial-trades / food-led / clinical-warm / etc.), reference industry-tokens.json palette + typography + ornament, AVOID the editorial-default aesthetic, use scraped customer photos aggressively, do NOT rewrite copy (Option B's text is locked).
+
+### Why this matters beyond fixing the call
+The frontend-design plugin's stated mission ("create distinctive, production-grade frontend interfaces with high design quality... avoid generic AI aesthetics... commit to a BOLD aesthetic direction... avoid generic fonts like Arial and Inter") is EXACTLY aligned with the DESIGN QUALITY BAR rule we shipped earlier. Until today, the rule was enforced by:
+- Build-time discipline (model has to remember the bar)
+- One programmatic check (`design-quality-fonts` warns when no web font loaded)
+- Visual Sanity Pass item #16 (the "$80k smell test" gut check)
+
+With the plugin invocation actually working, we get a fourth defense: an explicit second-opinion design critique from a skill specifically trained for this purpose. The bar gets enforced harder.
+
+**Files modified**: SKILL.md (Stage 4d rewritten, Stage 7g rewritten, plus history callouts), FEEDBACK.md (this entry)
+
+**Verification**: grep confirms zero remaining runtime references to `design:design-critique` or `design:accessibility-review` (the only remaining mentions are inside the `> Bug fixed` callout explaining the history). Both new runtime callsites use `Skill: frontend-design`.
+
+**Pattern note**: this is a "bug shipped because I made up an API" failure mode I should be more careful about. When writing SKILL.md callsites for plugin/MCP/external integrations, always verify the actual API surface (read the plugin's `.claude-plugin/plugin.json` and `skills/*/SKILL.md`) before writing the invocation. Imaginary skills fail silently — the worker session may not even surface the failure clearly enough for the user to notice. Cost detection only kicks in when the user happens to look at usage telemetry.
+
+---
+
+## 2026-04-25 — qa-check testimonial-tampering false positives on apostrophes / HTML entities (libertylandscapefl.com)
+
+**Feedback** (verbatim worker copy-paste block from `jobs/libertylandscapefl.com/feedback.md`):
+
+> qa-check testimonial-tampering reports false positives when blockquote text contains apostrophes. Reference HTML stores `&#39;`, live page extracts `'`, normalizer strips entities to space → mismatch. ROOT CAUSE: `normalizeQuoteText()` in `scripts/qa-check.js` does `.replace(/&[a-z]+;|&#\d+;/gi, ' ')` — strips entities to a space rather than decoding them.
+
+**Plus**: user instruction to "encourage workers to provide feedback like this as well." The worker's flag was the gold standard: cited file + function + line, named the exact mechanism, proposed a concrete decode list, AND noted a semantic-argument workaround (`<blockquote>` → `<p>` because brand tagline isn't a named-third-party quote).
+
+**Bug**: `normalizeQuoteText()` had a catch-all entity strip (`/&[a-z]+;|&#\d+;/gi → ' '`) but no entity-decode pass. Reference HTML emitted by Astro/serializers stores apostrophes as `&#39;` (numeric character reference) or `&apos;` (XHTML named); browser `innerText` returns literal apostrophes. After normalization the reference became `"don t"` (`&#39;` stripped to space) and the live became `"don't"` — string mismatch, false `testimonial-tampering` fail. Same problem with `&mdash;`, `&rsquo;`, `&amp;`, etc.
+
+**scripts/qa-check.js change** — `normalizeQuoteText()` rewritten with explicit decode pass BEFORE the catch-all:
+- Decode common HTML entities to their literal form: `&#39;`/`&#x27;`/`&apos;` → `'`; `&#34;`/`&#x22;`/`&quot;` → `"`; `&amp;`/`&#38;`/`&#x26;` → `&`; `&lt;` / `&gt;`; `&nbsp;` → space; `&ldquo;`/`&rdquo;`/`&#8220;`/`&#8221;` → `"`; `&lsquo;`/`&rsquo;`/`&#8216;`/`&#8217;` → `'`; `&ndash;`/`&#8211;` → `-`; `&mdash;`/`&#8212;` → `-`; `&hellip;`/`&#8230;` → `...`; `&copy;`, `&reg;`, `&trade;` → `(c)`/`(r)`/`(tm)`
+- Catch-all changed from strip-to-space to strip-to-nothing (`/&[a-z]+;|&#\d+;|&#x[0-9a-f]+;/gi → ''`) so unhandled decorative entities don't insert spurious word boundaries
+- Added `…` → `...` to the Unicode normalization pass (matches the `&hellip;` decode for symmetry)
+- Smoke-tested against synthetic case (reference with `&#39;`/`&apos;`/`&amp;`/`&mdash;`/`&rsquo;`, live with literal characters): now correctly matches verbatim. Earlier "false positive" test was a heredoc-encoding artifact (em-dash bytes were double-encoded by bash). With proper UTF-8 reference (Astro emits properly-encoded HTML), the new normalizer matches reference and live correctly.
+
+**SKILL.md change** — Self-Learning Protocol section "When a WORKER session receives feedback" got a NEW subsection: "Feedback quality matters — the libertylandscapefl gold standard." Reproduces the worker's actual feedback in full, with a 5-point breakdown of WHY it's gold standard (specific symptom, line-cited root cause, concrete proposed rule, acknowledged workaround, section pointer). Contrasts against weak feedback example. Closes with "Skill quality compounds with feedback quality. Aim for gold standard."
+
+**templates/REQUIRED-PATTERNS.md change** — section 6.2 (Reviews/testimonials) gained a new "Semantic note (the `<blockquote>` reservation)" paragraph: use `<blockquote>` ONLY for actual quotes from named third parties (customer testimonials, named-employee quotes, "as featured in" press). Do NOT use for brand taglines, pull quotes of your own body copy, or decorative oversized text without attribution. Cites the libertylandscape worker session learning. This semantic discipline reduces false-positive surface for the testimonial-tampering check (and matches the worker's local workaround of `<blockquote>` → `<p>` for the brand tagline).
+
+**Files modified**: scripts/qa-check.js (`normalizeQuoteText` rewritten with entity-decode pass), SKILL.md (Self-Learning Protocol gains "Feedback quality matters" subsection with gold-standard worked example), templates/REQUIRED-PATTERNS.md (section 6.2 semantic note about `<blockquote>` reservation), FEEDBACK.md (this entry)
+
+**Worker workaround acknowledgment**: the worker locally swapped `<blockquote>` for `<p>` in the PullQuote component. This is a valid local fix AND the right semantic answer for that specific element (brand tagline ≠ third-party quote). Both layers are now documented: scripts/qa-check.js decodes entities properly (so legitimate testimonials in `<blockquote>` work); REQUIRED-PATTERNS.md tells future workers not to put non-quotes in `<blockquote>` in the first place.
+
+**Pattern note**: this is the second time a worker session correctly identified a structural issue, applied a sensible local workaround, AND posted a precise structural fix to `jobs/{domain}/feedback.md` for the skill-owner. The protocol is working as designed. Going forward the SKILL.md Self-Learning section now teaches workers what gold-standard feedback looks like, so this becomes the norm not the exception.
+
+---
+
+## 2026-04-25 — Template architecture pivot: copy-source → inspiration-source (anti-monoculture)
+
+**Feedback** (verbatim, with reasoning): "I want to go with Option C [from the audit options], but I am worried that if we do that we will drift again and our testing will be for nothing. I definitely want fresh designs for each page we do. I do not want the 100 plumbing pages to look the same."
+
+**Bug class shipping risk** (anticipated, not yet observed in production): the existing `templates/astro-base/` was a single Astro starter copied per-build with significant baked-in visual defaults — gradient-orb hero composition, blue+amber palette, Plus Jakarta Sans + Inter typography, specific Hero/ServiceCard/Footer styling. Worker sessions inherited those defaults until they explicitly rewrote them, which they often didn't fully. Result trajectory: 100 plumbing customers would get 100 visually similar SaaS-aesthetic websites despite the new DESIGN QUALITY BAR rule. Monoculture by template inheritance.
+
+**Architecture pivot**: separated "safety scaffolding that MUST be reused" from "visual opinions that MUST be reinvented." Three layers replace the monolithic template:
+
+### `templates/scaffold/` — copy this per-build (safety layer)
+Pure Astro config + minimal BaseLayout + animation primitives + empty `@theme` block. **Zero visual opinions.** No Hero, no Nav, no Footer, no color choices, no font choices.
+- `package.json` + `package-lock.json` (locked Astro 5.7+ / Tailwind 4.1+)
+- `astro.config.mjs` (static output + Tailwind via `@tailwindcss/vite`)
+- `tsconfig.json`
+- `.gitignore`
+- `src/styles/global.css` — `@theme` block with CSS variable hooks (`--brand-display`, `--brand-text`, etc.) but NO defaults; `.fade-up`/`.stagger` animation primitives; reduced-motion respect; 16px body minimum
+- `src/layouts/BaseLayout.astro` — document chrome only (head/meta/viewport/og/favicon link, body, skip-to-content a11y link, header slot, main slot, footer slot, animation enhancement script). NO Nav, NO Hero, NO opinionated styling
+- `src/pages/.gitkeep` — empty pages dir
+- `README.md` — what's frozen and why
+
+Total scaffold size: 44KB (was 308KB + 193MB node_modules for old astro-base).
+
+### `templates/REQUIRED-PATTERNS.md` — read-only (the typed scaffold)
+A 500-line document listing every structural requirement every build must satisfy, mapped 1:1 to qa-check.js rules. Each requirement has 4 parts: structural rule, visual freedom (almost always: everything visual), qa-check enforcement (which rule fails the build if violated), why (the bug class it prevents). Covers 11 areas: document chrome, mobile-first design, hero sections, logo, social links, content integrity, image handling, video CTAs, design quality, brand recognizability, cross-build diversity. Concludes with a quick-reference table mapping all 27 qa-check rules to which patterns they enforce.
+
+The point: tell the worker WHAT must exist (with the qa-check gate that catches them if they miss it), but say NOTHING about how it should look. Visual treatment is the worker's design choice; structural requirement is non-negotiable.
+
+### `templates/inspiration/` — read-only references (visual library)
+Directory of fully-buildable Astro projects demonstrating distinct aesthetics. Worker sessions read these via Read tool to study design moves. NEVER `cp -r` from them.
+
+Two inspirations shipped this session:
+1. **`saas-default/`** (the migrated old `templates/astro-base/`, with a new README): tech / professional services / consultancies aesthetic. Gradient orbs, blue+amber, Plus Jakarta Sans + Inter. Marked as "wrong for trades / food / medical."
+2. **`industrial-trades/`** (NEW, hand-built this session): workwear / safety / utility-poster aesthetic. Workwear navy + crew red + hi-vis safety yellow + warm bone palette. Bricolage Grotesque + Inter + JetBrains Mono. Bracket-numbered sections (`[01]`), file-tab nav, hatched caution-tape borders, mono photo captions, hi-vis CTA buttons, sharp 90° edges. Includes Hero, Nav, ServiceCard, StatStrip, Footer components + sample homepage. Smoke-built successfully (1 page, 21KB index.html). README explains every aesthetic move + what to draw from + what NOT to copy.
+
+Planned (not yet built): `food-led/`, `clinical-warm/`, `architectural/`, `editorial-restrained/`, `garage/`. Each will be ~4-6 hours of design work.
+
+### Drift defenses (the user's main concern)
+
+Three layers of defense against the worker session lazily replicating one inspiration verbatim or reverting to old-template-y defaults:
+
+1. **`build-design-decisions.md` requirement**: every Stage 4 / 6 / 7 must end with a written log at `jobs/{domain}/option-{a|b|c}/build-design-decisions.md` documenting which inspirations were consulted, which design moves were drawn from each (with citation), what's intentionally unique to THIS build, and what was deliberately NOT copied from inspiration (and why). Audit trail.
+
+2. **Visual Sanity Pass item #18 (NEW — diversity check)**: model loads 2-3 recent peer-industry build screenshots and honestly compares: does THIS site have a hero treatment / color combination / typography pairing / distinctive element that the others don't? If everything feels familiar, regression to template defaults — rebuild with more design ambition.
+
+3. **27 qa-check rules + REQUIRED-PATTERNS.md catch every safety regression**: the worker has full visual freedom but cannot ship contrast bugs, missing logos, fabricated facts, tampered testimonials, broken images, hero-without-overlay, mobile-overflow, etc. Even from-scratch designs hit the same safety floor that the old template encoded.
+
+### SKILL.md changes
+- New Stage 3-pre subsection: MANDATORY reading of REQUIRED-PATTERNS.md + scaffold README + at least 1 inspiration directory before designing anything
+- Stage 3a updated: `cp -r templates/scaffold/` instead of `cp -r templates/astro-base/`
+- Stage 3b rewritten: design fresh components per design brief + REQUIRED-PATTERNS.md + chosen inspiration (NOT copy template components)
+- Stage 7c updated: same scaffold copy for Option C, with inspiration-reading explicitly recommended
+- Stage 4c-bis Visual Sanity Pass: new item #18 (diversity check) with explicit instructions to load peer build screenshots
+- New mandatory output: `build-design-decisions.md` per option per build
+- Important Notes: TEMPLATE FILES line rewritten to describe new architecture
+
+### Why this isn't "we lose all the safety we had"
+Most of what the old template "encoded" was already duplicated by qa-check at deploy time. The Hero's three-layer overlay was satisfied by the Hero.astro component AND independently checked by `hero-no-overlay`/`hero-low-contrast` qa-check rules. The mobile-first responsive defaults were in the components AND independently checked by `mobile-overflow`/`mobile-tap-target` rules. By moving safety enforcement entirely to qa-check + REQUIRED-PATTERNS.md (a documented contract), we lose nothing on the safety axis but gain visual diversity.
+
+The 2 inspirations that ship this session demonstrate the point: saas-default and industrial-trades produce visibly different sites despite both passing the same 27 qa-check rules. Neither is "safer" than the other; both are unique by design.
+
+### Files modified / added
+**Added**:
+- `templates/scaffold/` (8 files, 44KB)
+- `templates/REQUIRED-PATTERNS.md` (~500 lines, comprehensive structural-requirement reference)
+- `templates/inspiration/README.md` (library index + roadmap for adding more)
+- `templates/inspiration/saas-default/README.md` (new — explains former astro-base as reference)
+- `templates/inspiration/industrial-trades/` (entire dir — 8 files including 5 components + sample homepage + README)
+- `templates/.gitignore` (excludes node_modules / dist / .astro / .vercel from inspiration + scaffold)
+
+**Modified**:
+- `SKILL.md` — Stage 3-pre (NEW), Stage 3a (scaffold reference), Stage 3b (fresh-design instructions), Stage 7c (scaffold + inspiration), Stage 4c-bis Visual Sanity Pass item #18 (diversity check) + build-design-decisions.md requirement, Important Notes TEMPLATE FILES line rewritten
+- `FEEDBACK.md` (this entry)
+
+**Migrated**:
+- `templates/astro-base/` → `templates/inspiration/saas-default/` (excluded node_modules during move)
+
+**Deleted**:
+- Original `templates/astro-base/` (now lives at `templates/inspiration/saas-default/`)
+
+### Smoke verification
+- `templates/scaffold/` contains zero color/font opinions (grep confirms only the skip-to-content focus styles, which is accessibility plumbing not visual style)
+- `templates/inspiration/industrial-trades/` builds successfully (`npm install && npm run build` → 1 page, 21KB index.html, no errors)
+- `templates/inspiration/saas-default/` retains all original components for reference
+- Total templates/ tree: 692KB (was ~193MB with node_modules — 280× reduction in checked-in size)
+
+### What this DOESN'T do (deferred / awaiting first real-build verification)
+- **No production smoke test yet**: should re-run `/webfactory <url> --full` against a real customer to verify the new flow works end-to-end. The `cp -r templates/scaffold/` + design-from-scratch path has not been exercised in production.
+- **3 more inspirations planned**: `food-led/`, `clinical-warm/`, `architectural/`. Each is ~4-6 hours of design work. Build incrementally as customers in those industries enter the funnel.
+- **No automated cross-build similarity check**: item #18 of Visual Sanity Pass is model-mediated diversity comparison. A programmatic version (compare CSS hashes / screenshot perceptual hash across builds) is a possible V2 enhancement but not required.
+
+---
+
+## 2026-04-25 — Stage 10 final report wrapped in code fences → URLs not clickable (accelwindows.com)
+
+**Feedback** (verbatim, with screenshot of the broken output): "I cannot click on code block links, always make them clickable"
+
+**Bug**: The Stage 10 report format spec in SKILL.md was wrapped in ` ``` ` fences to delimit "this is the format." Worker sessions interpreted the fences literally and emitted the entire 4-link list + metrics table INSIDE a fenced code block in the chat output. Result: the four URLs (Original, A, B, C) rendered as plain code text — the user couldn't click any of them. Same problem hit the metrics markdown table (rendered as plain text instead of a real table).
+
+**Why this slipped through**: SKILL.md format specs use ` ``` ` fences to visually separate "literal expected output" from prose. Most of the time this works (the worker reproduces the fences for code blocks where they belong — bash commands, JSON examples, etc.). But for the FINAL chat output to the user, the fences are presentational, not part of the output. SKILL.md never explicitly said "don't reproduce the fence."
+
+**SKILL.md changes** — Stage 10 report section rewritten:
+
+1. **New top-level CRITICAL OUTPUT-FORMAT RULES block** before the format example, with three explicit rules:
+   - NEVER wrap the report in a fenced code block (with the accelwindows recurrence cited as the cautionary tale)
+   - Every URL MUST be a clickable markdown autolink (`<https://example.com>` syntax — works in Claude Code's UI, GitHub, Notion, every standard renderer; bare URLs auto-link in some renderers but not all)
+   - Use markdown headings/lists/tables — render normally; only fence wrappers around the WHOLE output are forbidden
+
+2. **Format spec restructured**: removed the wrapping ` ``` ` fences. The format example is now between `---` separators (clearly presentational delimiters, not interpreted as content). Each URL placeholder uses `<{url}>` autolink syntax. Inline code spans like `` `jobs/{domain}/metrics.json` `` are explicitly noted as "fine and intended" so workers don't over-correct and strip them.
+
+3. **Verification step appended**: "scan your own output. If you see ` ``` ` anywhere wrapping the link list or the table — DELETE the fences and re-emit." Self-check before finalizing.
+
+4. **Plugin-not-installed message expanded**: now includes the install command so the user has a one-line copy-paste fix path.
+
+**Files modified**: SKILL.md (Stage 10 report format spec + 4-paragraph CRITICAL OUTPUT-FORMAT RULES block + verification step), FEEDBACK.md (this entry)
+
+**Why no qa-check enforcement**: Stage 10 output goes to chat, not to a built artifact. qa-check.js operates on rendered HTML — it can't see the chat output. This is a "directive enforced by reading SKILL.md" bug class, similar to the format of the copy-paste block in the Self-Learning Protocol. Self-verification step is the best programmatic-ish defense.
+
+---
+
+## 2026-04-25 — Reviews/testimonials are real people's words — they MUST stay verbatim in B and C
+
+**Feedback** (verbatim): "in Option B, when we rewrite, we know not to rewrite reviews? Like these: https://www.accelwindows.com/reviews — We can not make these reviews by real people 'better', they stay always true to the original. Make that a hard rule for Option B where we rewrite (and Option C, but it uses Option B anyway)"
+
+**Bug class**: the Stage 5 (Build B) rewrite rules said "rewrite for impact" and "tighten verbose copy" — true for the customer's marketing copy, FALSE for testimonials. Reviews are quotes attributed to real people by name; "tightening" them is putting words in the customer's mouth and damages trust two ways: (1) the quoted reviewer might recognize their own review changed, (2) visitors who cross-check public Google/Yelp listings will see the discrepancy. Even fixing typos = tampering.
+
+**Why this is its own rule (not a sub-bullet of FACT GROUNDING)**: fact-grounding allows "20+ years in business" as a sharpening of "Established 2003" because the underlying fact is preserved. Testimonials are different: the value IS the original wording, attribution, and voice. There is no "tighter equivalent" of a testimonial — only the original or impersonation.
+
+**SKILL.md changes**:
+
+- **New top-level architectural rule**: TESTIMONIAL & REVIEW PRESERVATION (sibling to FACT GROUNDING / CMS PLACEHOLDER / DESIGN QUALITY BAR). Defines scope (blockquotes, named-attribution cards, star ratings, reviewer names/locations/dates, platform attribution, named-employee/founder quotes, "as seen on" press attributions, dedicated `/reviews` pages), enumerates allowed transformations (reordering, selecting subset for homepage, layout changes, visual treatment, "Read more" truncation if full text is reachable from the same page), and enumerates forbidden tampering (rewording even for grammar/typos, composite reviews, inventing reviews/names/dates/platforms, inflating star ratings, translating reviews, removing "off-topic" reviews, replacing real reviews with stock testimonials, stripping platform attribution).
+
+- **Stage 5 (Build B) DO NOT list**: added explicit line "TOUCH ANY TESTIMONIAL OR REVIEW TEXT — see TESTIMONIAL & REVIEW PRESERVATION rule." Layout/styling/ordering/selection of reviews to feature = OK; touching the words = forbidden.
+
+- **Stage 5 sharpening-vs-fabrication table**: added 4 new rows showing concrete review-tampering examples:
+  - Misspelled review stays misspelled (vs. "fixing" the typo and putting clean prose in the customer's mouth)
+  - Terse review stays terse (vs. composite-embellishing into "couldn't ask for more!")
+  - Multiple short reviews stay separate with each name attribution (vs. combining into one "composite testimonial")
+  - All 12 manifest reviews verbatim on /reviews; 3 chosen verbatim on homepage (vs. picking 3 + editing them to be "tighter")
+
+- **The hands-off test**: "Before you change any character inside a `<blockquote>`, testimonial card, attributed quote, or anything inside a `/reviews` page — STOP. Ask: 'Is this text quoted from a named person?' If yes, it stays exactly as-is."
+
+**scripts/qa-check.js changes**:
+
+- **New `--reference-dist <path>` flag**: points at Option A's built dist directory. When passed, the gate enables the testimonial-tampering check.
+- **Reference corpus build**: at startup, walks all `.html` files in the reference dist (skipping `node_modules`, `_astro`, `.vercel`), regex-extracts every `<blockquote>...</blockquote>` and `<q>...</q>` content, normalizes (strip nested HTML, normalize curly quotes/apostrophes/dashes, collapse whitespace, lowercase), stores in a Set.
+- **Live extraction**: inside `page.evaluate()`, captures `<blockquote>`/`<q>` innerText into `report.liveTestimonials`.
+- **Node-side comparison** (desktop viewport only — testimonials are viewport-independent, running once is enough): for each live testimonial, normalize and check if it exists in the reference Set. Liberal fallback: 80% substring match handles "Read more" truncation. If neither matches, FAIL with clear message naming the tampered text and pointing at the rule.
+- **Smoke-tested**: 1 verbatim review correctly passes, 1 tampered review (a "tighter" rewrite) correctly fails. Reference Set loaded successfully from a 1-file dist.
+
+**SKILL.md callsites updated**: 4 of the 6 qa-check.js invocations (the B and C QA gates in Stage 6 and Stage 8a) now pass `--reference-dist jobs/$DOMAIN/option-a/dist`. The 2 A callsites are NOT updated — A is the reference itself.
+
+**Why no enforcement on Option A**: A is the faithful rebuild — its testimonials come from the manifest verbatim. Comparing A's testimonials to themselves would be a no-op. If A's testimonials don't match the manifest, that's a different bug class (the faithful-rebuild rule is violated) — could be added as a future check (`--manifest-testimonials-strict`) but isn't shipped yet.
+
+**Files modified**: SKILL.md (TESTIMONIAL & REVIEW PRESERVATION top-level rule, Stage 5 DO NOT list addition + 4 new sharpening-vs-fabrication rows, hands-off test paragraph, qa-check capability description in Stage 4, 4 callsites at lines 1365/1617/1768/1798), scripts/qa-check.js (--reference-dist flag, walkHtmlFiles helper, normalizeQuoteText helper, referenceTestimonialSet build, liveTestimonials extraction in page.evaluate, runTestimonialTamperingCheck function, Node-side wiring after page.evaluate), FEEDBACK.md (this entry)
+
+**Pattern note**: This is the **third** "preserve verbatim" rule, alongside FACT GROUNDING (don't fabricate facts) and CMS PLACEHOLDER PRINCIPLE (don't ship template placeholders). All three protect the customer's content integrity through the rewrite. Each has both a build-time directive AND a programmatic deploy-gate check, because build-time vigilance alone has shipped real bugs. Total qa-check rules: 26 (up from 25).
+
+---
+
+## 2026-04-25 — Social-link bug RECURRED on libertylandscapefl.com Option C (`href="#"` placeholders shipped) + missing favicon
+
+**Feedback** (verbatim, two messages): "Facebook and Instagram links on the pages you built point to this page, they must point to Facebook and Instagram and... we spoke about this before, how was this missed, this must be a hard gate for social links!" Then: "You are also forgetting to set the FavIcon! Use either same as they did, or if they did not create one that is pretty perhaps using the logo." Plus pointers to the live broken build (https://libertylandscapefl-option-gergurwec-tomek-group.vercel.app/) and the original (https://www.libertylandscapefl.com/).
+
+**Bug** — TRIPLE failure (every layer of defense failed):
+1. **Scraper missed all social URLs.** libertylandscapefl.com is built on Duda. Duda renders Facebook/Instagram anchors as widgets that JavaScript injects AFTER `networkidle` fires. `page.evaluate(() => document.querySelectorAll('a[href]'))` ran before the widgets mounted, returning 0 social hrefs. Yet the original site has 3× facebook.com profile hrefs and 1× instagram.com profile href in raw HTML (visible to `curl`).
+2. **Scraper bug: footer/navigation never persisted.** Even when `page.evaluate()` DID capture footer/social/nav data, it was never copied to the page record (the `pages.push(...)` call omitted those fields). So `manifest.footer` was always `{}` regardless of what the scraper found. This was a separate, latent bug uncovered while investigating.
+3. **Build defaulted to placeholder hrefs.** With `manifest.footer.social` empty, the worker session rendered `<a href="#" aria-label="Facebook">` and `<a href="#" aria-label="Instagram">` placeholders rather than omitting the section. SKILL.md said to use the manifest URLs; said nothing about the case where the manifest is empty.
+4. **qa-check loophole #1**: even though the build had `aria-label="Facebook"` + `href="#"`, the deploy URL `gergurwec` predates today's qa-check fixes — OR the gate was bypassed (the script lockdown caught the issue but somebody deployed despite). Either way, no programmatic enforcement caught it.
+5. **qa-check loophole #2 (separate)**: while investigating, smoke-tested 5 common patterns the detector might miss. Found Cases 1-4 all slipped past:
+   - Case 1: Material Symbols `thumb_up` icon, no aria-label, internal href (the accelwindows.com pattern actually in the codebase)
+   - Case 2: Inline `<svg>` with Facebook 'f' path data, no aria-label, internal href
+   - Case 3: `<img src="/images/facebook-icon.svg">` (platform name in filename), no aria-label, internal href
+   - Case 4: `<i class="icon-fb">` (short alias not in SOCIAL_PLATFORMS), no aria-label, internal href
+
+**Why each layer failed**:
+- Scraper relied on a single source (live DOM after networkidle) for social URL extraction. No fallback for late-injected widgets.
+- Scraper had a latent bug where captured footer data was silently dropped before persisting to manifest.
+- Build had no rule for "what to do if the manifest has no social URLs" — defaulted to "ship placeholders." Should have been "OMIT the section."
+- qa-check detector required a recognizable platform identifier (text/aria-label/class/icon) to engage the wrong-destination check. When all four were missing, the entire check failed open.
+
+**Structural fixes shipped (5 layers)**:
+
+### 1. scripts/scrape.js — raw-HTML social fallback
+- After `page.evaluate()` returns, also `await page.content()` and regex-grep raw HTML for known social profile URL patterns: facebook.com, instagram.com, linkedin.com, youtube.com, tiktok.com, twitter.com/x.com, yelp.com, pinterest.com, google.com/maps.
+- Each pattern is anchored to profile URLs (e.g., YouTube requires `/channel/|/user/|/c/|/@`; Yelp requires `/biz/`).
+- Excludes CDN URLs (cdninstagram, fbcdn, ytimg, etc.), sharing intents (/intent/, /sharer/), platform plugin/embed/widget API endpoints, and individual post URLs (Instagram /p/, /reel/; Twitter /status/; YouTube /watch).
+- Merges into existing `pageData.footer.social` array, deduplicated by href.
+- **Smoke-tested on libertylandscapefl.com**: previously returned 0 social URLs; now returns Facebook + Instagram profile URLs correctly.
+
+### 2. scripts/scrape.js — footer/navigation/meta persistence bugfix
+- Latent bug: `pages.push({...})` omitted `navigation`, `footer`, `meta` from each page record even though `page.evaluate()` captured them. So `manifest.footer = firstPage?.footer || {}` always evaluated to `{}`.
+- Fixed: `pages.push()` now includes `navigation: pageData.navigation || { items: [] }`, `footer: pageData.footer || {}`, `meta: pageData.meta || {}`.
+- Without this fix, the raw-HTML fallback would have populated `pageData.footer.social` but it would have been thrown away.
+
+### 3. scripts/qa-check.js — social-link detector widened to 5 paths + structural failsafe
+- **Path 5 (NEW)**: inner `<img src>` filename or `<use href>` token contains the platform name/alias. Catches `<img src="/icons/facebook.svg">` and `<use href="#icon-fb">`.
+- **Aliases (NEW)**: each platform has an `aliases` array (`fb`, `ig`, `insta`, `yt`, `tw`, `pin`, `li`, `tt`, `twitter-x`, `x-twitter`). Aliases match in className tokens, icon-class regex, aria-label, title, and img src — but NOT in body text (too short, would false-positive).
+- **`title` attribute (NEW path)**: detector now also reads `<a title="Facebook">`.
+- **className token check expanded**: now matches `name`, `icon-{name}`, `social-{name}`, `{name}-icon`.
+- **Material Symbols glyph-text handling**: `isIconOnlyLink()` clones the anchor and removes all icon-glyph elements before measuring text content. Material Symbols renders the icon NAME as `innerText` ("thumb_up") which used to fool the failsafe into thinking the link had real text.
+- **NEW structural failsafe — `social-link-icon-internal-href`**: any icon-only anchor (svg/img/material-symbols/Font Awesome/icon-class child) inside `<footer>` OR `[class*="social"]` with an internal href (same hostname or relative path) — even when no platform was identified — FAILS the build. Reasons it might fire: missing aria-label on a real social link, `href="#"` placeholder, custom icon component the detector doesn't recognize. Message tells the worker exactly how to fix it.
+- **Bypass fix**: previous Check 1 (placeholder href) used `continue` after handling, which prevented the new failsafe from running on `href="/"` with no claimedPlatform. Restructured so the failsafe always gets a chance.
+- **Smoke test against 5 loophole patterns + 3 negative controls**: all 5 loophole patterns now caught (3 by the platform detector via Path 5 / aliases / aria-label, 2 by the structural failsafe). Negative controls (proper external social link, plain text internal link, tel: link with svg) all pass.
+
+### 4. SKILL.md SOCIAL LINKS rule — "OMIT if manifest empty" + REQUIRED MARKUP spec
+- New "HARDER RULE": if `manifest.footer.social` is empty/missing, the build MUST OMIT the social section. No `href="#"`, no `href="/"`, no guessing the social handle from the business name. Guessed URLs that 404 are worse than no link.
+- New "REQUIRED MARKUP" spec: every rendered social link MUST have href = full external URL, aria-label = exact platform name, target=_blank rel=noopener noreferrer. The aria-label is the single source of truth for QA platform identification.
+- Logged the third occurrence of this bug (libertylandscapefl Option C) to the "real bugs we've shipped" list so future workers see the pattern.
+
+### 5. scripts/scrape.js — favicon capture + new SKILL.md FAVICON RULE
+- Scraper now extracts every `<link rel="icon">`, `<link rel="apple-touch-icon">`, `<link rel="mask-icon">`, `<meta name="msapplication-TileImage">` from the homepage `<head>` into `pageData.favicons`.
+- Top-level `manifest.favicon` is computed by ranking candidates (SVG > apple-touch > sized PNG > generic PNG > ICO) and downloading the best one to `assets/img/favicon.{ext}`.
+- Last-ditch fallback: try `/favicon.ico` directly at the origin (every server convention) and accept it if > 100 bytes.
+- New SKILL.md FAVICON RULE: build reads `manifest.favicon`, copies to `public/favicon.{ext}`, adds `<link rel="icon">` to BaseLayout. If `manifest.favicon` is null, fall back to the logo. Never ship without a favicon link — default browser globe favicon is the template tell.
+- **Smoke-tested**: re-scraped libertylandscapefl.com — favicon downloaded successfully (`assets/img/favicon.ico`, 9662 bytes from `irp.cdn-website.com/.../site_favicon_16_*.ico`).
+
+**Files modified**: scripts/scrape.js (raw-HTML social fallback + footer-persistence bugfix + favicon capture + favicon download + manifest.favicon top-level field), scripts/qa-check.js (SOCIAL_PLATFORMS aliases array, wordBoundaryRx unification, Path 5 img-src detection, isIconOnlyLink Material Symbols handling, isInternalHref helper, new social-link-icon-internal-href failsafe check, restructured Check 1 to not bypass failsafe), SKILL.md (rewritten SOCIAL LINKS rule with HARDER RULE on omitting, REQUIRED MARKUP spec, third-occurrence bug log; new FAVICON RULE), FEEDBACK.md (this entry)
+
+**Re-verification**: re-scraped libertylandscapefl.com after fixes. Manifest now has `footer.social` with the correct Facebook (`https://www.facebook.com/libertylandscapefl`) and Instagram (`https://www.instagram.com/libertylandscapefl/`) profile URLs, plus 67 additional social entries across other pages. `manifest.favicon` is populated. Next worker session that rebuilds Option C will have correct social URLs in the manifest, OR (if for some reason the manifest is still empty) will OMIT the social section per the HARDER RULE, OR (if the worker session ignores both rules and ships placeholders) qa-check will fail the deploy via the new structural failsafe. Three layers of defense — earlier was zero.
+
+**Pattern note**: Same bug class shipped THREE TIMES on libertylandscapefl.com. Each shipped because the previous "fix" was incomplete:
+- 1st (manifest had real URLs but build pointed icons to `/about`) → fixed via SOCIAL LINKS HARD RULE on href + qa-check `social-link-wrong-destination`
+- 2nd (qa-check false-positives on Tailwind classes due to `name: 'x'`) → fixed via word-boundary matching + dropped `x` entry
+- 3rd (manifest empty due to Duda widget timing + build defaulted to `href="#"` placeholders + qa-check loophole on icon-only anchors with no aria-label, OR was bypassed) → fixed via 5 layers above
+
+Each fix was correct for its specific failure mode, but each only patched ONE link in the chain. The 3rd recurrence shows that defense-in-depth is required: scraper hardening + build rule + qa-check widening + qa-check failsafe + manifest-empty omission rule. Five layers, all needed.
+
+---
+
+## 2026-04-25 — Vision-alignment audit: 6 structural changes across pipeline + qa-check
+
+**Feedback** (paraphrased): User asked for an audit of the WebFactory skill against the vision (A=suddenly expensive, B=suddenly persuasive, C=industrial design language). User reviewed 10 audit findings and gave specific direction:
+- Drop A↔B and B↔C parity checks (small drift acceptable for visual comparison)
+- Drop comparison-story report (separate go-to-market project) and drop thin-source degradation (handled at funnel stage)
+- Ship: Design Quality Bar (#3, model picks fonts, no curated list), Dramatic Improvement Audit (#4), Industry-anchored C (#5), Mobile-first as TOP priority (#6, "design + QA + image optimization"), Image resolution scan (#7), Brand recognizability as soft rule (#8, with explicit override permission when original is bad)
+
+**Why these structural changes**: the pipeline had ~19 deterministic QA checks for KNOWN bug classes but no programmatic enforcement of the VISION quality bar. Builds could pass every gate by being "merely better than the original" — failing the "$80k from a top-tier studio" promise. Mobile (50%+ of customer traffic) was checked visually but not programmatically — bugs like 14 sub-44px tap targets and a stretched 850px-served-as-1440px hero image sailed through. C had a sentence-deep "anchor to industry" rule but no token-level enforcement, leading to editorial drift.
+
+**Six structural changes shipped**:
+
+### 1. Mobile-first paradigm (highest priority per user)
+- **scripts/qa-check.js**: refactored main loop to iterate over `VIEWPORTS = [{desktop, 1440×900}, {mobile, 390×844}]`. Every check now runs at BOTH. Reporting groups by path with viewport tags: `[both]`, `[desktop-only]`, `[mobile-only]` — duplicates collapse cleanly.
+- **Two new mobile-only checks** (only run when `window.innerWidth < 600`): `mobile-overflow` (fails if document scrollWidth > viewport width + 8px tolerance, names the offending elements), `mobile-tap-target` (warns on interactive elements < 44×44px per WCAG 2.5.5, names the element by visible text).
+- **SKILL.md Stage 3b-bis (NEW)**: 8 mandatory mobile-first design rules — write base CSS for 390px viewport, touch target minimums, no horizontal overflow, srcset for mobile-served heroes, mobile nav style commitment, body text 16px minimum, sticky CTA for trades, proportional spacing.
+- **SKILL.md Stage 4c-bis Visual Sanity Pass**: mobile review promoted from item #10 to item #1 ("review FIRST, on every page"). Other items (hero, CTA, typography, whitespace) now include explicit mobile sub-questions.
+- **Smoke test against live moretti**: caught 14 mobile-tap-target failures (Toggle menu 25×40px, footer service links 84×20 to 197×20px, phone CTA 118×18px) — every single one invisible to the previous desktop-only gate.
+
+### 2. Image resolution scan (#7)
+- **scripts/qa-check.js**: new `image-low-resolution` check runs on every visible `<img>` with displayed width > 200px (skips icons, skips logos which have their own check). Fails if `naturalWidth < displayedWidth` (image stretched, will pixelate). Warns if `naturalWidth < displayedWidth × 1.5` (soft on retina).
+- **Smoke test**: caught `bg_19.jpg` natural 850px displayed at 1440px (ratio 0.59x — being stretched) on the live moretti deploy. Previously invisible to QA.
+
+### 3. Design Quality Bar (#3)
+- **SKILL.md new top-level architectural rule** (sibling to FACT GROUNDING / CMS PLACEHOLDER): operationalizes "suddenly expensive" with 7 concrete bar items — display-quality typography, breathing whitespace (96px+ desktop sections, 48px+ mobile), hero treatment beyond photo+headline, considered palette (3 primary + 2 accent with named roles), one distinctive element per page, one micro-interaction, the "$80k smell test" gut check.
+- **No curated font list per user direction** — the model picks based on industry/brand vibe. The bar is INTENTION not a pre-approved menu. Examples named (Fraunces, Editorial New, DM Serif Display, Cormorant, Cabinet Grotesk) but the model is free to pick others.
+- **scripts/qa-check.js**: new `design-quality-fonts` warning at desktop only — fails if `<head>` loads zero Google Fonts AND no `@font-face` rules. Catches sites relying entirely on system Inter/Arial/Helvetica.
+- **Stage 2 brief**: explicit checklist that the brief must clear the bar (typography pairing with rationale, palette with named roles, hero direction, distinctive-element catalog, micro-interaction list, mobile-first commitments, brand signature inventory).
+- **Stage 4c-bis Visual Sanity Pass**: new item #16 "$80k smell test" with 5 specific gut-check questions.
+
+### 4. Dramatic Improvement Audit (#4)
+- **SKILL.md new Stage 4c-tris**: mandatory comparison of `assets/screenshots/home.png` (original) vs `qa-option-a/desktop-home.png` and `mobile-home.png` (rebuild). Worker session must articulate THREE specific dramatic improvements in writing — not abstract ("more modern") but concrete ("hero went from flat green box with company name to full-bleed photo with Fraunces display headline + labeled section number").
+- If three specifics can't be articulated → A failed the dramatic-improvement bar; rebuild with more ambition (specific guidance: redesign hero treatment, introduce new section pattern, confirm display font, audit spacing, reconfirm 3+2 palette).
+- Outputs `jobs/{domain}/dramatic-improvement-audit.md` for skill-owner review (so we learn whether the bar is holding across builds).
+
+### 5. Industry-anchored C (#5)
+- **SKILL.md new Stage 7b-bis**: derives `jobs/{domain}/option-c/industry-tokens.json` BEFORE building. Required structure: palette (5 hex values with named brand roles + rationale), typography (display + text + mono families with use cases), ornament (allowed shapes + things to avoid), imagery directive.
+- **Industry token derivation table**: 7 industry directions (industrial/trades, garage, food-led, authoritative editorial, product-led, clinical-warm, architectural) each mapped to palette character, typography pairing, ornament vocabulary, things to avoid.
+- **Build (Stage 7d)** consumes the token file — palette wired into CSS variables, typography wired into BaseLayout Google Fonts, ornament shapes used as design vocabulary, avoid-list explicitly forbidden.
+- **Stage 4c-bis Visual Sanity Pass**: new item #17 "Editorial drift check (Option C ONLY)" — "if a stranger saw this without knowing the customer, would they guess the industry within 3 seconds?" 4 specific questions about imagery use, color signal, typography pairing, ornament presence.
+
+### 6. Brand recognizability (soft #8)
+- **SKILL.md Stage 3b-tris**: aim to preserve at least ONE brand signature from the original (primary brand color, typography vibe, hero composition, signature word/tagline). Worker reads design-brief's brand signature inventory, picks one to preserve, writes `jobs/{domain}/option-a/brand-preservation-note.md` documenting the choice.
+- **Override permission explicit per user direction**: "if the original site is genuinely terrible — clashing colors, illegible fonts, generic stock chrome with no signature — you have explicit permission to preserve nothing." But the worker must justify in the same note. Silence (preserving nothing without acknowledging it) is the failure mode this rule prevents.
+
+**Files modified**: scripts/qa-check.js (dual-viewport refactor + 4 new checks: mobile-overflow, mobile-tap-target, image-low-resolution, design-quality-fonts), SKILL.md (DESIGN QUALITY BAR top-level rule, Stage 2 brief checklist, Stage 3b-bis MOBILE-FIRST DESIGN, Stage 3b-tris BRAND RECOGNIZABILITY, Stage 4c-bis 17-item Visual Sanity Pass with mobile promoted to #1, Stage 4c-tris DRAMATIC IMPROVEMENT AUDIT, Stage 7b-bis INDUSTRY DESIGN TOKENS), FEEDBACK.md (this entry)
+
+**Total qa-check.js rules**: 25 (up from 19). Total Visual Sanity Pass items: 17 (up from 15). Two new mandatory pre-existing-stage stages: 4c-tris (Dramatic Improvement Audit) and 7b-bis (Industry Design Tokens).
+
+**What was rejected per user direction** (intentional gaps, not oversights):
+- A↔B design parity check — small drift acceptable, builds-twice cost too high
+- B↔C text parity check — FACT GROUNDING already catches the dangerous failure mode (fabrication); stylistic tightening for layout is fine
+- Customer-facing comparison report — separate go-to-market project, not in WebFactory's scope
+- Source material quality gate — handled upstream at funnel stage; WebFactory assumes thick manifest
+
+---
+
+## 2026-04-25 — Social-link audit produced 100+ false positives on Tailwind-styled sites (libertylandscapefl.com)
+
+**Feedback** (verbatim, from worker session via `jobs/libertylandscapefl.com/feedback.md`): "scripts/qa-check.js's social-link audit produces 100+ false positives on any Tailwind-styled site because className.includes('x') matches flex, text-, px-, etc. I worked around it (the gate now passes), but the root fix lives in the script."
+
+**Bug**: The social-link platform-claim detector in `scripts/qa-check.js` had two collision-prone code paths even after partial defensive logic was added:
+1. The `SOCIAL_PLATFORMS` list contained `{ name: 'x', domains: ['x.com', 'twitter.com'] }`. This was redundant (the `twitter` entry already includes `x.com` in its domains) but DANGEROUS — every check path that touched the platform name 'x' had to defend against substring collisions with Tailwind utilities (`flex`, `mx-auto`, `px-7`, `text-sm`, `box-border`, etc.) and FontAwesome size utilities (`fa-2x`, `fa-xs`, `fa-xl`).
+2. The icon-class detector used `innerHtml.includes('fa-${p.name}')`. For p.name='x', that matched `fa-2x`, `fa-xs`, `fa-xl` — every FontAwesome size class in the wild. So any anchor with a sized FA icon was flagged as a Twitter/X social link, and since its href wasn't twitter.com, the link audit failed.
+
+**Why this slipped through**: Earlier defensive code (line 568-588) was added to use word-boundary matching for short platform names — but only on the `text` and `ariaLabel` paths. The `iconHit` path still used raw substring (`innerHtml.includes('fa-x')`), and the `classHit` path's whitespace-tokenization was correct but didn't help against the icon-class collision. The structural fix is to drop the standalone short-name entry entirely AND switch ALL paths to word-boundary or token-exact matching.
+
+**SKILL.md change**: None directly — the fix lives in `scripts/qa-check.js`. The Self-Learning Protocol's "PARALLEL SESSION RULE" worked exactly as intended: worker session flagged the issue in `jobs/libertylandscapefl.com/feedback.md`, skill-owner session (this one) shipped the structural fix in the canonical script.
+
+**`scripts/qa-check.js` changes**:
+- Removed the `{ name: 'x', ... }` entry from `SOCIAL_PLATFORMS`. Twitter's entry already covers `x.com`, `twitter.com`, and `t.co` domains, so the standalone 'x' was both redundant AND a footgun.
+- Removed the `{ name: 'google', ... }` entry too — phrases like "Find us on Google" / "Google Maps" appear in normal copy frequently, and a substring collision risk wasn't worth the small win. Google Maps links are still validated structurally if they appear in the manifest.
+- Added an early-exit at the top of the per-link loop: any href starting with `tel:`, `mailto:`, `sms:`, or `callto:` is skipped before claim-detection runs. These can never legitimately be social platforms; previously they were being misclassified via the broken icon-class fragment matching.
+- All four detection paths (`textHit`, `ariaHit`, `classHit`, `iconHit`) now use word-boundary or whitespace-token matching uniformly:
+  - Text and aria use a `wordBoundaryRx` factory: `(^|[^a-z0-9])${name}([^a-z0-9]|$)`
+  - className uses `.split(/\s+/).includes(...)` against three patterns: bare name, `icon-${name}`, `social-${name}`
+  - Icon classes use a proper anchored regex: `\b(fa|bi|fab|fas|far|fal)-${name}\b` — so `fa-facebook` matches but `fa-2x` cannot match for any (now-removed) short-name entry. The Material Symbols path also requires word-boundary matching now.
+
+**Smoke tests** (verified inline before shipping):
+1. Live moretti deploy (Tailwind v4 site, dozens of styled anchors): `social-link-*` failures dropped from 100+ to **0**. The 16 failures the gate now reports are all the new text-contrast hits — no false positives in the social audit.
+2. Synthetic positive test (a Facebook icon with `<i class="fab fa-facebook">` pointing at `example.com/about` instead of facebook.com): correctly flagged as `social-link-wrong-destination` — the real bug class still triggers.
+3. Synthetic negative tests verified: `<a href="tel:+1...">` (early-exit), `<a href="mailto:...">` (early-exit), `<a class="flex items-center px-7 py-3 mx-auto text-sm">` (no class-token match), `<i class="fab fa-instagram fa-2x">` (FA size class doesn't false-positive — the word-boundary regex requires `\bfa-instagram\b` as the structured icon class).
+
+**Files modified**: scripts/qa-check.js (SOCIAL_PLATFORMS list pruned, early-exit added, all four detection paths unified on word-boundary/token matching), FEEDBACK.md (this entry), jobs/libertylandscapefl.com/feedback.md (deleted — issue resolved upstream)
+
+**Pattern note**: This is the second time a worker session correctly identified a structural issue and posted to `jobs/{domain}/feedback.md` for the skill-owner to action. The protocol works. Worth reinforcing: workers should NEVER edit `scripts/` themselves — write the flag, work around it locally, ship.
+
+---
+
+## 2026-04-25 — Active nav item rendered black-on-black (morettiscentryautobody.com Option C) → Generic text-contrast scan + Visual Sanity Pass
+
+**Feedback** (verbatim): "Shit, ALMOST PERFECT, look: Selected menu is blacked out. This needs to be caught in QA... I need the QA to be smarter somehow. Not just catching the things that we catch and we specifically tell it to look for, but catch non-deterministic bugs — everything that looks like an issue or a bug to a human should also be caught by QA. Anyway, that applies to option A, B, and C."
+
+**Bug**: On the deployed Moretti's Centry Auto Body Option C site, every interior page's active nav item rendered as a black box with text the same shade of black inside it — completely invisible. Root cause in markup: active item used `class="... bg-iron text-bone"` where the `iron` palette value (intended as a dark background) was `rgb(26,26,26)` and the `bone` palette value (intended as a light foreground) resolved to `rgb(20,20,15)` — two near-identical near-black colors. The text was technically there, just invisible.
+
+**Why this slipped through**: The QA gate had checks for HERO contrast (text over photos) and LOGO/nav-bg matching. Neither covered "ordinary nav text against its own button background." Programmatic QA was only checking the bug classes we'd explicitly enumerated; novel readability bugs in untested locations slipped through. The user's framing nailed the problem: **"non-deterministic bugs — everything that looks like an issue or a bug to a human should also be caught by QA."**
+
+**Structural fix — two layers**:
+
+**Layer 1 — Deterministic generic text-contrast scan** (added to `scripts/qa-check.js`):
+- Walks every visible text-bearing element on every page (`h1..h6, p, a, button, li, span, td, th, label, summary, blockquote, dt, dd, figcaption, strong, em, small, b, i, u`)
+- For each element with direct text content, computes computed-color (foreground) and walks up the parent chain to find the effective background color (skips transparent, aborts and skips the check if it hits a `background-image` since HERO CONTRAST handles those)
+- Computes WCAG contrast ratio (proper relative-luminance formula)
+- Fails if contrast < 4.5:1 for body text or < 3:1 for large text (≥ 24px, or ≥ 18.66px bold)
+- Dedupes identical text+color combinations to keep the report readable
+- Smoke-tested against the live moretti deploy: **caught the exact bug** ("[02]" and "THE SHOP" text both flagged at 1.06:1 contrast — confirming the user-reported visual bug as a deterministic data point) plus 14 other readability issues on the same page that nobody had asked us to look for (yellow `AUTO` accent at 1.34:1, orange "SVC 01..11" labels at 4.42:1, etc.)
+
+**Layer 2 — Formalized Visual Sanity Pass** (new Stage 4c-bis in SKILL.md, applies to A/B/C):
+- Made the previously-implicit "look at screenshots" step into a structured 15-item checklist
+- Each checklist item maps to a bug class that has shipped to a user before
+- Items 1-2 cover this exact bug class (active nav state legibility AND active nav state shape — the box-around-tab styling was wrong even setting contrast aside)
+- Other items: image quality and content match, card grid consistency, empty/placeholder content, hero, CTAs, typography hierarchy, whitespace rhythm, mobile bugs, color combinations that look wrong, off-canvas/overflow, image-to-section semantic match, footer completeness, and a final "would I send this to a customer?" gut check
+- Self-improvement loop documented: any new bug class found via the visual pass becomes either a new checklist item OR a new programmatic check in qa-check.js. The two layers are co-evolving.
+
+**SKILL.md QA philosophy section** (new top-level callout above Stage 4 details):
+- "If a human would see it as a bug, the gate must catch it."
+- Two layers, BOTH mandatory: deterministic (qa-check.js) + visual (model reviewing screenshots with the explicit checklist)
+- Neither layer alone is sufficient — every shipped bug class is either (a) "we never wrote a programmatic check" (visual catches) or (b) "the check was too narrow" (deterministic catches). Both fail open if the other isn't run.
+- Stage 6 (Option B QA) and Stage 7 (Option C QA) explicitly cite the same Visual Sanity Pass — this rule applies to all three options uniformly, not just A.
+
+**Files modified**: scripts/qa-check.js (new generic text-contrast audit, ~85 lines, between placeholder-copy and image-diversity blocks), SKILL.md (new QA philosophy callout above Stage 4 details, new Stage 4c-bis Visual Sanity Pass with 15-item checklist, updated Stage 6 and Stage 7 QA prefaces to invoke the same checklist), FEEDBACK.md (this entry)
+
+**Pattern note**: This is the **eighth** structural bug class caught with the same fix shape (state the principle in SKILL.md AND verify it programmatically AND/OR via structured visual review). The deterministic layer now has 19 checks (up from 18). The visual layer was previously informal — now it's a 15-item explicit checklist. Same principle, two enforcement modes.
+
+---
+
+## 2026-04-25 — `--prebuilt` deploy was silently broken (Vercel build machines spinning up despite the flag)
+
+**Feedback** (verbatim): "Is our process out of building websites contributing to Vercel build minutes?" Then after diagnosis pointed at `./dist` being passed to `vercel deploy --prebuilt`: "Just focus on webfactory, ignore Codex."
+
+**Bug**: SKILL.md Stage 8b told the deploy step to run `npx vercel deploy ./dist --prebuilt --yes`. That looked correct (`--prebuilt` is the canonical "skip remote build" flag) but was silently broken. The `--prebuilt` flag expects the directory it's pointed at to contain a `.vercel/output/` folder (the [Build Output API](https://vercel.com/docs/build-output-api/configuration) spec). Astro's `dist/` doesn't have that — it's just static HTML/CSS/JS. So Vercel ignored `--prebuilt`, spun up a Turbo Build Machine (30 cores / 60 GB) in iad1, ran `vercel build` remotely (which finished in 32–40 ms because there's nothing to compile), and deployed. Confirmed in build logs from `dpl_BoRJDyfLhVZRdKQsHo9kmFgYx3Sv` (Claude/WebFactory) — the line `"Running build in iad1 (Turbo Build Machine)"` was present on every WebFactory deploy across the cycle.
+
+**Why this slipped through**: The deploys *worked* — sites went live, URLs were valid, content rendered. The bug only showed up as Vercel Pro Plan credit consumption. We had no QA gate or post-deploy check that read the build logs to confirm `--prebuilt` was actually skipping the build machine. CLAUDE.md tech-stack line claimed "zero build minutes consumed" — true in intent, false in practice.
+
+**SKILL.md change** — Stage 8b rewritten to use the canonical Vercel prebuilt flow:
+- OLD pattern (broken): `npm run build` then `npx vercel deploy ./dist --prebuilt --yes`
+- NEW pattern (correct): `npx vercel build --yes` (writes `.vercel/output/` LOCALLY) then `npx vercel deploy --prebuilt --yes` (NO path argument — uploads `.vercel/output/` from the current directory)
+- The key insight: `vercel build` is what produces the artifact `--prebuilt` requires. `npm run build` (or `astro build`) only produces `dist/`, which is NOT the same thing.
+- Pass NO path argument to `vercel deploy --prebuilt`. Pointing it at `./dist` (or any path that lacks `.vercel/output/`) silently disables the flag and falls back to remote build.
+- Added a one-time post-deploy verification step: build logs in the Vercel dashboard should NOT contain `"Running build in ... (Turbo Build Machine)"` or `"Running 'vercel build'"` — they should jump straight to `"Deploying outputs..."`. If you see remote-build lines, `--prebuilt` was ignored and the fix didn't take.
+
+**CLAUDE.md change**: tech-stack "Deploy" line updated from `Vercel CLI (--prebuilt flag, zero build minutes consumed)` to the explicit two-step description with a callout that passing `./dist` is the trap.
+
+**Cost impact (estimated)**: each broken deploy spun up a Turbo Build Machine for ~3 seconds wall time. Across ~50 deploys in the current billing cycle, this was a small but nonzero contributor to the $9.30/$20 Pro plan credit consumption. The bigger drivers are likely Edge Requests + Fast Data Transfer from review traffic (sspowerwashing dist alone is 172 MB; bigdaddysdumpers is 56 MB). The `--prebuilt` fix zeroes out the build-machine line item entirely; the bandwidth line item is harder to bring down without restricting preview access.
+
+**Files modified**: SKILL.md (Stage 8b — three deploy blocks + new explanatory paragraph + verification step), CLAUDE.md (Tech Stack > Deploy line), FEEDBACK.md (this entry)
+
+**Diagnostic credit**: Codex's parallel pipeline showed the same bug; user investigation flagged it. Both pipelines (Claude Code and Codex) had identical broken `--prebuilt` patterns; this fix covers Claude Code only per user direction.
+
+---
+
+## 2026-04-25 — Hallucinated "20+ YEARS EXPERIENCE" badge (jdautotech.com — Option B)
+
+**Feedback** (verbatim): "This looks great, but it says 20+ years of experience. If we state facts they have to originate in original copy or be backed by a fact, like maybe license is 20 years old. Do not just hallucinate facts, all facts need to have some reasonable backing."
+
+**Bug**: A built page (Option B, jdautotech.com auto repair) rendered a `20+ YEARS EXPERIENCE` trust badge in the hero. The customer's manifest contains no founding year, no "since YYYY", no "X years experience", no license-issue date — nothing that would back the claim. (Confirmed via `grep` on `jobs/jdautotech.com/manifest.json`: only year references are `2017` in a copyright footer and `2026` from the scrape stamp.) The number was invented because "auto body shop = probably been around a while" — pure pattern-match fabrication.
+
+**Why this slipped through**: Stage 5's "DO NOT add new claims" line existed but relied on build-time vigilance. There was NO programmatic verification at deploy. We had per-bug-class QA gates for placeholder copy, hero contrast, logo, social links, video CTAs, and image diversity — but no gate for **fabricated factual claims**. So a hallucinated stat ("20+ years"), credential ("award-winning"), or identity claim ("family-owned") could ship past the gate even though every other content rule was enforced.
+
+**SKILL.md changes — new FACT GROUNDING PRINCIPLE** (top-level architectural rule, sibling to CMS PLACEHOLDER PRINCIPLE):
+- Every factual claim rendered on a built page MUST originate in the scraped manifest, OR follow logically from a fact in the manifest
+- Scope spelled out: hero headlines, trust badges, callout pills, stat blocks, about/story, feature descriptions, testimonial attributions, CTA microcopy that asserts a fact, footer/legal text
+- Allowed transformations enumerated (rewording, math from a stated date, combining facts, sharpening generic CTAs into concrete ones IF concreteness is in the manifest, reordering value propositions)
+- Forbidden fabrications enumerated (inventing a number/credential/metric/ownership-claim/availability-promise/partner-claim that doesn't appear in the source)
+- Build-time test: "for every numeric claim, dated claim, credential, or identity assertion, point to the line in the manifest that supports it. If you can't, the claim doesn't go on the page."
+- Stage 5 (Build B) tightened with a 9-row table of concrete `Manifest contains... | ✓ Allowed sharpening | ✗ FORBIDDEN fabrication` examples — including the literal "20+ YEARS EXPERIENCE" bug we shipped
+- Stage 6 visual-QA check #3 ("No fabricated facts") now points at the deploy gate as the enforcing mechanism, not just human vigilance
+
+**qa-check.js — fact-grounding deploy-gate enforcement**:
+- New `--manifest <path>` flag wires the manifest into the QA check. Without it, fact-grounding is skipped (with a warning) so the script still works for legacy callers.
+- New `runFactGroundingCheck(visibleText)` Node-side function that scans rendered DOM text against a corpus built from the manifest's strings (excluding `_placeholder` metadata)
+- Eight rule families covering the bug classes:
+  1. **years-experience** — "20+ years", "over 20 years", "20-year". Verifies via direct mention OR derivation from "since YYYY" / "established YYYY" / "in YYYY" with `(currentYear - YYYY) ≥ claimedYears - 1`
+  2. **since-year** — "since 2003", "established 2003" → `2003` must appear in corpus
+  3. **award-winning** — must find `award|awarded|winner|won|voted|recognition|honored|best of|five-star` evidence
+  4. **bbb-rating** — must find BBB/Better Business Bureau/A+ rating mention
+  5. **licensed-bonded-insured** — each piece of the claimed trio must be in the corpus
+  6. **ownership-claim** — family/veteran/woman/minority/locally-owned must literally appear
+  7. **review-count** — number alongside reviews/customers/clients
+  8. **star-rating** — N-star / N.N-star must appear in source
+  9. **availability-promise** — 24/7, same-day, free estimates each map to evidence patterns
+- Skipped claims: years claims with `claimedYears < 5` (avoids false positives on "2 years warranty" and similar)
+- De-dupes identical claims rendered multiple times on the same page so the report stays clean
+- Smoke-tested against three real manifests: jdautotech, moretti, liberty landscape — all three correctly reject the fabricated "20+ YEARS EXPERIENCE / Established 2003 / Family-Owned / Award-winning" string. A control corpus that genuinely supports every claim correctly passes everything.
+
+**Six SKILL.md callsites updated** to pass `--manifest jobs/$DOMAIN/manifest.json`: Stage 4b (Option A QA), Stage 6 (Option B QA), Stage 7 plugin-output QA, and the three Stage 8a deploy-gate checks (A, B, C). The capability description in Stage 4's intro now lists fact-grounding alongside the other 17 checks.
+
+**Files modified**: SKILL.md (FACT GROUNDING PRINCIPLE block, Stage 5 sharpening-vs-fabrication table, Stage 6 check #3, six qa-check.js callsites, Stage 4 capabilities description), scripts/qa-check.js (argv refactor for --manifest, manifest corpus loader, FACT_RULES catalog, runFactGroundingCheck function, per-page invocation), FEEDBACK.md (this entry)
+
+**Pattern repeating**: This is the **seventh** structural bug class caught with this same shape — a build-time decision that "looked plausible" shipped past visual review because there was no programmatic check. The other six (logo placeholder, logo bg-mismatch, social-href-self, fabricated video CTA, hero contrast, duplicate content image) all followed the same fix pattern: state the principle, then verify it programmatically at deploy time. We now have 19 structural QA checks at the gate, up from 11 a week ago. Each new bug class adds one rule to SKILL.md AND one rule to qa-check.js — never just one or the other.
+
+---
+
+## 2026-04-25 — Same image used 3× in service-card grid (naples-pressure-washing-a)
+
+**Feedback** (verbatim, abbreviated): "even though the original website had other images webfactory decided to reuse same image three times... if multiple images exist, make sure that there is diversity in images. Furthermore, attempt to match the image to the topic. You need to recognize what's in the image and match the image to the topic... Do not use the same image, and only reuse the same image if you truly cannot find other images—otherwise consider using something generic."
+
+**Bug**: Naples Premier Pressure Washing Option A homepage had three service cards (Driveway Power Wash / Home Power Washing / Sidewalk Pressure Washing) — all three rendered with the SAME pool photo. Customer's original site at naplesflpressurewash.com has multiple distinct service photos available (driveway shots, building exterior shots, sidewalk shots). The build picked one image and reused it because it "looked nice" or because the worker session didn't bother to find unique ones.
+
+**Why this slipped through**: We had IMAGE-TO-PAGE MAPPING (catches cross-page drift like "residential photo on landscaping page") but no rule for **within-page diversity**. A grid of N service cards with N copies of the same image satisfies the existing rule (the image was from this page's manifest entry) but ships an obviously-poor result.
+
+**SKILL.md changes — new IMAGE DIVERSITY + SEMANTIC MATCHING rule** (added alongside IMAGE-TO-PAGE MAPPING):
+- **Hard rule**: within any single page, every content image must be unique unless absolutely necessary
+- **Semantic matching guidance** (no vision model — use proxies):
+  - `alt` text in manifest entries (often describes the image)
+  - Filename hints in `localPath` (e.g., `bg_driveway.jpg`, `pool_after.jpg`)
+  - `src` URL hints (Hibu/CMS often have descriptive URLs)
+  - Original page context — if image X appeared on the Sidewalk Cleaning page in the original, prefer it for sidewalk-related cards
+- **Fallback chain**:
+  1. Best: a related-but-not-perfect image
+  2. Acceptable: a generic atmospheric image (truck, crew, building exterior)
+  3. Last resort: omit the image entirely, use text-only card with strong typography
+  4. Forbidden: duplicate a content image across adjacent cards
+- **Allowed exception**: same-image reuse permitted ONLY when manifest genuinely has fewer unique images than card slots AND the card is not the customer's primary differentiator
+
+**qa-check.js — new duplicate-content-image audit** (~25 lines):
+- Collects every `<img src="/images/...">` on the page that is ≥ 80×80px and NOT inside nav/header/footer
+- Counts duplicate paths (normalizes by pathname to ignore query strings)
+- **`duplicate-content-image` failure** when any content image appears 2+ times
+- Error message names the duplicated file and points to the IMAGE DIVERSITY rule in SKILL.md
+- Logo, footer images, decorative icons, and small UI sprites are exempt — only content-grid duplicates fire the rule
+
+**Files modified**: SKILL.md (new IMAGE DIVERSITY + SEMANTIC MATCHING rule alongside IMAGE-TO-PAGE MAPPING), scripts/qa-check.js (new image diversity audit), FEEDBACK.md.
+
+**Source**: Direct user feedback after Naples Premier Pressure Washing Option A test, with screenshot showing three identical pool photos.
+
+**Strategic note**: The CMS PLACEHOLDER PRINCIPLE we just shipped catches **fake content** (CMS-default placeholders the customer never filled in). Today's bug was different — the content was real, but the *selection* logic was lazy. Both bugs share the same root: build-time decisions that aren't checked at deploy-time get away with mediocre output. The qa-check.js gate keeps growing as the safety net for "the build did something technically correct but visually wrong."
+
+Six structural QA checks now caught at the deploy gate, in chronological order of when each bug shipped:
+1. Hero contrast (no overlay / insufficient contrast)
+2. Logo background mismatch (opaque logo on different-color nav)
+3. Logo placeholder (CMS-default `gen-logo` patterns)
+4. Social-link wrong destination (Facebook icon → customer's own site)
+5. Video CTA fake (Watch Video button → non-video page)
+6. Duplicate content image (same photo across N service cards)
+
+Plus the unified placeholder detector at scrape time. Pipeline is genuinely getting harder to ship bugs through.
+
+---
+
+## 2026-04-25 — Structural fix: CMS PLACEHOLDER PRINCIPLE + unified detector
+
+**Feedback** (verbatim): "so what are you doing about this: 'Strict preservation of the customer's original site is the wrong default when the original site itself contains template placeholders...' ???"
+
+**The pushback was correct.** I had written that strategic observation in the previous FEEDBACK.md entry, then went back to patching individual symptoms — fix-logo.js for placeholder logos, VIDEO CTA RULE for placeholder videos. The principle lived in prose; the detection was scattered through per-element rules; new placeholder bug classes (placeholder copy, placeholder phone, placeholder address) would have shipped because nothing systematically checked for them.
+
+**This entry replaces patching with architecture.**
+
+### What shipped
+
+**1. New script `scripts/detect-placeholders.cjs` (~250 lines)** — a single source of truth for CMS placeholder patterns:
+- **Image URLs** (8 patterns): `gen-logo-*` (Hibu), `default-logo`, `your-logo-here`, `placehold.co`, `via.placeholder.com`, `wix-default`, `godaddy-default`, `sq-default`
+- **Page slugs** (6 patterns): `/hibu-video-splash`, `/call-or-text-pop`, `/sample-page` (WP), `/test-page`, `/your-page`, `/lorem-ipsum`
+- **Body copy** (12 patterns): lorem ipsum variants, "Business Tagline Lorem Ipsum Dolor" (Hibu), "Welcome to your new site", "Click here to add", "Add your text here", "This is a sample", "Coming soon", "Under construction", "Page not yet written", "Sample heading"
+- **Phones** (3 patterns): NANP fiction-reserved 555-01XX, 123-456-7890, 000-000-0000
+- **Emails** (3 patterns): info/contact/hello@example.com, generic placeholder patterns, youremail@*
+- **Addresses** (3 patterns): "123 Main St", "Your Street Here", "1234 Anytown"
+
+The script walks every page, every image, every section, every business field. Tags suspicious entries inline in the manifest with `_placeholder: { kind, pattern, source, reason }`. Writes a separate `placeholder-report.json` with a grouped summary. Operator sees a loud console summary on every run.
+
+**Smoke test on Moretti's**: 11 placeholders detected (10 logo-placeholder instances + 1 page-placeholder). Both bugs we shipped this week, both now structurally detectable at scrape-time.
+
+**2. SKILL.md — Stage 1c (NEW) + CMS PLACEHOLDER PRINCIPLE (NEW top-level rule)**:
+- **Stage 1c** runs `detect-placeholders.cjs` immediately after Stage 1b (logo fix), before any design or build work. Mandatory step in every run.
+- **CMS PLACEHOLDER PRINCIPLE** sits at the same architectural level as LOGO RULE / HERO CONTRAST RULE / VIDEO CTA RULE. Stated as: _"The customer's original site is the input, not the truth. Sites built on template platforms commonly contain content the customer never filled in. Strict preservation of placeholder content = shipping placeholder content."_
+- Reaction table maps each `_placeholder` tag kind to the appropriate downstream behavior (logo → favicon; image → omit/substitute; page → exclude from nav; copy → omit; phone/email/address → flag in final report).
+- Every existing per-element rule (LOGO, VIDEO CTA, SOCIAL LINKS, etc.) implicitly inherits the placeholder-cleaned manifest data; rules describe the *fallback* behavior when a `_placeholder` tag is present.
+
+**3. qa-check.js — placeholder-copy audit** (~30 lines, 13 patterns):
+- Fires `placeholder-copy` failure if any of the lorem-ipsum / "Business Tagline" / "Coming soon" / "123 Main St" / `555-01XX` / `info@example.com` patterns appear in the rendered page text
+- Centralized list mirrors the script's PATTERNS.copyText so the build can detect *anything that slipped through* — defense in depth
+
+### Why this matters
+
+This week we shipped FIVE "placeholder content reached production" bug classes (no-overlay hero contrast, logo-bg-mismatch, social-href-self-pointing, placeholder-logo, placeholder-video-CTA). Each was patched individually. The cumulative cost was high (5 user feedback rounds, 5 separate code changes) and the next placeholder class (lorem ipsum copy, fiction phones, etc.) would have shipped too — because no code was systematically asking "is this content fake?"
+
+After today: ONE script asks "is this content fake?" at scrape time. The answer flows downstream as inline manifest tags. Per-element rules become reactions to those tags, not independent detection logic. New placeholder patterns get added to ONE catalog file, instantly available to every stage. The qa-check gate is the safety net.
+
+### Files modified
+
+- `scripts/detect-placeholders.cjs` (NEW, 250 lines) — unified detector + pattern catalog
+- `SKILL.md` — added Stage 1c (placeholder detection step) + CMS PLACEHOLDER PRINCIPLE top-level rule with reaction table
+- `scripts/qa-check.js` — placeholder-copy audit added to the page evaluate block (~30 lines)
+- `FEEDBACK.md` — this entry
+
+### Strategic note
+
+The pattern catalog in `detect-placeholders.cjs` is the load-bearing architectural choice. As we encounter new CMS platforms, new placeholder patterns, new template defaults — they get added to ONE list. The reaction logic doesn't change; only the catalog grows. This makes future placeholder-class bugs cheap to fix (add a pattern, done) instead of needing per-element fixes across multiple files.
+
+The principle now lives in code AND in the skill, not just in a strategic note that gets forgotten.
+
+---
+
+## 2026-04-25 — Fabricated "Watch Video" CTA pointing nowhere (morettiscentryautobody.com — Option A)
+
+**Feedback** (verbatim): "video does not play, thoughts: ... if a real YouTube link exists in the manifest, Find the YouTube URL in the manifest/scrape and wire a real <iframe> embed into the 'Watch Video' section across all 3 options. , otherwise Drop the Watch Video CTA entirely"
+
+**Bug**: Moretti's Centry Auto Body Option A homepage rendered a "Watch Video" CTA button. Clicking it went to `/about` (and on the auto-body-repair page, `/contact`). Neither destination contains a video. The CTA was decorative and broken — visitors expecting a video play got a service info page instead.
+
+**Diagnosis**: The customer's original Hibu site has a `/hibu-video-splash` page in the manifest. Title looks like a video, page name looks like a video — but the actual scraped content of that page is **only social share buttons**. No iframe, no YouTube/Vimeo URL, no `<video>` element. It's a Hibu *template placeholder* (same pattern as the `gen-logo` placeholder logo we just fixed). The customer never uploaded a real video.
+
+**Why the worker session created the CTA anyway**: Faced with a "Hibu Video Splash" page name in the manifest and play-button visual conventions in the design language, the worker assumed a video existed and rendered a CTA. It then linked the CTA to a plausible-but-wrong page (`/about`, `/contact`) because there was no real video URL to point at.
+
+**This is the same failure pattern as the placeholder logo bug**: the customer's original site has a placeholder for content they never created. Our pipeline treated the placeholder as content. Strict preservation of a placeholder = shipping a placeholder.
+
+**SKILL.md changes — new VIDEO CTA RULE** (added right after HERO CONTRAST RULE):
+- **Principle**: a video CTA may only exist if a real, embeddable video URL exists in the manifest. No exceptions.
+- **What counts as "real video"**: iframe src matching YouTube/Vimeo/Wistia/Loom/Vidyard/youtube-nocookie embed paths; `<a href>` to youtube.com/watch, youtu.be, vimeo.com/<id>, .mp4/.webm/.mov files; `<video src=...>` elements; JSON-LD VideoObject.
+- **Allowed responses when no real video exists** (3 options):
+  1. Drop the CTA entirely; replace section with another content block from manifest (image gallery, testimonial, services grid, contact CTA)
+  2. Convert to a static "before/after" carousel using existing manifest photos (relevant for trades, auto body, landscaping)
+  3. Replace with a primary CTA (Call now, Get a quote, Visit us)
+- **Forbidden responses**: CTA linking to non-video page; placeholder YouTube IDs; linking to a video-splash page that has no actual video; fake play-button overlays.
+
+**qa-check.js changes — new video audit** (~75 lines):
+- Detects all video-CTA labels: "Watch Video", "Play Video", "View Video", "See Video", "Watch Our Story", "Watch Demo", "Watch Now"
+- For each, finds the wrapping `<a href>` and validates the href against video URL patterns (YouTube embed, Vimeo, Wistia, Loom, Vidyard, .mp4/.webm/.mov files)
+- Special case: anchor links (`#section-id`) pass IF the target element contains a real video iframe/element — supports the "scroll to video section" pattern
+- **`video-cta-fake` failure** when CTA href doesn't resolve to video
+- **`video-cta-no-link` warning** when the CTA isn't wrapped in an anchor (likely a JS button — flag for review)
+- **`fake-play-button` failure** for the secondary pattern: play-button SVG icon (`M8 5v14l11-7z`) or `fa-play` / `play_arrow` class inside an `<a>` whose href isn't a video. Catches the "decorative play button that goes nowhere" variation independent of the button's text label.
+
+**Files modified**: SKILL.md (new VIDEO CTA RULE section, ~50 lines), scripts/qa-check.js (new video audit block, ~75 lines), FEEDBACK.md.
+
+**Source**: Direct user feedback after morettiscentryautobody.com test. User explicitly directed: if real video URL exists → wire real iframe; otherwise → drop CTA entirely. Pipeline now follows that rule structurally.
+
+**Strategic note**: This is the FIFTH "shipped placeholder/fake content" bug class this week (after hero-no-overlay, logo-bg-mismatch, social-href-self-pointing, placeholder-logo, and now placeholder-video-CTA). The pattern repeats because **strict preservation of the customer's original site is the wrong default when the original site itself contains template placeholders**. Hibu, Wix, Squarespace, GoDaddy all serve "your content here" defaults that look like content but aren't. Our pipeline now needs to *recognize* when the customer's "content" is actually a CMS placeholder and react accordingly — fall back to favicon (logo), drop the CTA (video), or skip the section entirely. The qa-check.js gate is the safety net that catches what the build rules miss.
+
+---
+
+## 2026-04-25 — Placeholder logo shipped (morettiscentryautobody.com)
+
+**Feedback** (verbatim): "webfactory produced a terrible logo. 1. If there is no logo, do not make one, check FavIcon to see if that can be used, or reuse original logo."
+
+**Bug**: Moretti's Centry Auto Body shipped with a generic wireframe sun/star icon + the literal italic word "logo" in the nav header. Looked nothing like an auto body shop's brand. The user's reasonable assumption was that we INVENTED this — but inspection shows we did NOT invent it; we faithfully reproduced what the customer's original Hibu-built site was serving. The original `<img src>` was `https://le-cdn.hibuwebsites.com/.../gen-logo-e5ccbe50-1920w.png` — a Hibu platform default ("your logo here") served because the customer never uploaded their own logo.
+
+**Why this snuck through**: Our existing rule was "ALWAYS preserve the original logo, never invent." `fix-logo.js` correctly found the URL, downloaded the file at 529×170 (above the 100px threshold), and the build correctly displayed it. The rule was followed perfectly — and the result was shipping a placeholder. Strict preservation of a placeholder = shipping a placeholder.
+
+**The user's directive added a new step to the fallback chain**: detect platform placeholders, and when found, fall back to the customer's favicon before falling back to plain text.
+
+**Updated LOGO RULE — full fallback chain (now 4 steps)**:
+1. Original logo from manifest (use fix-logo.js to recover high-res variants)
+2. **NEW** — reject if it matches a CMS-platform placeholder pattern (`gen-logo-*`, `placeholder`, `default-logo`, `your-logo-here`, etc.)
+3. **NEW** — favicon fallback: try `apple-touch-icon`, `favicon-NNNxNNN.png`, `favicon.ico` etc. Use the largest non-placeholder favicon ≥ 64px.
+4. Plain-text fallback: business name in display font
+
+Each step records its source/warning in `manifest.logo` so the final report can tell the user "we used a favicon, please send a real logo."
+
+**fix-logo.js changes**:
+- Added `looksLikePlaceholderLogo(url)` — pattern check covering Hibu, Wix, Squarespace, GoDaddy, generic CMS defaults
+- Added `tryFetchFavicon(domain)` — fetches 9 common favicon URLs in priority order, scores them (SVG > transparent > opaque, larger > smaller, non-ICO preferred), returns the best
+- `main()` restructured: filters out placeholder candidates first; if all candidates are placeholders, tries favicon fallback automatically
+- Manifest `logo.source` field added: `'manifest'` | `'favicon-fallback'` | `'favicon-fallback-after-placeholder'` | `'none'` | `'none-after-placeholder'` — downstream stages see exactly what happened
+- Manifest `logo.warning` field carries the message that should appear in the final report
+
+**qa-check.js changes** (catches the bug at deploy gate):
+- New `logo-is-placeholder` failure: fires if the rendered logo's `src` URL matches any placeholder pattern. Even if the build slipped through fix-logo (e.g. the customer's bug list grew a new pattern we don't know yet), QA catches it.
+- New `logo-literal-text` failure: fires if the nav link wrapping the logo contains literal placeholder text ("logo", "your logo here", "placeholder"). This catches the Moretti's specific failure mode where the worker rendered the literal word "logo" in italic next to a wireframe SVG.
+- New `logo-generic-alt` warning: alt text exactly "Logo" / "Site Logo" / "Your Logo" — usually a sign the logo itself is a template default
+
+**Files modified**: SKILL.md (LOGO RULE Layer A expanded — 4-step fallback chain with placeholder detection + favicon step), scripts/fix-logo.js (~85 lines added — placeholder detection function, favicon fallback function, restructured main() with two new fallback paths), scripts/qa-check.js (3 new logo checks — placeholder URL, literal text, generic alt), FEEDBACK.md.
+
+**Source**: Direct user feedback after morettiscentryautobody.com test.
+
+**Strategic note**: This is the FOURTH "looks bad but didn't fail technical checks" bug class shipped this week (after no-overlay hero contrast, wrong-color logo bg, and social-href-pointing-to-self). Pattern is now unmistakable — every rule needs both a build directive AND a programmatic QA check, because either alone has shipped real bugs. The "absolute preserve" school of thinking has its own failure mode: faithfully preserving garbage. Honest fallbacks (favicon, plain text) with explicit operator notification beats "preserve no matter what."
+
+---
+
+## 2026-04-25 — Social links pointed to customer's own site instead of social platforms (libertylandscapefl.com — A, B, AND C)
+
+**Feedback** (verbatim, two messages):
+1. "Facebook and Instagram links look beautiful on the page, but they point to the website not to Facebook and LinkedIn! That is a massive miss, and must not happen during build and QA should check all links!"
+2. "Issue was present on A, B and C verions."
+
+**Bug**: All three options on libertylandscapefl.com had Facebook + Instagram icons in the footer (and probably nav). Visually correct — proper icons, proper styling, in the right place. But every social `href` pointed to the customer's own website (`/` or the customer's domain) instead of the actual external Facebook / Instagram URLs. **Cosmetically perfect, functionally broken** — clicking an Instagram icon took the visitor to a 404 or the homepage of the customer's site, never to the customer's Instagram page.
+
+**Why this is worse than the SS Power Washing social bug**: SS Power Washing dropped social links entirely — visible, obvious, the user noticed immediately. Liberty Landscape's failure is *invisible to a quick visual review* — the icons are there and look right. You only catch it by hovering or clicking. This class of bug is harder to spot than missing content.
+
+**Why all three options had it**: The previous social-links rule (added 2026-04-24) only required social links to BE PRESENT in the footer. It didn't say WHERE the `href` should point. Worker sessions correctly extracted "the customer has a Facebook" from the manifest, then used a default placeholder href (typically `/` for "go home" or `#` for "scroll up"). The icons rendered, the rule passed, the deploy shipped.
+
+**Pipeline-wide failure** confirms this is a structural issue, not Option-specific. The fix is in two layers — the rule + the QA gate — and both apply to all three options because qa-check.js runs against every option's deploy.
+
+**SKILL.md changes**:
+- Social-links rule expanded with **HARD RULE on the `href`**: each social link's `href` MUST be the FULL EXTERNAL URL from the manifest. Explicit prohibitions: NEVER `href="#"`, NEVER `href="/"`, NEVER point a Facebook icon at the customer's own website.
+- Open-in-new-tab requirement: `target="_blank" rel="noopener noreferrer"`.
+- Both real bugs cited in the rule (SS Power Washing → dropped, Liberty Landscape → wrong destinations) so future sessions see what the failure modes look like.
+- Forward reference to qa-check.js auditing social hrefs — sessions know the build will be blocked if they get this wrong.
+
+**qa-check.js — new link audit**: For every page in the build, find every `<a href>` and:
+1. **Detect "claimed platform"** by scanning the link's visible text, `aria-label`, class names, and inner HTML for platform names AND common icon-library hints (Font Awesome `fa-facebook`, Bootstrap Icons `bi-instagram`, etc.). Covers Facebook, Instagram, LinkedIn, YouTube, TikTok, Twitter/X, Yelp, Google Maps, Pinterest.
+2. **Check 1 — placeholder href**: if `href` is empty, `#`, `/`, or `javascript:`, fail with `social-link-placeholder` (or warn for non-social dead links).
+3. **Check 2 — wrong destination**: if a link claims to be Facebook (by text/aria/class/icon) but the actual `href` host is the customer's own domain or a non-Facebook domain, fail with `social-link-wrong-destination`. Error message includes the actual hostname so the operator can fix it from the manifest.
+4. Edge case: `social-link-malformed` for invalid URL strings.
+
+The check runs on every page of every option. A Facebook icon pointing nowhere on Option C will block the deploy of all three.
+
+**Files modified**: SKILL.md (social-links rule expanded with href hard rule + cited bugs), scripts/qa-check.js (~70 lines for the new link audit), FEEDBACK.md.
+
+**Source**: Direct user feedback after libertylandscapefl.com test, with confirmation that the bug appeared on all three options.
+
+**Strategic note**: This is a third "looks fine but functionally broken" bug class (after the no-overlay hero contrast bug and the wrong-color logo bg bug). The pattern keeps repeating because **visual QA isn't a substitute for functional QA**. Every time we ship a "pixel-perfect but technically wrong" bug, the lesson is the same: encode the functional rule explicitly, then add a programmatic check. Three bugs of this class in one week — the qa-check.js gate is doing real load-bearing work now.
+
+---
+
+## 2026-04-25 — ABC rename (drop the "+" notation)
+
+**User feedback** (verbatim): "Right now our naming convention is option A, A plus and C. Let's just make it ABC. Also at the end of webfactory, always return links for Original, A, B and C."
+
+**Decision**: Drop the "+" notation entirely. The track that was called "Option A+" (canonical conversion-tuned copy on A's design) is now simply **Option B**. The track that was called "Option C" stays as Option C. The final report always returns 4 links: Original, A, B, C.
+
+**Why this matters**: The "A+" notation existed because the old "Option B" slot was occupied by the Stitch-driven track, which was retired 2026-04-24. After retirement, the "+" was an unnecessary historical artifact — clean ABC naming is more consistent and easier for the user/customer to follow.
+
+**Changes performed**:
+- **Directory rename**: existing `jobs/*/option-a-plus/` directories renamed to `jobs/*/option-b/`. Three domains affected (libertylandscapefl, morettiscentryautobody, naplesflpressurewash).
+- **Cleanup of stale directories**: deleted ~849 MB of old Stitch-era `option-b/` orphans across nine domains so the name was free for the new B.
+- **SKILL.md**: ~75 string replacements via sed:
+  - `Option A+` → `Option B` (text references)
+  - `option-a-plus` → `option-b` (paths)
+  - `optionAPlus` → `optionB` (JS keys)
+  - `qa-option-a-plus` → `qa-option-b` (QA dirs)
+  - `--option-a-plus` → `--option-b` (CLI flag)
+  - Stage renumbering: `Stage 3+` → `Stage 5`, `Stage 4+` → `Stage 6`, `Stage 5C` → `Stage 7`, `Stage 7` → `Stage 8`, `Stage 8` → `Stage 9`, `Stage 9` → `Stage 10`. Sub-stage labels updated correspondingly (5Ca → 7a, 4+a → 6a, etc.)
+  - Stage 5 (Build B) physically reordered in the document to flow correctly after Stage 4 (it had been placed between Stage 3 and Stage 4 in the original "Stage 3+" position)
+- **scripts/init-metrics.cjs**: removed `optionAPlus` port allocation. Now allocates 3 ports per domain: `optionA`, `optionB`, `optionC` (slot spacing kept at 4 to preserve back-compat with existing metrics.json files where ports were assigned earlier).
+- **scripts/get-port.cjs**: simplified to accept only `a|b|c` (dropped `a-plus|a+|aplus` aliases). Back-compat fallbacks still synthesize missing port keys for older metrics.json files.
+- **scripts/finalize-metrics.cjs**: now measures `option-b/dist/` instead of `option-a-plus/dist/`. Removed the "Option B retired" comment from the previous Stitch-era cleanup.
+- **CLAUDE.md**: full rewrite. Three-option architecture, ABC labels throughout, retirement history preserved as a quoted note for historical context.
+- **Final report format** (Stage 10): always 4 links — Original, A, B, C (5 when Spanish re-enabled for C). The "Option B (Stitch-driven) was retired" footer line was removed because it's now confusing — B is the new B.
+
+**Smoke tests run**: `init-metrics`, `get-port a/b/c`, `finalize-metrics` — all pass with the new key set.
+
+**Files modified**: SKILL.md (~85 line edits + structural reorder), CLAUDE.md (full rewrite), scripts/init-metrics.cjs, scripts/get-port.cjs, scripts/finalize-metrics.cjs, FEEDBACK.md. Plus filesystem: 9 orphan directories deleted, 3 directories renamed.
+
+**Source**: Direct user request after the SKILL.md had grown three options through several rename/retirement cycles.
+
+---
+
+## 2026-04-25 — Hero contrast bug (three-for-three across A, A+ implicit, C)
+
+**User feedback messages, in order**:
+1. "Blue text is barely visible, this is from Option A, and should never be built like that nor pass QA." (Naples FL Pressure Washing — Option A: dark navy text on a dark/blue-tinted pool photo, no overlay)
+2. "same issue with Option A" (Tampa Bay landscape company — Option A: dark green italic display serif on a green-tinted patio photo)
+3. "Same issue Option C" (Naples FL Pressure Washing — Option C: massive black sans-serif headline "SPOTLESS LANAIS, DRIVEWAYS" on a teal pool photo, no scrim, only the third line "& HOMES." in orange was visible)
+
+Three failures across two domains and two options confirms this is **endemic** — the bug is systemic in our hero generation, not specific to a design engine.
+
+**Root cause**: SKILL.md said "Use background images as hero backgrounds" but never mandated the three-layer pattern (image / overlay / text). Worker sessions used various approaches: photo with no overlay at all, photo with weak tinted overlay that didn't separate text from background, photo with overlay but text color picked to "match the brand" instead of to contrast with the overlay-treated background. Without a structural rule + automated check, the failure mode kept recurring.
+
+**SKILL.md changes**:
+- New top-level `HERO CONTRAST RULE` section right after `LOGO RULE` (before Stage 2). Spells out:
+  - Mandatory three-layer pattern with concrete Astro/Tailwind code example showing the correct markup AND two real-world anti-patterns (no overlay; tinted overlay + same-tone text)
+  - Overlay strength rule (50%+ for white-on-dark, 60%+ for dark-on-light, tinted overlays only if measurable contrast holds)
+  - Text color rule with WCAG AA targets (4.5:1 body, 3:1 large headings)
+  - Default-safe combinations table (white-on-dark-overlay, ink-on-light-overlay)
+  - Explicitly applies across A, A+, C — no editorial/minimal exception
+- Stage 3b background-image bullet expanded to point at the new rule + cite the Naples and Tampa bugs as the failure mode
+- All three options inherit the rule (no per-option override)
+
+**qa-check.js new check** (added inside `page.evaluate`):
+1. For every `h1` and `h2` in the first viewport (top 1000px):
+2. Walk up the DOM looking for a `background-image` ancestor (or a positioned ancestor containing a wide `<img>` — the layered hero pattern)
+3. If found, walk again looking for an overlay element: any sibling/ancestor with `position: absolute|fixed` AND non-transparent `background-color`
+4. If no overlay → **FAIL** with `hero-no-overlay` error including the heading text (truncated)
+5. If overlay found → compute the heading's text color, blend the overlay's RGBA over a 50% gray baseline (approximation of "average photo"), and compute WCAG contrast ratio
+6. If ratio < 3.0 (large heading) or < 4.5 (small heading) → **FAIL** with `hero-low-contrast` error including both hex values, computed ratio, and the threshold
+7. Skips `<h1>`/`<h2>` not in the first viewport (footer/below-fold headings have different rules)
+
+**Files modified**: SKILL.md (new HERO CONTRAST RULE section ~80 lines + Stage 3b note), scripts/qa-check.js (added ~85 lines for the contrast detection inside the existing page.evaluate block), FEEDBACK.md.
+
+**Source**: Three pieces of feedback within the same testing session, two domains (Naples FL Pressure Washing + a Tampa Bay landscape company), two options.
+
+**Strategic note**: This is the third "looks awkward but doesn't fail any technical check" bug class we've structurally addressed (after the logo-substitution / blob-mark bug and the social-link drop bug). The pattern: when our QA only checks "does it work" rather than "does it look professional", we ship visually broken sites. The fix is always the same — encode the design rule explicitly, then add a programmatic check that catches violations before deploy.
+
+**Test it**: re-run the Naples FL Pressure Washing site with the new SKILL.md + qa-check.js. The build should now refuse to deploy if any hero heading sits on a photo without proper overlay + contrast.
+
+---
+
+## 2026-04-24 — Logo background-aware placement (SS Power Washing follow-up)
+
+**Feedback** (verbatim): "Tighten LOGO RULE further, pay attention to background, transparency etc. Make sure the logo looks good on where we place it. Original - two screen shots and then ours - blue colors do not match. Spend some time looking at original page for best version of the logo, SVG or transparent background. If not available, make our page in such a way that their logo still works on it."
+
+**Bug**: SS Power Washing's logo file has an opaque navy-blue rectangular background. Our build placed it on a navy nav with a different shade of navy. Two visible problems on the deployed page: (1) the logo's blue rectangle is plainly visible against the surrounding nav, and (2) the two blues don't match — looks like a sticker glued onto the page, not an integrated brand.
+
+**Root cause**: `fix-logo.js` searched for high-res variants but stopped at the first usable one. It didn't (a) hunt for SVG or transparent variants the customer's site might already have, (b) detect whether the chosen file has an opaque background, or (c) tell downstream builds the background colour to match. Worker session then placed the logo on whatever nav background it picked, with no awareness that the logo had its own background that needed to match.
+
+**fix-logo.js rewrite**: Substantial enhancement:
+- **Variant hunt**: now generates ~20+ candidate URLs per logo (SVG sibling, `-transparent`, `-trans`, `-tp`, `-alpha`, `-white`, `-light`, `-dark`, `-color` suffixes, plus the existing WordPress `-WxH` and `cropped-` strips). Fetches each, scores by (a) format (SVG > transparent PNG > opaque PNG), (b) resolution, and picks the best.
+- **Transparency detection**: launches a real browser to render the chosen file and sample alpha across a 20-step grid. If any pixel has alpha < 250, flags `hasTransparency: true`.
+- **Background sampling**: if the logo is opaque, samples the four corners. If they agree (within 5 RGB units per channel), records the agreed colour as `manifest.logo.backgroundColor`.
+- **Manifest schema extended**: `manifest.logo` now carries `{ src, localPath, width, height, format, hasTransparency, backgroundColor, cornerSamples }`. Downstream stages use these to decide where the logo goes and how the nav is coloured.
+
+**qa-check.js new check**: For every page, after the existing logo-legibility checks, pull the logo into a canvas, sample its corners, and:
+- If logo is opaque AND corners agree (i.e., it has a solid coloured background) AND that colour does not match the nav's effective background within tolerance (RGB distance > 12) → **FAIL** with message `"Logo has solid #XXXXXX background but nav is #YYYYYY — visible colour mismatch. Either find a transparent logo variant OR change nav background to #XXXXXX."`
+- If logo has alpha transparency → no check needed; logo can sit on any nav.
+- If logo is cross-origin tainted → silently skip (can't sample).
+
+**SKILL.md LOGO RULE expanded** (now ~5× longer with two layers):
+- **Layer A** (existing): Always preserve original. Never invent. Plain-text fallback if unrecoverable.
+- **Layer B** (new): Background-aware placement. Four steps:
+  1. **Hunt for transparent / SVG variants first** — explicit variant-naming patterns to search
+  2. **Detect background** of the chosen file
+  3. **Place correctly**: if transparent, anywhere; if opaque, nav background MUST exactly match the logo's sampled hex (or use a card/panel matching the logo bg with different surrounding nav)
+  4. **Apply consistently across A, A+, C** — if logo dictates a particular nav colour, that flows through all three options
+
+**Cross-cutting QA** rule: never place an opaque-background logo on a different-coloured nav. Hard fail at Stage 7a.
+
+**Files modified**: SKILL.md (LOGO RULE section ~tripled in size with Layer B + 4 steps + QA gate update), scripts/fix-logo.js (rewrote — variant scoring, browser-based transparency detection, corner sampling, extended manifest schema), scripts/qa-check.js (new logo-background mismatch check), FEEDBACK.md.
+
+**Source**: Direct user feedback after SS Power Washing test, with screenshots showing the bug.
+
+**Strategic note**: Logo handling is the second-most-likely bug source after content drops. With this change, the failure mode "logo on mismatched background" is now caught at the QA gate before deploy. Customers won't see the blue-on-blue mismatch ever again — at worst they'll see a build that fails QA and forces a rebuild with the right nav colour.
+
+---
+
+## 2026-04-24 — SS Power Washing test: socials dropped + Option B retired + logo rule tightened
+
+**Three concurrent decisions from one test run.**
+
+### 1. Bug — social links dropped (real bug)
+**Feedback** (verbatim): "SS Power Washing just finished. Massive miss, and we fixed it before - original page has Social links, I think Facebook and Instagram, our pages have none of these that I can see."
+
+**Root cause**: SKILL.md mentioned "social links" in Stage 3b's instructions ("Keep all social links, phone numbers, email addresses") but it was a single buried line in a long bullet list, with no QA gate enforcing it and no explicit listing of which platforms count. The user's earlier reminder "we fixed it before" suggests this regressed — the rule existed but wasn't load-bearing enough.
+
+**SKILL.md changes**:
+- Stage 3b social-links bullet expanded to its own paragraph: explicit list of platforms (Facebook, Instagram, LinkedIn, YouTube, TikTok, X/Twitter, Yelp, Google Business), explicit reading instruction (`design-brief.json → business.socials` + manifest external-link scan), explicit placement rule (footer mandatory; header mirroring original).
+- Stage 5d (Option C) Common-Content-Drop checklist now leads with social links — first item, not buried.
+- Stage 8 verify gains an explicit "all social links from manifest" check.
+
+### 2. Architecture change — Option B retired
+**Feedback** (verbatim): "I also want to ... most importantly eliminate Option B. Option A, A+, and C. This simplifies things as we remove Google Stitch from the process."
+
+**Rationale**: After bigdaddysdumpers and SS Power Washing tests, the user's signal is consistent — A and A+ are the strong outputs, B (Stitch-driven) adds complexity and external API dependency without a corresponding quality lift. Removing it simplifies the pipeline, removes a fragile external integration (Stitch API auth, MCP server, screenshot parsing), and clarifies the customer comparison: A vs A+ vs C, two clean axes.
+
+**SKILL.md changes**:
+- Entire Stage 5 (Build Option B via Stitch) section deleted (~510 lines)
+- Entire Stage 6 (Visual QA Option B) section deleted (~125 lines)
+- Stage 7 deploy + 7a gate sections lose their Option B blocks
+- Stage 8 verify drops Option B
+- Stage 9 final report: 4 links (Original, A, A+, C) instead of 5
+- Architecture 2 description updated: A+ is canonical text source for **C only** (not B and C)
+- Parallelization diagram redrawn: A → A+ → C, strictly sequential
+- Smart Resume drops Option B detection + Stitch generation detection
+- Important Notes: removed STITCH IS INSPIRATION + STITCH CLI rules; added "OPTION B RETIRED" note pointing to orphan artifacts
+- `--option-b` stage override removed; replaced with `--option-a-plus` + `--option-c`
+- All path/comment references to `option-b/` and `Option B` swept and updated to A+/C variants where appropriate
+
+**Scripts changes**:
+- `finalize-metrics.cjs`: removed `optionB` measurement block
+- `init-metrics.cjs` + `get-port.cjs`: kept 4-port slot allocation for back-compat, but `optionB` slot is now unused; if accidentally requested, it's a no-op key
+- `stitch-generate.js`, `stitch.sh`, `grab-heroes.js`: kept on disk as orphans for reference; not invoked by any pipeline stage
+
+### 3. LOGO rule tightened — eliminate wordmark substitutes
+**Feedback** (verbatim): "I also want to eliminate creating alternative logos"
+
+**Rationale**: Earlier we had a layered logo rule — A always preserves; B and C could fall back to a typographic wordmark if the original was broken. Real-world result: Option C invented a "weird-looking blob" on bigdaddysdumpers (already logged), and creative latitude on logos generally produced customer-confusion bugs. User wants the rule simplified to "no substitutes ever."
+
+**SKILL.md changes**:
+- LOGO RULE rewritten (in the post-Stage-1b section): ALWAYS preserve original across A, A+, and C. No wordmark fallback. No invented marks.
+- If `fix-logo.js` cannot recover a usable image, fall back to **plain text containing the verbatim business name** in the page's display font. No graphic substitute. No styled wordmark. Just text.
+- QA gate enforcement updated: nav must contain either the original logo `<img>` OR plain text with the verbatim business name. Any other graphic in the nav fails the gate.
+
+**Files modified**: SKILL.md, CLAUDE.md, scripts/finalize-metrics.cjs, FEEDBACK.md.
+
+**Source**: Direct user feedback after SS Power Washing end-to-end test (bigdaddysdumpers was the prior data point; SS Power Washing confirmed the pattern).
+
+**Strategic position**: Architecture is now **3 outputs (A / A+ / C), not 4**. If the next test confirms A+ is the customer's preferred deliverable, the V2 pivot to "A and A+ only" is one decision away.
+
+---
+
+## 2026-04-24 — Architecture 2 (A+ as canonical text source for B and C)
+**User question**: "Option A+, B and C, will they have the same copy, ignoring Spanish for now."
+
+**Decision**: Switch to Architecture 2 — A+ produces ONE canonical conversion-tuned rewrite; B and C inherit that text verbatim and only differ in design language. This replaces Architecture 1 (independent copy per option) which would have produced three separate rewrites of the same source content.
+
+**Why this is the right move:**
+- Customer comparison becomes cleaner — _"same words, three designs"_ instead of muddied "different copy AND different design across three options"
+- Cuts text-rewrite LLM cost by ~2/3 (one rewrite instead of three)
+- A+'s text becomes the canonical conversion-tuned voice for the entire deliverable; if B or C don't sell, it's a design problem not a copy problem
+- Sets up the V2 hypothesis test: if A+ keeps winning, V2 collapses to A/A+ only
+
+**A+ role expanded**:
+- Was: polish only (grammar, placeholders, voice preserved, CTAs unchanged)
+- Now: polish + conversion-tuning (CTAs sharpened, value propositions reordered for impact, copy varied for rhythm) — but still no fabricated claims, still voice-preserved, still same design as A
+
+**SKILL.md changes:**
+- Stage 3+ rules updated: A+ now permitted to sharpen CTAs and reorder value propositions on a page. Voice preservation, factual fidelity, and image/logo strict-preserve remain unchanged.
+- Stage 5d (Option B) Step 1 updated: "Text content source — for each Option B page, read A+'s `.astro` file for text and use it verbatim. Don't rewrite. Layout structure can change to fit Stitch's patterns; text inside each section stays from A+."
+- Stage 5Cd Rule 4 updated: text-from-A+ rule added. C reads A+'s `.astro` files; text is verbatim; design is the only variable.
+- Parallelization diagram redrawn: A → A+ → (B and C in parallel). B and C are siblings downstream of A+.
+- Smart Resume rule added: if A+ is rebuilt, B and C MUST also be rebuilt (their text source has changed). If A is rebuilt, A+ MUST also be rebuilt (it inherits from A).
+- Framings updated:
+  - A: _"Same site, suddenly expensive."_ (unchanged)
+  - A+: _"Same site, suddenly persuasive."_ (was "suddenly literate")
+  - B: _"Same sharper words from A+, fresh design language from Stitch."_ (was "sharper sales story")
+  - C: _"Same sharper words from A+, industrial design language from the plugin."_ (was "sharper sales story")
+- Stage 9 report descriptions reworded to clarify the text-design split:
+  - Option A: faithful — original copy + new design
+  - Option A+: canonical rewrite — A's design + agency conversion-tuned copy
+  - Option B: A+'s words in Stitch's design language
+  - Option C: A+'s words in plugin's industrial design language
+
+**CLAUDE.md changes:**
+- Architecture overview rewritten to make Architecture 2 explicit
+- Customer comparison structure documented: _"A vs A+ measures value of copy improvement; A+ vs B vs C measures design preference with copy held constant."_
+- Key Rule about A+ updated: A+ is now described as the "canonical text source for B and C" — they NEVER rewrite copy independently
+
+**Files modified**: SKILL.md (Stage 3+ rules, Stage 5 brief, Stage 5d Step 1, Stage 5C brief, Stage 5Cd Rule 4, parallelization diagram, Smart Resume rules, all four track framings, Stage 9 report), CLAUDE.md, FEEDBACK.md.
+
+**Source**: Direct user request after evaluating the trade-offs of Architecture 1 vs Architecture 2.
+
+**What this enables next:** Once we test A+ on a domain and validate the rewrite quality, B and C become pure design-execution tracks. If their output quality stays high with shared copy, we have a much cleaner architecture. If text-design coupling causes problems (a Stitch design legitimately wants shorter hero copy than A+ produced, etc.), we revisit — possibly add Architecture 2.5 where B and C can tweak headlines/CTAs but inherit body copy.
+
+---
+
+## 2026-04-24 — Option A+ added (copy-rewritten Option A)
+**Feedback** (verbatim): "I want Option A+ added, A+ is A but all the text is rewritten to be grammatically correct and sounds like its done by an agency. But the look and feel should be same as A with small exceptions where text copy is a bit longer or shorter. But generally looks just like Option A."
+
+**Why this matters**: After bigdaddysdumpers.com test, the user observed Option A was the strongest output and questioned whether B/C are even worth their cost. Option A+ is the test of a hypothesis: maybe what customers actually want is "Option A but with copy that doesn't read like 2009 Wix-template lorem ipsum." A+ is cheaper to produce than B/C (no design substitution, no Stitch API, no plugin), lower drift risk, and easier to keep visually consistent with A.
+
+**SKILL.md changes**: Four-track architecture (A, A+, B, C).
+- Stage 3+ added — copy A's source files to `option-a-plus/`, run an LLM rewrite pass on the text content of each `.astro` page. Same design tokens, same components, same logo, same images, same CTAs verbatim. Only the body/heading text changes. Voice preservation rule: rewrite must match the customer's original tone (folksy stays folksy; corporate stays corporate). No fabricated facts (numbers, awards, partner brands must be supported by manifest content).
+- Stage 4+ added — same QA pattern as Stage 4 against A+. Plus six A+-specific checks: layout matches A side-by-side, copy actually rewritten (not identical to A), no fabricated claims, voice preserved, CTAs unchanged from A, all images/logos still present.
+- Stage 7 deploys A+ alongside A/B/C as a separate Vercel project (`option-a-plus`).
+- Stage 7a gate runs against built `dist/` for A+ before deploy.
+- Stage 8 verification compares A and A+ for structural match (only text should differ).
+- Stage 9 final report becomes 5 links: Original, A, A+, B, C (was 4).
+- Smart Resume detects `option-a-plus/` and resumes accordingly. If A is rebuilt, A+ MUST also be rebuilt (it inherits from A).
+
+**Framing**: A+ gets its own one-line brief — _"Same site, suddenly literate."_ — matching A's _"Same site, suddenly expensive."_ pattern. The axis of change is purely the text, not the design.
+
+**Inheritance from A (strict, non-negotiable)**:
+- LOGO RULE: A+ ALWAYS preserves the original logo (no wordmark fallback like B/C). Same as A.
+- IMAGE RULE: A+ uses A's image references unchanged. Same per-page semantic binding as A.
+- DESIGN: A+ inherits A's tokens, components, and layout. Components may flex slightly to accommodate text-length differences; that's fine. Anything more than copy-driven flex is a bug.
+
+**Scripts changes**:
+- `init-metrics.cjs`: now allocates 4 ports per domain (A, A+, B, C). Slot spacing increased from 3 to 4.
+- `get-port.cjs`: accepts `a-plus` / `a+` / `aplus` as fourth option key. Back-compat: synthesizes A+ port as `portA + 3` for older metrics.json files.
+- `finalize-metrics.cjs`: now measures `optionAPlus` directory.
+
+**CLAUDE.md changes**: Architecture is now FOUR redesigned versions. Stage override `--option-a-plus` documented. `jobs/{domain}/` directory listing includes `option-a-plus`. Added Key Rule about A+ being design-locked to A with copy-only changes.
+
+**Files modified**: SKILL.md, CLAUDE.md, scripts/init-metrics.cjs, scripts/get-port.cjs, scripts/finalize-metrics.cjs, FEEDBACK.md.
+
+**Source**: Direct user request after first end-to-end three-track test on bigdaddysdumpers.com.
+
+**Strategic note**: This is the first test of the "A vs A+ might be the actual product" hypothesis logged earlier. If A+ is consistently the customer's preferred deliverable across the next 3-5 domains, V2 may collapse the four-track architecture down to A/A+ only and retire B/C.
+
+---
+
+## 2026-04-24 — bigdaddysdumpers.com first end-to-end test
+**Feedback** (verbatim): "Option A looks really good. I like option A. Option B looks fine, but I honestly don't know if I like it more than option A. Option C also looks really good, but almost like too much... It messed up the logo completely. It did some basic mistakes. Like when I look at the different jobs, it mixed up the pictures. So if I look into services and I look at, let's say, landscaping jobs, it used the image from residential rentals, even though option A and B did not do that."
+
+**Two concrete bugs from Option C:**
+
+1. **Logo invented as a "weird-looking blob."** The plugin substituted a non-typographic graphic for the customer's logo instead of either preserving the original or producing a clean typographic wordmark of the business name. Customer cannot recognize an invented mark as their business.
+
+2. **Cross-page image mismatch.** Option C used a residential-rental photo on the landscaping-debris-removal page, picking by aesthetic fit instead of semantic binding. Options A and B got page→image mapping right because they used `page.images` and `page.backgroundImages` from the manifest entry for each specific page; C used a generic-pool approach.
+
+**Root causes:**
+- Logo: SKILL.md had no explicit logo rule. The Codex-framed "redesign their logos?" discussion was parked, not codified. The plugin's bias toward distinctive identity, with no guardrail, produced an invented mark.
+- Image mapping: Stage 5Cd Rule 1 said "use the customer's scraped imagery aggressively" but didn't say "from the SAME page in the manifest." The "aggressive" reading led to "any image that fits the aesthetic."
+
+**SKILL.md changes:**
+- Added LOGO RULE (strict, all options) after Stage 1b. A: always preserve original. B and C: preserve if serviceable; typographic wordmark of the literal business name as fallback when broken; **never invent a mark, icon, monogram, badge, or graphic**. Stage 7a QA gate now checks: nav must contain either an `<img>` referencing `/images/logo*` OR text containing the verbatim business name.
+- Added IMAGE-TO-PAGE MAPPING rule to Stage 5d (Option B) and Stage 5Cd Rule 1 (Option C). Each page must prefer images from THAT page's manifest entry (`page.images` and `page.backgroundImages`); fallbacks only to semantically adjacent pages in the same service category; never "any image that fits the aesthetic."
+- Added "Same site, suddenly expensive." framing to top of Stage 3 (Option A's brief in one line).
+- Added "Same business, sharper sales story." framing to top of Stages 5 and 5C (B and C's brief in one line). Stage 5C cites the bigdaddysdumpers blob/image bugs explicitly as the failure mode this framing prevents.
+
+**Files modified:** SKILL.md (logo rule section, Stage 5d image-mapping clause, Stage 5Cd Rule 1 expansion, Stage 3/5/5C framing additions), FEEDBACK.md.
+
+**Source:** Direct feedback after first three-track end-to-end run.
+
+---
+
+## 2026-04-24 — Strategic question parked: is "Option A+" enough?
+**User observation** (verbatim): "Based on this one example, I'm almost leaning to offering option A and option A plus — A plus being option A but with just better copy, with better text, but not sure. That's just initial thinking."
+
+This is a **product strategy question**, not a bug. Capturing it for later:
+
+The current architecture produces three options (A faithful, B Stitch-driven, C plugin-driven). After one real test, the user's signal is:
+- A is genuinely strong on its own
+- B is "fine" but unclear if it justifies the work
+- C is good but currently fragile (invented logos, image mismatches — partially fixed today, may have other issues)
+
+Possible future direction: replace B and C with an **"A+"** track — Option A's design with **conversion-optimized copy** (rewritten headlines, CTAs, page architecture) but no design-engine substitution. This would be cheaper to produce, less drift-prone, and might be what customers actually want.
+
+**Not a decision yet.** Need 2–3 more domain tests to see if A vs B vs C consistently shows the same pattern (A wins, B unclear, C unstable). If yes, A+ becomes the V2 architecture. If no, three-track stays.
+
+**Action**: revisit this question after the next 2 domain tests. Tracked here so it isn't lost.
+
+---
+
+## 2026-04-18 — Option C added (plugin-driven, industry-anchored)
+**Feedback**: After a plugin-test build of Option B on gemstatewideplumbing.com, user observed: "It appears that when we use the plugin, none of our images from the original website come through... You've basically taken a direction from the original website and completely rewrote everything—almost to the point that it's not recognizable; that's bridged too far." User directed: Options A and B unchanged; ADD Option C that uses the Frontend Design plugin with a properly constrained prompt; aesthetic direction must match the customer's industry (plumbing → industrial/trade, not editorial/catalog); imagery must come through from the scraped assets aggressively.
+**Root cause**: The frontend-design plugin's default bias is toward type-driven editorial design with abstract backgrounds. Left unconstrained, it produces visually striking output that fails trades customers — no hero photography, no service photos, no portfolio imagery, no industry grounding. My plugin test inherited those biases and produced a typographic-only design that dropped all 220 scraped images from the homepage.
+**SKILL.md change**: Three-track architecture added.
+  - New `Stage 5C: Build Option C via Frontend Design Plugin` with 9 sub-stages (5Ca verify plugin installed → 5Ci stop dev server)
+  - Option C Hard Rule 1: use customer's scraped imagery aggressively; every hero and inner page MUST reference a scraped image; content-parity audit flags any homepage with zero images
+  - Option C Hard Rule 2: aesthetic direction anchored to the customer's industry via `business.industry` lookup table (plumbing/HVAC/trades → industrial; restaurant → food-led; etc.); if the industry doesn't map, escalate to the nearest adjacent industry, NEVER to generic editorial
+  - Option C Hard Rule 3: distinctive type/color still required, but honest to the industry
+  - Option C Hard Rule 4: inherits all content parity rules from Option B (zero content loss)
+  - Option C Hard Rule 5: shares Option B's structural patterns (hero/services/testimonials/FAQ/contact) for valid cross-option comparison
+  - Smart Resume detects `option-c/dist/` existence
+  - Parallelization diagram updated to show all three tracks parallel after Stage 2
+  - Stage 7 deploys all three options; Stage 8 verifies all three; Stage 9 reports 5 links instead of 4 (Original, A, B, C; Spanish versions still paused per Testing Mode)
+  - Stage 7a pre-deploy gate now runs against all three dist folders
+  - `scripts/finalize-metrics.js` extended with Option C measurement (files, bytes, htmlFiles); Option B measurement corrected to use `dist/` (V1.5 location) instead of old `public/`
+  - Stage 9 metrics table includes Option C row
+**Files modified**: SKILL.md (Smart Resume + parallelization diagram + new Stage 5C + Stage 7 deploy + Stage 8 verify + Stage 9 report), scripts/finalize-metrics.js (Option C + Option B V1.5 fix), CLAUDE.md (3-option architecture + industry-anchoring rule + imagery rule), FEEDBACK.md
+**Source**: Direct session conversation after plugin-test review
+**Deliberately kept**: Option B's Stitch-driven pipeline is unchanged — Option C is additive. If the Frontend Design plugin isn't installed, Option C is skipped cleanly and Options A + B still ship.
+
+---
+
+## 2026-04-16 — Worktree SKILL.md staleness (structural bug)
+**Feedback**: "why did you use preview instead of playwright?" — honest answer from worker: "I followed the skill instructions, which have <preview_tools> in the system prompt explicitly saying to use preview_* for dev servers and screenshots. The skill's Stage 4/6 names preview_start, preview_resize, preview_screenshot as the QA pipeline."
+**Root cause**: The worker session was running inside a git worktree at `.claude/worktrees/busy-benz-976f8b/`, which had a FROZEN copy of SKILL.md from before we banned `preview_*` tools. The worker correctly followed its (stale) instructions. This is a structural bug: every worktree is a trap for stale skill rules.
+**SKILL.md change**: Added "🚫 NO WORKTREES — Canonical SKILL.md Only" section right before Input, forbidding worktree-based builds and mandating reads from the absolute `/Users/tomasz/WebFactory/SKILL.md` path. Updated the Sub-agent protocol to specify the absolute canonical path and to call out the top rules (no preview/Chrome, no .claude/ in job dirs, no `&&`/`||`) that worktrees commonly lag on.
+**Files modified**: SKILL.md
+**Source**: Direct session conversation
+**Follow-up**: Existing worktrees in `.claude/worktrees/*` should be deleted — they serve no purpose (parallel builds are already isolated by `jobs/{domain}/` + dynamic ports) and only cause this class of bug.
+
+---
+
+## 2026-04-16 — fsolsidingcontractor.com
+**Feedback**: "why is the logo broken and why didn't you catch it in QA, look at the original logo. You clearly have a high-resolution version to work from. This absolutely must be caught during QA."
+**Root cause**: WordPress serves the site logo through a favicon-crop URL like `cropped-3-24x8.png` (literally 24×8px), though the browser displays it at CSS size (144×48). The scraper downloaded the 24×8 file. Thumbnail screenshot QA didn't catch the blur, and `img.complete && naturalWidth > 0` passed because a 24×8 image is technically "loaded". Every existing QA check said "logo present ✓".
+**SKILL.md change**: Three additions —
+  (1) Stage 1b (mandatory post-scrape) runs `scripts/fix-logo.js` which auto-detects logos <100px wide and fetches uncropped WordPress variants by stripping `-WxH` size suffixes.
+  (2) Stage 4 QA now runs `scripts/qa-check.js` FIRST (before screenshots) as an exit-code gate. It fails on logo naturalWidth<100 OR <1.5× displayed width, broken images, literal `\uXXXX` escapes, missing nav/footer/h1, console errors, or 4xx/5xx responses.
+  (3) Stage 7a adds the same qa-check.js as a pre-deploy gate using dynamically allocated ports.
+**Files modified**: SKILL.md (Stage 1b, Stage 4 QA, Stage 7a added), scripts/fix-logo.js (created, 167 lines), scripts/qa-check.js (created, 143 lines), memory/feedback_logo_legibility.md (created), memory/feedback_no_unicode_escapes.md (created for related bug)
+**Source**: Worker session paste-block + feedback.processed.md
+**Protocol note**: Worker session over-stepped by editing SKILL.md and creating scripts directly instead of emitting only the paste-block. Work was sound, well-tested, and well-documented in jobs/fsolsidingcontractor.com/feedback.processed.md, so accepted as-is. Also fixed hardcoded ports 4321/4322 in Stage 7a to use `scripts/get-port.js` for parallel-safe operation.
+
+---
+
+## 2026-04-16 — WebFactory infrastructure
+**Feedback**: "this skill needs to be self-healing and self-learning... every time I provide feedback on the website, that feedback needs to be used to improve and train this skill"
+**Root cause**: No formal mechanism existed to capture feedback as permanent skill rules. Learnings were ad-hoc.
+**SKILL.md change**: Added Self-Learning Protocol section — every feedback triggers SKILL.md update + FEEDBACK.md entry + sync BEFORE fixing the website. Added sub-agent protocol requiring fresh SKILL.md read.
+**Files modified**: SKILL.md, FEEDBACK.md (created), .claude/commands/webfactory.md
+
+## 2026-04-16 — Visual QA weakness
+**Feedback**: "we are still struggling with is knowing when something is beautiful, when something looks good, and when things are aligned"
+**Root cause**: QA script catches broken links and missing content but can't judge aesthetic quality — that requires structured design evaluation.
+**SKILL.md change**: Integrated `design:design-critique` and `design:accessibility-review` skills into Stage 4 and Stage 6. After screenshots are taken, invoke design-critique on key pages to get structured feedback on hierarchy, consistency, spacing, alignment.
+**Files modified**: SKILL.md, .claude/commands/webfactory.md

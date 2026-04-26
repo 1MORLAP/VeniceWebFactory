@@ -1,0 +1,125 @@
+---
+/*
+ * SCAFFOLD BASELAYOUT
+ * -------------------
+ * Pure document chrome. Provides:
+ *   - <head> with viewport, charset, title, description, OG image, favicon link
+ *   - Font loading slot (build inserts Google Fonts <link>s here)
+ *   - Body with <slot /> for page content
+ *   - Optional <slot name="footer"> for site footer
+ *   - has-animations enhancement script (enables .fade-up / .stagger reveals)
+ *
+ * Does NOT provide:
+ *   - Navigation (build creates per-customer Nav component)
+ *   - Hero (build creates per-customer Hero component)
+ *   - Footer (build creates per-customer Footer component, slotted in)
+ *   - Color choices, font choices, layout opinions
+ *
+ * See templates/REQUIRED-PATTERNS.md for what your build MUST satisfy.
+ */
+import '../styles/global.css';
+
+interface Props {
+  title: string;
+  description?: string;
+  ogImage?: string;
+  faviconHref?: string;       // e.g. "/favicon.ico" — build sets from manifest.favicon
+  faviconType?: string;       // e.g. "image/x-icon", "image/svg+xml"
+  bodyClass?: string;          // optional class for <body>
+  lang?: string;
+}
+
+const {
+  title,
+  description = '',
+  ogImage,
+  faviconHref = '/favicon.ico',
+  faviconType,
+  bodyClass = '',
+  lang = 'en',
+} = Astro.props;
+---
+<!doctype html>
+<html lang={lang}>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="generator" content={Astro.generator} />
+    <title>{title}</title>
+    {description && <meta name="description" content={description} />}
+
+    {/* Open Graph */}
+    <meta property="og:title" content={title} />
+    {description && <meta property="og:description" content={description} />}
+    {ogImage && <meta property="og:image" content={ogImage} />}
+    <meta property="og:type" content="website" />
+
+    {/* Favicon — set from manifest.favicon by the build per FAVICON RULE.
+        If manifest.favicon is null, build falls back to the logo. */}
+    <link rel="icon" href={faviconHref} {...(faviconType && { type: faviconType })} />
+
+    {/* Font loading — build inserts <link> tags via this slot.
+        Per DESIGN QUALITY BAR: must load at least one display-quality font.
+        System Inter / Arial alone fails the bar. */}
+    <slot name="head-fonts" />
+
+    {/* Additional <head> content (extra meta, structured data, etc.) */}
+    <slot name="head-extra" />
+  </head>
+
+  <body class={`min-h-screen flex flex-col ${bodyClass}`}>
+    {/* Skip-to-content link for keyboard / screen-reader users */}
+    <a
+      href="#main"
+      class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:px-4 focus:py-2 focus:bg-black focus:text-white"
+    >
+      Skip to content
+    </a>
+
+    {/* Header / nav slot — build provides per-customer Nav component here */}
+    <slot name="header" />
+
+    {/* Main page content */}
+    <main id="main" class="flex-1">
+      <slot />
+    </main>
+
+    {/* Footer slot — build provides per-customer Footer component here */}
+    <slot name="footer" />
+
+    {/*
+      Animation enhancement: enables .fade-up / .stagger CSS reveals via JS.
+      Progressive enhancement — content is fully visible without JS, only the
+      reveal-on-scroll behavior depends on this script.
+      Safety timeout (1500ms) reveals all elements unconditionally if the
+      IntersectionObserver doesn't fire (slow connection, parser bug, etc.).
+    */}
+    <script>
+      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (!reduceMotion) {
+        document.documentElement.classList.add('has-animations');
+        const targets = document.querySelectorAll('.fade-up, .stagger');
+        if ('IntersectionObserver' in window) {
+          const io = new IntersectionObserver(entries => {
+            for (const e of entries) {
+              if (e.isIntersecting) {
+                e.target.classList.add('visible');
+                io.unobserve(e.target);
+              }
+            }
+          }, { threshold: 0.12, rootMargin: '0px 0px -10% 0px' });
+          targets.forEach(el => io.observe(el));
+        } else {
+          targets.forEach(el => el.classList.add('visible'));
+        }
+        // Safety: reveal everything after 1.5s even if observer never fires
+        setTimeout(() => {
+          targets.forEach(el => el.classList.add('visible'));
+        }, 1500);
+      } else {
+        // prefers-reduced-motion → reveal everything immediately, no animation
+        document.querySelectorAll('.fade-up, .stagger').forEach(el => el.classList.add('visible'));
+      }
+    </script>
+  </body>
+</html>

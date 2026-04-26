@@ -1,0 +1,20 @@
+# Astro / Node
+node_modules/
+dist/
+.astro/
+
+# Vercel
+.vercel/
+
+# Local env
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
