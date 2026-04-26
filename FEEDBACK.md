@@ -37,6 +37,44 @@ Permanent log of user feedback and the skill improvements made in response. Ever
 
 ---
 
+## 2026-04-26 — Auto-backup contract: every `/webfactory-learn` ends with `git push`
+
+**Feedback** (verbatim, with context — diagnosing 11 days of uncommitted work and asking about backup strategy): "websites are looking good, please update documentation, cleanup issues, also how are we backing this skill up? Should we be using GitHub?" → after I diagnosed: "delete WEBFACTORY_CODEX_PROMPT.md / yes, push and yes to After we get this catch-up commit + push out, I'd suggest a simple new rule for going forward: /webfactory-learn operations end with a git commit && git push step, so every shipped structural fix immediately makes it to GitHub. Want me to wire that into SKILL.md's Self-Learning Protocol?"
+
+**Bug class** (anticipated, not observed yet — but a near-miss): the previous skill-owner discipline was "commit when convenient." Result: 11 days (2026-04-15 → 2026-04-26) of skill evolution sat uncommitted. ~94 files of changes — including 16+ FEEDBACK.md entries documenting structural fixes, the entire template architecture pivot (scaffold + inspiration), all qa-check.js improvements (27 rules including OKLab fix + entity decoder), Vercel teams config, --skip-c flag, and roughly everything from the past 2 weeks of session work. A laptop failure or accidental `rm` during that window would have erased most of it.
+
+GitHub WAS already configured (`https://github.com/1MORLAP/ClaudeWebFactory.git`). The skill-owner sessions just weren't pushing. "I'll commit later" never reliably happens.
+
+**SKILL.md change — new "🔄 Auto-backup contract" section in Self-Learning Protocol**:
+
+- New step 5 added to "When the SKILL-OWNER session receives feedback" flow: "Commit + push to GitHub (mandatory — see Auto-backup contract below). Skill-owner work that doesn't reach `origin/main` doesn't count as shipped."
+- New top-level subsection "🔄 Auto-backup contract — every `/webfactory-learn` ends with `git push`" documents:
+  - The rule (every structural-change skill-owner action ends with git commit + git push)
+  - Why it's a hard rule, not a soft suggestion (the 11-day near-miss as the cautionary tale)
+  - The protocol: `git rm --cached .claude/settings.local.json` (defensive untrack of per-user file) → `git add -A` (let .gitignore handle the exclusions) → sanity check (bail if jobs/ or huge binaries somehow staged) → `git commit -m` with the structured message contract → `git push origin main`
+  - Commit message contract: imperative subject ≤72 chars naming the structural change, body referencing the matching FEEDBACK.md entry, Co-Authored-By footer for consistent attribution
+  - Failure modes to avoid: committing `jobs/`, committing `.claude/settings.local.json`, pushing without the FEEDBACK entry, skipping push because "the commit captures it"
+  - One-time setup confirmation (remote URL, branch, auth handling)
+  - What to do if push fails (network/auth/remote gone): surface the error, note the commit is local + recoverable, do NOT mark `/webfactory-learn` complete until push succeeds
+- Step 6 added to "Batch processing pending feedback": one combined commit + push covers all batched changes
+
+**Cleanups shipped alongside this rule** (in the catch-up commit `cfe5400`):
+- Deleted 5 orphan top-level dirs from worker arg misuse: `option-a/`, `option-a-plus/`, `option-c/`, `morettiscentryautobody.com/`, `http:/` (~17MB of stray screenshots / report.json files from `qa.cjs http://... domain.com/` arg misuse)
+- Hardened `.gitignore` with explicit prevention for those orphan-dir patterns + macOS `.DS_Store` + `.claude/settings.local.json` (per-user) + `templates/inspiration/*/node_modules/`
+- Untracked `.claude/settings.local.json` from git (per-user file by Claude Code convention; local copy retained)
+- Deleted `WEBFACTORY_CODEX_PROMPT.md` (obsolete brief)
+- Fixed 2 stale doc references: `CLAUDE.md` Project Structure line about `templates/astro-base/` (now describes scaffold/inspiration/REQUIRED-PATTERNS architecture); `ROADMAP.md` Video plan reference to the same retired path
+
+**Files modified** (this entry's commit, separate from the catch-up):
+- SKILL.md (Self-Learning Protocol gains Auto-backup contract subsection + step 5 in skill-owner flow + step 6 in batch processing)
+- FEEDBACK.md (this entry)
+
+**Verification**: catch-up commit `cfe5400` confirmed pushed to `origin/main` (`fb0a354..cfe5400 main -> main`). Next push will include this entry + the Auto-backup contract itself, eating own dog food.
+
+**Pattern note (the meta-lesson)**: backup discipline is the difference between "skill that survives" and "skill that exists until the disk fails." The previous 11-day gap was a near-miss; making the rule explicit AND making it the LAST step of every shipping flow turns "remember to commit" into "the operation isn't done until you commit." That's the only reliable form of the rule. Auto-backup as procedure, not aspiration.
+
+---
+
 ## 2026-04-26 — Playwright is UNRESTRICTED, not "for QA stages only" — clarify the rule wording
 
 **Feedback** (verbatim, with context — worker session quoted SKILL.md back at the user as if it forbade ad-hoc Playwright): "If an agent wants to use preview, I think it makes sense to allow them to use Playwright at whatever time they want. I don't think we need to be strict with saying 'only use Playwright QA.' At any point that they want to use Playwright to iterate, let them use Playwright. So the prohibition is: don't use preview, but yes, use Playwright whenever you feel like it."

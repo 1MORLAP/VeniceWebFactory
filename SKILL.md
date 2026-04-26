@@ -172,6 +172,78 @@ As skill-owner you can edit SKILL.md directly:
 
 4. Confirm to the user what was added and where.
 
+5. **Commit + push to GitHub** (mandatory — see "Auto-backup contract" below). Skill-owner work that doesn't reach `origin/main` doesn't count as shipped — laptop loss / disk failure / accidental rm would erase it. The `/webfactory-learn` flow ENDS with the commit + push step, not with the FEEDBACK.md entry.
+
+### 🔄 Auto-backup contract — every `/webfactory-learn` ends with `git push`
+
+**Rule**: every skill-owner action that ships a structural change (edit to SKILL.md, scripts/, templates/, REQUIRED-PATTERNS.md, FEEDBACK.md, CLAUDE.md, ROADMAP.md, or anything else outside `jobs/`) MUST end with a `git commit && git push origin main`. No exceptions.
+
+Why this is a hard rule (not a soft suggestion):
+- Before this rule existed, the skill went 11 days (2026-04-15 → 2026-04-26) with no commits despite ~16 shipped FEEDBACK.md entries. ~94 files of work sat uncommitted. A laptop failure during that window would have erased most of the skill's evolution.
+- "I'll commit later" never happens reliably. The discipline lives at the moment of shipping or it doesn't live.
+- The cost of one extra commit + push per `/webfactory-learn` is ~5 seconds. The cost of losing 11 days of architectural work is catastrophic.
+
+**The protocol** (run at the END of every `/webfactory-learn` flow, after step 4 above):
+
+```bash
+cd /Users/tomasz/WebFactory
+
+# Untrack per-user files if they snuck in (defensive — .claude/settings.local.json
+# is per-machine and shouldn't be in git per Claude Code convention)
+git rm --cached .claude/settings.local.json 2>/dev/null || true
+
+# Stage everything sensible (.gitignore handles jobs/, node_modules/, dist/,
+# .vercel/, orphan dirs, etc.)
+git add -A
+
+# Final sanity check — bail out loudly if jobs/ or huge binaries somehow
+# slipped past .gitignore (would mean .gitignore is broken)
+LARGE_STAGED=$(git diff --cached --name-only | grep -E "^jobs/|node_modules/|\.png$|\.jpg$|\.mp4$" | head -3)
+if [ -n "$LARGE_STAGED" ]; then
+  echo "✗ ABORT: large/binary files staged that should be gitignored:"
+  echo "$LARGE_STAGED"
+  echo "Fix .gitignore before retrying."
+  exit 1
+fi
+
+# Commit with a message naming the structural change just shipped
+git commit -m "$(cat <<MSG
+{one-line summary of what shipped}
+
+{2-3 lines of context: which feedback drove this, what the structural fix was,
+what files changed. Reference the matching FEEDBACK.md entry's date + heading
+so the commit and the feedback log cross-reference cleanly.}
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+MSG
+)"
+
+# Push to origin so the work is backed up to GitHub
+git push origin main
+```
+
+**The commit message contract**:
+- **Subject line**: imperative-present-tense, ≤ 72 chars, names the structural change (e.g., `Add testimonial-tampering check + entity decoder` not `Update qa-check.js`)
+- **Body**: which user feedback drove this (quote or paraphrase), what changed structurally (one-line summary per file), reference to the FEEDBACK.md entry date + heading so the two narratives stay in sync
+- **Co-Authored-By footer**: keeps attribution consistent
+
+**Failure modes to avoid**:
+- Committing `jobs/` content (huge — 9GB+ of customer screenshots / built sites). The `.gitignore` blocks this; the sanity check above is a second-line defense if .gitignore breaks.
+- Committing `.claude/settings.local.json` (per-user permissions, MCP server configs with potentially sensitive args). Untrack with `git rm --cached` if it's already in git history; .gitignore prevents recurrence.
+- Pushing without committing the FEEDBACK.md entry that explains the change. The commit message body should reference the entry by date + heading; if FEEDBACK.md isn't updated, the commit is incomplete.
+- Skipping the push because "the commit captures it." Local commits without push are at the same risk as no commit at all — disk failure / accidental clone overwrite erases both.
+
+**One-time setup confirmation**:
+- Remote is `https://github.com/1MORLAP/ClaudeWebFactory.git` (verified 2026-04-26)
+- Branch is `main`
+- Authentication is whatever the user has configured (gh CLI, SSH key, HTTPS token); the skill-owner session doesn't manage auth — if `git push` fails with auth, surface the error to the user and STOP. Don't silently leave the work uncommitted.
+
+**If push fails** (network down, auth expired, remote went away):
+- Surface the error in your response to the user
+- Note that the commit IS local (not lost — recoverable from `git log` and `git reflog`)
+- Propose: "I made the commit locally but the push failed with {error}. The work is safe in local git but not on GitHub yet. After you fix {auth/network/etc}, run `git push origin main` to back it up."
+- DO NOT mark the `/webfactory-learn` complete until push succeeds.
+
 ### Batch processing pending feedback (SKILL-OWNER)
 
 When the user says "process all feedback" or similar, the skill-owner:
@@ -181,6 +253,7 @@ When the user says "process all feedback" or similar, the skill-owner:
 3. Appends to FEEDBACK.md with `**Source**: batched from jobs/{domain}/feedback.md`
 4. Renames processed files to `feedback.processed.md`
 5. Reports the list of rules added
+6. **Commits + pushes** per the auto-backup contract above (one commit covers all batched changes — that's fine; the goal is "no shipped work sits uncommitted," not "one commit per feedback item")
 
 ### Sub-agent protocol
 
