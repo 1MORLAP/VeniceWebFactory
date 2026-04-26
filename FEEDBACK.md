@@ -37,6 +37,68 @@ Permanent log of user feedback and the skill improvements made in response. Ever
 
 ---
 
+## 2026-04-26 — Less capable models (Qwen, Haiku) stop after Build A — harden the pipeline-completion contract
+
+**Feedback** (verbatim, with screenshot of a Qwen run that stopped after Stage 3): "I'm experimenting with less capable, cheaper open source models and for whatever reason they are stopping after Build A. ... Not sure why this model stops, but if you can harden our processes, our documentation, our skill to make sure that less intelligent Models are still able to use it. I will continue to test things like Sonnet and Haiku in addition to other cheaper models. In this instance I'm using Qwen running locally on my MacBook"
+
+**The exact failure mode (from the Qwen output)**:
+```
+Option A builds successfully — all 7 pages compiled.
+Build complete: / /services /free-estimates /team /customer-care /learning-center /careers
+Ready for Stage 4 (Visual QA & polish). Want me to start the dev server and inspect
+the pages, or would you like to review something first?
+✻ Worked for 52m 48s
+```
+
+Qwen finished Stage 3 (Build Option A) successfully, then sent a closing message asking the user "want me to continue?" and stopped. The user has to manually say "yes, continue" → Qwen does Stage 4 → stops again → repeat. A 30-minute unattended job becomes a 4-hour babysat job.
+
+**Why this happens**: smaller / cheaper / local models (Qwen, Haiku, etc.) have weaker long-context tracking and conservative defaults. UNATTENDED MODE bullet #4 ("NEVER ask the user questions") is at the top of SKILL.md, but in a 2400+ line document, the model loses track of the rule by the time it gets to Stage 3 (~1000 lines deep). Strong models (Opus, Sonnet 4.7+) follow the rule implicitly because they maintain context coherence; weaker models default to "ask before acting" which feels safe but breaks unattended pipelines.
+
+The skill's stage structure also wasn't explicit enough about "after X, do Y." Each stage ended with content about that stage; there was no explicit "→ NEXT: Stage X+1, continue immediately" pointer to remind the model it's NOT done.
+
+**Hardening shipped**:
+
+### 1. New top-level "🏁 PIPELINE COMPLETION CONTRACT" section in SKILL.md
+Added right after UNATTENDED MODE (so it's the SECOND thing every worker reads). Contains:
+- The 10 stages listed in order with their outputs (Scrape → Brief → Build A → QA A → Build B → QA B → Build C → QA Gate → Deploy → Verify → Report)
+- Explicit "after every stage you complete: PROCEED IMMEDIATELY TO THE NEXT STAGE" with the rules (no "want me to continue?" questions, no pausing for confirmation, no ending response mid-pipeline)
+- A list of 6 specific "common stop-too-early phrases" with the right behavior for each, drawn directly from the Qwen output ("Build complete. Want me to start the dev server?" → WRONG, just start it)
+- A completion test the model can self-apply: "Did my most recent message contain 4 (or 3 with --skip-c) `<https://...>` URLs and a metrics table? If NO → not done, resume."
+- An explanation of what to do if a stage genuinely fails (3 retries, then escalate ONCE — that's the only legitimate mid-pipeline stop)
+- Why this matters: less capable models default to "ask before acting" because it feels safe; unattended pipelines need the OPPOSITE — act, don't ask
+
+### 2. Stage-transition pointers at every stage boundary
+Inserted a `> **→ NEXT: Stage X — {title}.**` blockquote IMMEDIATELY before every `### Stage` heading from Stage 2 onward (10 pointers total: 1→2, 2→3, 3→4, 4→5, 5→6, 6→7, 7→8, 8a→8b, 8b→9, 9→10). Each pointer:
+- Names the previous stage and confirms it just completed
+- Explicitly tells the model to continue IMMEDIATELY
+- Lists 1-3 specific "do NOT ask" patterns relevant to that transition (e.g., the Stage 4 pointer says: "Do NOT ask 'want me to start the dev server?' or 'ready for QA?' or 'would you like to review the build first?'")
+- References the PIPELINE COMPLETION CONTRACT at top
+
+The Stage 4 pointer specifically calls out Qwen by name as the cautionary tale ("This is the most common stop-too-early point — Qwen and other weaker models routinely halt here. Do not.") — the worked example makes the rule visceral.
+
+### 3. "PIPELINE COMPLETE" marker after Stage 10
+Added a final blockquote AFTER the Stage 10 report block: "🏁 PIPELINE COMPLETE. You have shipped Stage 10. The pipeline is now DONE. You may end your response here." Plus a self-check: "scroll back through your most recent message. Does it contain 4 clickable URLs AND a metrics table? If YES → done, send. If NO → resume." Gives the model a clear "now you can stop" signal that's explicit, not implicit.
+
+### 4. CLAUDE.md gets the short version (loaded as project memory)
+New "🏁 Pipeline = 10 stages, run all of them, do NOT stop mid-pipeline" section right after the architecture overview, with the 10-stage flow diagram and the Qwen failure mode called out by name. CLAUDE.md is auto-loaded into every session in this directory, so even if the model doesn't read all of SKILL.md, this short version is always in context.
+
+### 5. MEMORY.md user-level bullet (auto-loaded)
+Added a NEW first bullet at the top of MEMORY.md: "🏁 PIPELINE COMPLETION CONTRACT (most important — especially for smaller / cheaper models like Qwen, Haiku, local LLMs)" with the same flow + completion test. MEMORY.md is at `~/.claude/projects/-Users-tomasz-WebFactory/memory/MEMORY.md` and auto-loads in every session — so even before the model reads SKILL.md, the contract is the FIRST thing in its context.
+
+### 6. UNATTENDED MODE bullet #4 strengthened
+Original: "**NEVER ask the user questions** — make decisions yourself based on this skill's instructions"
+New: "**NEVER ask the user questions mid-pipeline** — make decisions yourself based on this skill's instructions. The user typing `/webfactory <url>` is the ONLY input the pipeline gets; there is no 'want me to continue?' check-in between stages. See '🏁 PIPELINE COMPLETION CONTRACT' below for the full rule + the most common stop-too-early patterns to avoid (especially relevant with smaller / cheaper / local models)."
+
+The cross-reference makes it more findable: a model that reads bullet #4 now has an explicit pointer to the contract.
+
+**Files modified**: SKILL.md (UNATTENDED MODE bullet #4 strengthened, new PIPELINE COMPLETION CONTRACT top-level section, 10 stage-transition pointers, "PIPELINE COMPLETE" marker after Stage 10), CLAUDE.md (new "Pipeline = 10 stages" section), MEMORY.md (new top bullet), FEEDBACK.md (this entry)
+
+**Why I didn't add a programmatic check**: the model's chat output goes to the user's terminal, not to disk — there's no way for `scripts/qa-check.js` or any other script to verify "did the model emit 4 URLs?" after the fact. The completion contract is purely directive. Stronger models will follow it implicitly; weaker models need the explicit reminders at every stage boundary. The repetition is the enforcement.
+
+**Pattern note**: this is the first failure mode that's specifically about model capability, not about correctness of output. Previous bug classes (fact grounding, testimonial preservation, social link defense) were about what the model PRODUCED. This one is about whether the model COMPLETED the work. The fix structure is the same (state the rule, state it loudly, repeat at every relevant boundary), but the failure surface is different. Worth keeping in mind as you continue testing cheaper models — if you find new "model stopped because X" patterns with Sonnet / Haiku / other open-source models, the same approach applies: name the pattern, add an explicit positive rule near where it triggers, repeat the rule at every relevant decision point.
+
+---
+
 ## 2026-04-26 — Install script + INSTALL.md guide for fresh MacMini bootstrap
 
 **Feedback** (verbatim): "Also build an install 'script' for Claude Code to 'pull' from GitHub and install everything needed to copy webfactory skill to a my MacMini from GitHub."

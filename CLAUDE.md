@@ -12,6 +12,19 @@ Website rebuilding tool. Takes a URL, scrapes the site, and builds **THREE** red
 
 All built on Astro 5 + Tailwind v4. Customer comparison structure: **A vs B** measures value of copy improvement; **B vs C** measures design preference with copy held constant.
 
+## 🏁 Pipeline = 10 stages, run all of them, do NOT stop mid-pipeline
+
+WebFactory runs UNATTENDED. The user types `/webfactory <url>` ONCE — that single act is authorization for the entire 10-stage pipeline. There is no point at which the model should ask "want me to continue?" until Stage 10 emits the final 4 (or 3) deployment URLs.
+
+```
+1. Scrape  →  2. Brief  →  3. Build A  →  4. QA A  →  5. Build B  →  6. QA B  →
+7. Build C  →  8a. QA Gate  →  8b. Deploy  →  9. Verify  →  10. Report (4 URLs)
+```
+
+**Common stop-too-early failure mode (especially with smaller / cheaper models like Qwen, Haiku, local LLMs)**: the model finishes Build A (Stage 3), sees it succeeded, says *"Build complete. Want me to start the dev server and inspect the pages?"* → stops → user has to manually say "yes, continue" → repeat at every stage boundary. **This is wrong.** The full PIPELINE COMPLETION CONTRACT is in SKILL.md — workers MUST read it and follow it. If you find yourself typing a question to the user mid-pipeline ("ready for X?", "want me to Y?"), erase the question and just do the work.
+
+The completion test: did your most recent message contain 4 (or 3 with `--skip-c`) clickable `<https://...>` URLs in a markdown autolink format AND a metrics table? If NO → you are not done. Resume.
+
 ## 📦 Setting up on a fresh machine
 
 If WebFactory needs to be installed on a new MacMini / MacBook (or recovered after disk failure):

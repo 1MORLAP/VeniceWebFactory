@@ -22,12 +22,74 @@ This pipeline runs **UNATTENDED**. The user will NOT be present to approve promp
    - **Ad-hoc iteration anywhere else** (Stage 3 build, debugging a single component, testing a hover state, checking how a font renders, etc.): write a one-off Playwright script in `/tmp/` and run it via `node /tmp/probe.mjs`. Spin up an Astro dev server first via Bash. Use `chromium.launch()` (not `chromium.launchPersistentContext`) so no visible window. Save screenshots wherever you want — `/tmp/probe-1.png` is fine; this is a debug aid, not a deliverable. Clean up the temp file when done.
 
    The prohibition is `preview_*` / `Chrome` MCP tools (visible browser, persistent launch.json). Playwright (any invocation) is fine because it's headless and stateless. Workers should reach for ad-hoc Playwright whenever a quick visual check would unblock them — don't wait for Stage 4 to discover something broke.
-4. **NEVER ask the user questions** — make decisions yourself based on this skill's instructions
+4. **NEVER ask the user questions mid-pipeline** — make decisions yourself based on this skill's instructions. The user typing `/webfactory <url>` is the ONLY input the pipeline gets; there is no "want me to continue?" check-in between stages. See "🏁 PIPELINE COMPLETION CONTRACT" below for the full rule + the most common stop-too-early patterns to avoid (especially relevant with smaller / cheaper / local models).
 5. **NEVER improvise** — follow these stages EXACTLY. Do not create extra files, use extra tools, or add steps not specified here
 6. **If something fails**, fix it and retry up to 3 times. Do not stop and ask.
 7. **All bash commands** must be simple, single-purpose, and non-interactive
 
 If you encounter an unexpected situation not covered by this skill, choose the safest path and continue. Never block waiting for user input.
+
+## 🏁 PIPELINE COMPLETION CONTRACT — YOU ARE NOT DONE UNTIL ALL 10 STAGES SHIP
+
+> **Most common failure mode by less capable models** (Qwen, Haiku, smaller open-source models): finish Stage 3 (Build A), see it succeeded, send a message like *"Build complete. Want me to start the dev server and inspect the pages?"* → STOP. The user has to manually say "yes, continue" → model does Stage 4 → stops again → repeat.
+>
+> **This is wrong. This skill runs UNATTENDED. The user gave you a URL — that single act IS authorization for the entire 10-stage pipeline. There is NO point at which you should ask "want me to continue?" until Stage 10 emits the 4 final URLs.**
+
+### The 10 stages, in order:
+
+```
+1. Scrape & Extract        →  manifest.json + assets/screenshots/ + assets/img/
+2. Analyze & Design Brief  →  design-brief.json
+3. Build Option A          →  jobs/{domain}/option-a/{src,dist}
+4. Visual QA Option A      →  qa-check passes + Visual Sanity Pass + Dramatic Improvement Audit
+5. Build Option B          →  jobs/{domain}/option-b/{src,dist}
+6. Visual QA Option B      →  qa-check passes + testimonial-tampering check
+7. Build Option C          →  jobs/{domain}/option-c/{src,dist}  (skipped if --skip-c)
+8a. QA Gate (all options)  →  qa-check at desktop+mobile for A, B, C
+8b. Deploy                 →  vercel build + deploy → 3 (or 2) preview URLs
+9. Verify                  →  WebFetch each URL + sanity check
+10. Report                 →  emit 4 (or 3) clickable markdown autolinks + metrics table
+```
+
+### After every stage you complete: PROCEED IMMEDIATELY TO THE NEXT STAGE
+
+- **You MUST NOT** end your response mid-pipeline with a question to the user
+- **You MUST NOT** ask "want me to continue with Stage X?" — just continue
+- **You MUST NOT** ask "should I start the dev server?" — start it, that's part of the next stage
+- **You MUST NOT** ask "would you like to review first?" — the user will review the final 4-URL report; mid-pipeline review is not part of the contract
+- **You MUST NOT** announce "Stage 3 complete, ready for Stage 4" and then stop. Announce it AND immediately start Stage 4 in the same response
+- **You MAY** report progress in long stages (Stage 3 takes ~5min, fine to mention "scaffold copied, now generating pages") but the report is informational, not a hand-off to the user
+
+### Common stop-too-early phrases — if you find yourself typing any of these MID-PIPELINE, you are wrong:
+
+- "Build complete. Want me to start the dev server?" → **WRONG.** Just start it.
+- "Option A is ready. Should I proceed to Stage 4?" → **WRONG.** Just proceed.
+- "Ready for Stage 4 (Visual QA & polish). Want me to inspect the pages?" → **WRONG.** Inspect them.
+- "Successfully built. Let me know if you want to continue with B and C." → **WRONG.** Continue with B and C.
+- "Should I deploy now?" → **WRONG.** Deploy is Stage 8 — just deploy.
+- ANY message that ends with "?" mid-pipeline → **WRONG.** Erase the question, do the work, continue.
+
+### How to tell if you're done
+
+The completion test (run this self-check before sending any response that includes "complete" or "done" or "ready"):
+
+> **Did my most recent message contain 4 (or 3 with `--skip-c`) deployment URLs in `<https://...>` markdown autolink format, AND a metrics table?**
+>
+> If NO → you are not done. There is more pipeline to run. Resume from wherever you stopped — figure out which stage you completed last, then start the next stage. Do NOT send the response.
+>
+> If YES → you are done. Send the response.
+
+### What to do if a stage genuinely fails (not "I want to ask permission")
+
+- **Up to 3 retries**: fix the visible issue, retry the stage. If it works, continue.
+- **After 3 retries on the same failure**: surface the error to the user with: which stage failed, what the error is, what you tried, and what you'd recommend the user does. THEN stop. (This is the only legitimate mid-pipeline stop.)
+- **Network / auth / quota errors** (Vercel down, API key expired, etc.): retry once, then if still failing, surface the specific error and stop.
+
+### Why this matters
+
+Less capable models default to "ask before acting" because that feels safe. But unattended pipelines are the OPPOSITE — the user is NOT watching, the user is not coming back to type "yes, continue." They expect the URL → 4 deployed URLs round-trip without interaction. Asking "should I continue?" mid-pipeline turns a 30-minute unattended job into a 4-hour job that has to be babysat.
+
+The completion contract above replaces the model's instinct to "check in" with explicit positive guidance: "the URL was the check-in. Now do all 10 stages." Stronger models (Opus, Sonnet 4.7+) follow UNATTENDED MODE bullet #4 ("NEVER ask the user questions") implicitly. Weaker models need this section spelled out.
 
 ## 🔒 SKILL LOCKDOWN — DO NOT MODIFY THE SKILL
 
@@ -920,6 +982,10 @@ This rule applies pipeline-wide (A, B, C). One real bug, one structural fix.
 
 ---
 
+---
+
+> **→ NEXT: Stage 2 — Analyze & Design Brief.** Stage 1 (Scrape) just completed. Continue IMMEDIATELY to Stage 2. Do NOT ask the user "want me to continue?" Do NOT pause for confirmation. Just proceed. (See PIPELINE COMPLETION CONTRACT at top.)
+
 ### Stage 2: Analyze & Design Brief
 
 Read the manifest.json and **look at the screenshots** of the original site (use the Read tool on the screenshot PNG files to see them visually).
@@ -1004,6 +1070,10 @@ Before declaring the brief done, verify each of these is filled with INTENTION, 
 A weak brief produces a "merely better than original" build. Strong brief = strong A.
 
 ---
+
+---
+
+> **→ NEXT: Stage 3 — Build Option A.** Stage 2 (Design Brief) just completed. Continue IMMEDIATELY to Stage 3. Do NOT ask the user "ready to start building?" Do NOT pause to share the brief. Just build A. (See PIPELINE COMPLETION CONTRACT at top.)
 
 ### Stage 3: Build Option A (Faithful Rebuild)
 
@@ -1152,6 +1222,10 @@ npm run build
 
 Fix any build errors before proceeding to QA.
 
+
+---
+
+> **→ NEXT: Stage 4 — Visual QA & Polish for Option A.** Stage 3 (Build A) just completed — option-a/dist/ exists, all pages compile. Continue IMMEDIATELY to Stage 4. Do NOT ask the user "want me to start the dev server?" or "ready for QA?" or "would you like to review the build first?" Do NOT pause. The user will review the FINAL 4-URL report at Stage 10; mid-pipeline review is not part of the contract. Just start the dev server and run QA. **This is the most common stop-too-early point — Qwen and other weaker models routinely halt here. Do not.** (See PIPELINE COMPLETION CONTRACT at top.)
 
 ### Stage 4: Visual QA & Polish (Option A)
 
@@ -1427,6 +1501,10 @@ kill {dev_server_pid}
 
 ---
 
+---
+
+> **→ NEXT: Stage 5 — Build Option B.** Stage 4 (QA Option A) just completed — A passes qa-check at desktop+mobile, Visual Sanity Pass done, Dramatic Improvement Audit logged. Continue IMMEDIATELY to Stage 5. Do NOT ask the user "happy with A? ready for B?" Do NOT pause to compare. Just start B. (See PIPELINE COMPLETION CONTRACT at top.)
+
 ### Stage 5: Build Option B (Canonical Conversion-Tuned Rewrite)
 
 > **The brief in one line:** _"Same site, suddenly persuasive."_
@@ -1526,6 +1604,10 @@ These are non-negotiable for B. The wordmark fallback rule for B/C does NOT appl
 ---
 ---
 
+---
+
+> **→ NEXT: Stage 6 — Visual QA & Copy Review for Option B.** Stage 5 (Build B) just completed. Continue IMMEDIATELY to Stage 6. Do NOT ask the user to review B's copy first. The qa-check + visual sanity pass IS the review. Just run them. (See PIPELINE COMPLETION CONTRACT at top.)
+
 ### Stage 6: Visual QA & Copy Review (Option B)
 
 Same QA flow as Stage 4 (start dev server, run `qa-check.js`, run `qa.cjs` for screenshots, design-critique, accessibility-review) but against `jobs/{domain}/option-b/`. Use the `optionB` port from metrics.json (allocated as `portA + 3` — see `init-metrics.cjs`).
@@ -1573,6 +1655,10 @@ Stop server when done:
 kill {dev_server_pid_a_plus}
 ```
 
+
+---
+
+> **→ NEXT: Stage 7 — Build Option C.** Stage 6 (QA Option B) just completed. Continue IMMEDIATELY to Stage 7. Do NOT ask the user "want to proceed to C?" — the URL was the authorization. **EXCEPTION**: if `$SKIP_C=1` (user passed `--skip-c`), SKIP this entire stage and continue IMMEDIATELY to Stage 8a. Do NOT ask "should I skip C?" — the flag is unambiguous. (See PIPELINE COMPLETION CONTRACT at top.)
 
 ### Stage 7: Build Option C via Frontend Design Plugin (Conversion Optimized, Plugin-Driven)
 
@@ -1939,6 +2025,10 @@ pkill -f "astro dev"
 
 ---
 
+---
+
+> **→ NEXT: Stage 8 — Deploy to Vercel.** Stage 7 (Build C) just completed (or was skipped per `--skip-c`). Continue IMMEDIATELY to Stage 8. Do NOT ask the user "ready to deploy?" Do NOT pause to confirm Vercel project IDs. The deploy is the natural next step. Just run it. (See PIPELINE COMPLETION CONTRACT at top.)
+
 ### Stage 8: Deploy to Vercel
 
 #### 🟦 Vercel Teams Configuration (READ THIS BEFORE FIRST DEPLOY OF A PIPELINE RUN)
@@ -2095,6 +2185,10 @@ Only proceed to Stage 8b (actual deploy) once ALL gates pass:
 - `--skip-c` mode: only A + B must pass (the C gate is skipped, not failed)
 - Plugin-not-installed mode: A + B must pass; C gate is skipped with a warning
 
+---
+
+> **→ NEXT: Stage 8b — Deploy.** Stage 8a (QA Gate) just passed for all options. Continue IMMEDIATELY to Stage 8b. Do NOT ask the user "ready to push to Vercel?" Just push. (See PIPELINE COMPLETION CONTRACT at top.)
+
 #### Stage 8b: Deploy
 
 Deploy each option using the **canonical Vercel prebuilt flow**: run `vercel build` LOCALLY (which produces the `.vercel/output/` artifact that `--prebuilt` requires), then `vercel deploy --prebuilt` to upload that artifact as-is. This is the only way `--prebuilt` actually skips remote build infrastructure.
@@ -2193,6 +2287,10 @@ Record the preview URLs:
 
 ---
 
+---
+
+> **→ NEXT: Stage 9 — Final Verification on Vercel.** Stage 8b (Deploy) just completed — you have 3 (or 2 with `--skip-c`) Vercel preview URLs. Continue IMMEDIATELY to Stage 9. Do NOT report the URLs to the user yet — that's Stage 10's job after verification passes. Just verify them. (See PIPELINE COMPLETION CONTRACT at top.)
+
 ### Stage 9: Final Verification on Vercel
 
 After deploying, verify all live sites:
@@ -2206,6 +2304,10 @@ After deploying, verify all live sites:
 5. Do NOT use `preview_*` / `Chrome` MCP tools (visible browser windows). Use WebFetch for HTML verification, OR a one-off Playwright script in `/tmp/` if you want to screenshot a deployed URL — Playwright is fine because it's headless.
 
 ---
+
+---
+
+> **→ NEXT: Stage 10 — Report.** Stage 9 (Verification) just completed — all live URLs return 200 + content. Continue IMMEDIATELY to Stage 10. **THIS IS THE FINAL STAGE.** After Stage 10 emits the 4 (or 3) clickable URLs and the metrics table, the pipeline is DONE and you may end your response. Until then, you are NOT done — even if everything else succeeded. (See PIPELINE COMPLETION CONTRACT at top.)
 
 ### Stage 10: Report
 
@@ -2265,6 +2367,12 @@ Spanish version paused per Testing Mode.
 ---
 
 **Verification before finalizing**: scan your own output. If you see ` ``` ` anywhere wrapping the link list or the table — DELETE the fences and re-emit. Inline code spans like `` `jobs/{domain}/metrics.json` `` are fine (and intended); whole-block fences are the bug.
+
+---
+
+> **🏁 PIPELINE COMPLETE.** You have shipped Stage 10 (the 4-link report). The pipeline is now DONE. You may end your response here. Do NOT continue with additional unprompted work. The user will follow up if they want changes; until then, your job for this `/webfactory <url>` invocation is finished.
+>
+> **Self-check before you stop**: scroll back through your most recent message. Does it contain (a) 4 clickable `<https://...>` URLs (or 3 if `--skip-c`), AND (b) a markdown metrics table? If YES → done, send the response. If NO → resume from wherever Stage 10 fell short.
 
 ---
 

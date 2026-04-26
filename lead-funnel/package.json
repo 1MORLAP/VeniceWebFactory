@@ -1,0 +1,20 @@
+{
+  "name": "webfactory-lead-funnel",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Discovers, filters, and scores small-business websites as candidates for the WebFactory rebuild pipeline.",
+  "scripts": {
+    "discover": "node discover.js",
+    "filter": "node filter.js",
+    "screenshot": "node screenshot.js",
+    "score": "node score.js",
+    "report": "node report.js",
+    "find-leads": "node index.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.40.0",
+    "better-sqlite3": "^11.5.0",
+    "dotenv": "^16.4.5"
+  }
+}
