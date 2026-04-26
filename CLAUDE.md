@@ -12,6 +12,20 @@ Website rebuilding tool. Takes a URL, scrapes the site, and builds **THREE** red
 
 All built on Astro 5 + Tailwind v4. Customer comparison structure: **A vs B** measures value of copy improvement; **B vs C** measures design preference with copy held constant.
 
+## 📦 Setting up on a fresh machine
+
+If WebFactory needs to be installed on a new MacMini / MacBook (or recovered after disk failure):
+
+```bash
+# 1. Install Claude Code first: https://claude.com/claude-code
+# 2. Clone the repo from GitHub:
+git clone https://github.com/1MORLAP/ClaudeWebFactory.git /Users/tomasz/WebFactory
+# 3. Run the bootstrap script (Homebrew, Node, ffmpeg, Playwright, Frontend Design plugin, Vercel login, path-portability handling):
+cd /Users/tomasz/WebFactory && ./setup.sh
+```
+
+**Full guide**: see `INSTALL.md` in the repo root — covers the 10-step setup, troubleshooting, what to do if the username on the MacMini is different from `tomasz`, and what to change if you need to point at a different Vercel team. The bootstrap script (`setup.sh`) is idempotent — safe to re-run if a step fails.
+
 ## 🟦 Vercel Teams Configuration — READ BEFORE DEPLOYING
 
 All WebFactory deploys go to ONE specific Vercel team. Deploying to the wrong scope (personal account, different team) is a real failure mode — projects show up in the wrong dashboard, billing splits, and the user can't find them. **This is the only Vercel target. Never deploy elsewhere.**

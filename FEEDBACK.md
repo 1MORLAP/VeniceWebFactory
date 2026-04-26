@@ -37,6 +37,65 @@ Permanent log of user feedback and the skill improvements made in response. Ever
 
 ---
 
+## 2026-04-26 — Install script + INSTALL.md guide for fresh MacMini bootstrap
+
+**Feedback** (verbatim): "Also build an install 'script' for Claude Code to 'pull' from GitHub and install everything needed to copy webfactory skill to a my MacMini from GitHub."
+
+**The need**: take a fresh Mac (MacMini, MacBook), install Claude Code on it manually, then run a single bootstrap script that pulls the WebFactory repo from GitHub and installs everything else needed for the pipeline to work — Homebrew, Node, ffmpeg, Playwright + browser binaries, the Frontend Design Claude Code plugin, Vercel CLI auth, plus handling the "what if the username on the new Mac isn't `tomasz`" edge case so SKILL.md's hardcoded paths don't break.
+
+**Files added**:
+
+### `setup.sh` (new — 200+ lines, idempotent bootstrap)
+A 10-step bash script that:
+- **Step 0**: Verifies macOS (exits if Linux/Windows — fork required)
+- **Step 1**: Verifies Claude Code CLI is installed (exits with install link if missing — Claude Code itself isn't auto-installed because it requires user account creation)
+- **Step 2**: Installs Homebrew if missing (skips if `brew` already in PATH)
+- **Step 3**: Installs Node.js v18+ via Homebrew (skips if Node ≥ 18 already installed; upgrades if < 18)
+- **Step 4**: Installs ffmpeg via Homebrew (soft dep for the planned video splash transcode work)
+- **Step 5**: Runs `npm install` to download Playwright npm package (skips if `node_modules/playwright` exists)
+- **Step 6**: Downloads Playwright Chromium browser binary (~170MB; skips if already in `~/Library/Caches/ms-playwright/`)
+- **Step 7**: Installs the `frontend-design@claude-plugins-official` plugin (skips if already in `~/.claude/plugins/cache/`)
+- **Step 8**: Verifies Vercel CLI auth + team `tomek-group` access; runs `npx vercel login` interactively if not authed; warns if team not found
+- **Step 9**: Path portability — detects if the repo is at the canonical `/Users/tomasz/WebFactory`. If not, prompts the user to either (a) symlink `/Users/tomasz/WebFactory → actual_path` (preserves files as-is, needs sudo) OR (b) find-and-replace the path in tracked files (no sudo, but creates a divergent local commit that should NOT be pushed to origin/main). Skipping is allowed but warns about expected misbehavior.
+- **Step 10**: Final reminder — restart Claude Code so the plugin loads cleanly, then smoke-test with `/webfactory https://www.example.com --skip-c`
+
+Idempotency baked in: every step checks "already done?" before acting. Safe to re-run. If a step fails (network/auth/etc.), fix the cause and re-run from the top — completed steps will skip.
+
+Pretty colored output (red/green/yellow/blue) with `step()`, `ok()`, `warn()`, `err()`, `ask()` helpers for clear status. Exits with non-zero code on hard failures (Step 0 platform check, Step 1 missing Claude Code).
+
+### `INSTALL.md` (new — comprehensive user-facing guide)
+- TL;DR: 4 commands (install Claude Code, git clone, ./setup.sh, smoke test)
+- What you need before running setup.sh (macOS, Claude Code, Anthropic account, Vercel access, GitHub access)
+- Detailed table documenting all 10 setup.sh steps + their idempotent behavior
+- "Different username on the MacMini" section: 3 options — clone to canonical path with `sudo mkdir`, symlink, or find-and-replace — with pros/cons of each
+- "Different Vercel team" section: which files to update if the new MacMini doesn't have `tomek-group` access (point to the team identifiers in SKILL.md + CLAUDE.md)
+- Troubleshooting section: 7 common failure modes with concrete fixes (claude not found, npm install hangs, Playwright download fails, Vercel login stuck, team not found, slash command not recognized, plugin shows 0% usage)
+- "After setup completes" steps: restart Claude Code, smoke test, first real run, where to read more
+- "Backup discipline (going forward)" section: explains the auto-backup contract from SKILL.md
+- "What lives where" tree showing the repo structure with one-line annotations
+
+### `CLAUDE.md` updated
+- New "📦 Setting up on a fresh machine" section right after the architecture overview, before the Vercel Teams Configuration block. Shows the 4-command quickstart and points to INSTALL.md for the full guide.
+
+**Smoke verification**: ran `./setup.sh` on the live machine. All 10 steps executed correctly:
+- Steps 1, 2, 3, 5, 6, 7, 8, 9 idempotent — detected "already installed" and skipped
+- Step 4 was the only step that did real work — ffmpeg was missing on this machine and got installed (which is the correct behavior; it's listed as a soft dep for the planned video splash transcode work)
+- Step 9 (path portability) correctly detected the repo IS at `/Users/tomasz/WebFactory` and skipped the symlink/rewrite branches
+
+The two unexercised paths (symlink + find-and-replace) are tested by code review only since we're already at the canonical path; the logic is straightforward and uses standard shell patterns.
+
+**Files modified / added**:
+- `setup.sh` (NEW — 200+ line bootstrap script, executable)
+- `INSTALL.md` (NEW — one-page comprehensive setup guide)
+- `CLAUDE.md` (added "Setting up on a fresh machine" section pointing to INSTALL.md)
+- `FEEDBACK.md` (this entry)
+
+**Why this matters**: before this, "moving WebFactory to a different machine" was an undocumented multi-step process that required reading SKILL.md, CLAUDE.md, AND piecing together implicit dependencies. Now it's `git clone + ./setup.sh + claude /webfactory <url>`. Disaster recovery is also covered (laptop dies → buy a new MacMini → run these 4 commands → 5 minutes later the skill is back).
+
+**Backup disciplne (the meta-loop)**: this entry + commit happens via the auto-backup contract from earlier today (commit `590a115`). The `/webfactory-learn` flow that shipped this work ends with `git commit && git push`. The install script is itself backed up to GitHub the same way every other structural change is. No 11-day gaps possible.
+
+---
+
 ## 2026-04-26 — Auto-backup contract: every `/webfactory-learn` ends with `git push`
 
 **Feedback** (verbatim, with context — diagnosing 11 days of uncommitted work and asking about backup strategy): "websites are looking good, please update documentation, cleanup issues, also how are we backing this skill up? Should we be using GitHub?" → after I diagnosed: "delete WEBFACTORY_CODEX_PROMPT.md / yes, push and yes to After we get this catch-up commit + push out, I'd suggest a simple new rule for going forward: /webfactory-learn operations end with a git commit && git push step, so every shipped structural fix immediately makes it to GitHub. Want me to wire that into SKILL.md's Self-Learning Protocol?"
