@@ -2090,17 +2090,20 @@ pkill -f "astro dev"
    ```bash
    # Method A: pre-link before first deploy (preferred for unattended runs)
    cd jobs/{domain}/option-a/
-   npx vercel link --scope tomek-group --yes
+   npx vercel link --scope tomek-group --project {domain-slug}-option-a --yes
    # then the standard deploy flow
    npx vercel build --yes
    npx vercel deploy --prebuilt --yes
    ```
 
+   **CRITICAL — `--project` flag is mandatory** (real bug 2026-04-28, bwlocksmith.com): without `--project`, `vercel link` auto-names from the current directory (= `option-a`), which COLLIDES across customer builds. The first build creates a project literally called `option-a` under the team; the next domain's build attaches to the SAME project, mixing deployments. Always pass `--project {domain-slug}-option-{a|b|c}` where `{domain-slug}` is the customer's domain with dots replaced by hyphens (e.g., `bwlocksmith-com-option-a`, `libertylandscapefl-com-option-a`).
+
    ```bash
-   # Method B: pass --scope on the first deploy (also works)
+   # Method B: pass --scope on the first deploy (also works for scope, but does NOT solve the auto-naming collision)
    cd jobs/{domain}/option-a/
    npx vercel build --yes
    npx vercel --scope tomek-group deploy --prebuilt --yes
+   # Method B still creates a bare-named project on first deploy; prefer Method A.
    ```
 
 3. **Verification after first deploy of a pipeline change** (one-time per pipeline change):
@@ -2125,10 +2128,29 @@ If you need to discover the team ID dynamically (you shouldn't — it's hardcode
 
 **Disable Vercel Authentication after deploy** (the SSO protection that prompts for login on previews — needs to be off so the customer can view without logging in):
 
+New Vercel projects in `tomek-group` ship with `ssoProtection: { deploymentType: "all_except_custom_domains" }` enabled by default. Customers visiting the preview URL get a 401 login wall until you disable it. Run this for EACH option after `vercel deploy` succeeds.
+
 ```bash
+# Preferred: CLI subcommand (project-name first, then --sso flag — exact syntax matters)
 cd jobs/{domain}/option-a/
-npx vercel project protection disable --sso option-a
+npx vercel project protection disable {domain-slug}-option-a --sso
 ```
+
+**Fallback** (use when the CLI subcommand misbehaves — verified working 2026-04-28 on bwlocksmith.com):
+
+```bash
+# Direct REST call. Reads the team token from the macOS Vercel CLI auth file.
+TOKEN=$(jq -r '.token' "$HOME/Library/Application Support/com.vercel.cli/auth.json")
+TEAM=team_4Hr5Lqd6pY5D7gmeXDVsDmYx
+PROJECT={domain-slug}-option-a   # repeat for option-b, option-c
+
+curl -s -X PATCH "https://api.vercel.com/v9/projects/$PROJECT?teamId=$TEAM" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"ssoProtection": null}'
+```
+
+**Verification**: after disable, `curl -sL -o /dev/null -w "%{http_code}" https://{deploy-url}/` should return `200`, not `401`. If still `401`, the disable didn't apply — re-run with the API fallback.
 
 This relies on the project being correctly scoped to `tomek-group` already (Step 1 or 2 above). If the project landed in the personal account, this command targets the wrong project and fails silently.
 

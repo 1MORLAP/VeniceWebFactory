@@ -37,6 +37,83 @@ Permanent log of user feedback and the skill improvements made in response. Ever
 
 ---
 
+## 2026-04-28 — Decomposed-pipeline experiment #1 (bwlocksmith.com) — Opus orchestrator + 8 Sonnet sub-agents, end-to-end success
+
+**Feedback** (verbatim): "When I'm running this skill using Opus 4.7 on Max, things work great now, but when I downgrade to Sonnet we are starting to see issues. Do you want me to test more on Sonnet and try to identify issues with lower models? Is there anything you can do? Can you run some tests using different models? You know, you can spin them up as sub-agents. Maybe use some of the websites that we've built — not rebuild the entire website, but build pieces of it using different agents on different think levels and see if you can optimize this. I'm starting to think: how do we optimize? I cannot afford to build all those pages on the same model that builds you, which is Opus 4.7" → followed by approval to "go with 3" (run a real end-to-end experiment) on `https://www.bwlocksmith.com/`.
+
+**Cost concern context**: WebFactory builds 3 sites × 4-12 pages each per customer = 12-36 page-builds per customer. At Opus rates that's expensive; at Sonnet/Haiku rates it's affordable. Cost optimization is no longer a "nice-to-have" — it's a viability requirement.
+
+**Architecture tested** (decomposed pipeline, opt-in alongside the existing single-orchestrator mode):
+
+```
+Opus orchestrator
+├── Stage 1   Scrape + WebFetch enrichment (deterministic + Opus when scraper misses Duda widgets)
+├── Stage 2   Design brief (synthesis-heavy — Opus)
+├── Stage 2.5 Per-page spec generation — Opus writes one self-contained .md per page into jobs/{domain}/specs/
+├── Stage 2.6 Shared-component scaffold — Opus builds Nav, Footer, Hero, SectionLabel, SiteLayout, brand tokens
+├── Stage 3   Build A pages — N Sonnet sub-agents in PARALLEL, one per spec
+├── Stage 4   QA A — npm build + qa-check.js + Opus fixes shared-component bugs once
+├── Stage 5   Build B copy rewrite — N Sonnet sub-agents in PARALLEL (Edit not Write — tighter control)
+├── Stage 6   QA B
+├── Stage 8b  Deploy via prebuilt flow
+├── Stage 8c  Disable SSO via API
+└── Stage 9-10 Verify + report
+```
+
+**Pre-experiment validation** (single-page test on libertylandscapefl.com): scored Sonnet 22/22, Haiku 22/22 against the Opus-built reference. Both compiled clean. Both preserved verbatim copy. That established that workers CAN follow a fully-specified spec — but didn't prove the architecture works on a full pipeline. This experiment proves it does.
+
+**bwlocksmith.com results — full pipeline**:
+
+| Stage | Operator | Result | Token cost |
+|---|---|---|---|
+| Scrape | Playwright | 5 pages → trimmed to 4 valid pages | — |
+| Manifest enrichment | Opus + 4× WebFetch | Duda widgets bypassed scraper, content recovered via WebFetch | (Opus orchestration) |
+| Brief | Opus | design-brief.json: industrial-trades / steel-ink / brass-key / safety-yellow palette + Bebas+Inter+JetBrains Mono | (Opus orchestration) |
+| Per-page specs | Opus | 4 specs (60-110 lines each) + 1 shared spec (130 lines) | (Opus orchestration) |
+| Shared scaffold | Opus | Nav + Footer + Hero + SectionLabel + SiteLayout + global.css | (Opus orchestration) |
+| Build A pages × 4 | Sonnet, parallel | 130/174/133/148 lines, all compile, all pass structural specs | 26-30K each = 110K total |
+| QA A | qa-check.js | 29 fails first run → 0 fails after Opus fixed shared component contrast | (Opus 4 small Edits) |
+| Build B copy rewrite × 4 | Sonnet, parallel | All 4 pages, targeted Edits, design preserved, CTAs sharpened | 27-30K each = 115K total |
+| QA B | qa-check.js | 4 fails ("Free Estimate" not in manifest — added to manifest, re-passed) | (Opus 1 manifest patch) |
+| Deploy A + B | Vercel CLI | Both Ready, Production | — |
+| Disable SSO | curl PATCH API | Both 200 (was 401) | — |
+| Final verify | curl + grep | A hero verbatim, B hero rewritten, all facts preserved | — |
+
+**Live URLs**:
+- A: https://bwlocksmith-com-option-5hihspie8-tomek-group.vercel.app (Hero: "24-Hour Locksmith Services for Philadelphia, PA" — verbatim from original)
+- B: https://bwlocksmith-com-option-h8e3341a8-tomek-group.vercel.app (Hero: "Locked Out? We're on the Way — 24/7" — Sonnet's conversion-tuned rewrite)
+
+**8 Sonnet sub-agent runs total. Wall-clock for each parallel batch ~50-65s. Total pipeline ~7 minutes.**
+
+**What worked unambiguously**:
+1. Sonnet workers, given a fully-specified spec, produce clean compilable structurally-correct .astro files. 4/4 success rate on this experiment, 2/2 in the prior single-page test.
+2. Sonnet rewriters via `Edit` (not `Write`) preserved design markup verbatim while sharpening copy. No accidental design drift.
+3. Parallelism at the page level lets the entire Build stage finish in ~50s wall-clock regardless of page count (within a reasonable bound).
+4. Opus fixing one shared-component bug (eyebrow color) cleared 20+ per-page QA failures simultaneously — proves the shared-vs-per-page separation is robust.
+
+**Friction points / fixes applied at the SKILL level**:
+
+1. **Vercel project naming defaulted to bare directory name.** `npx vercel link --scope tomek-group --yes` from `jobs/{domain}/option-a/` auto-named the project `option-a` — would collide across customer builds. **Fix**: SKILL.md Method A now mandates `--project {domain-slug}-option-{a|b|c}`. Documented as CRITICAL in the Vercel Teams Configuration block.
+
+2. **Vercel SSO defaults to enabled on new projects in `tomek-group`.** Both deploys returned 401 until I called `PATCH /v9/projects/{name}?teamId={team}` with `{"ssoProtection": null}`. **Fix**: SKILL.md Stage 8 SSO-disable section rewritten with both the CLI command (correct argument order: project-name FIRST, then `--sso` flag) AND a curl-based API fallback (verified working). Plus a 200-vs-401 verification step.
+
+3. **Scrape.js missed Duda-widget content.** All 5 pages had identical "Please fill out the form below." as the only paragraph; real customer copy lived in dynamically-rendered Duda widgets. WebFetch enrichment recovered it but adds a synthesis step. **Future task** (NOT fixed in this commit, parked): teach scrape.js to detect Duda/Wix/Squarespace widget patterns and either wait longer for hydration or re-pull after dynamic content settles. Not blocking decomposed-pipeline architecture; orthogonal scraper improvement.
+
+4. **Sonnet rewriter introduced "Free Estimate" CTA** that fact-grounding flagged as unsupported. Turned out to be a real customer claim from the site's header — but it was missing from my synthesized manifest because I'd only enriched body content, not header CTAs. **Lesson**: spec generation (Stage 2.5) must capture ALL visible CTAs / claims from the source, not just body paragraphs. **Future task**: when the spec generator runs WebFetch enrichment, also extract header / footer / CTA strings into a `manifest.business.headerCta` field that fact-grounding checks against.
+
+**Recommendation (NOT yet committed)**:
+- Architecture proved out on 1 site (4 pages). Not yet validated on a larger site (12+ pages) or a more structurally-complex domain (restaurants with menus, contractors with portfolios).
+- Next experiment: re-run the decomposed pipeline on `accelwindows.com` (13 pages) to validate linear scaling.
+- After that experiment, write SKILL.md `--decomposed` mode as opt-in alongside the existing pipeline. After 3-5 successful real customer builds in that mode, promote it to default.
+
+**Files modified in this partial commit** (just the safe fixes — Vercel naming + SSO disable; the architectural rewrite is held back pending experiment #2):
+- SKILL.md (Vercel Teams Configuration block: Method A `--project` flag mandatory; SSO-disable section: correct CLI syntax + API fallback + verification step)
+- FEEDBACK.md (this entry)
+
+**bwlocksmith.com job artifacts preserved at `/Users/tomasz/WebFactory/jobs/bwlocksmith.com/`** (specs/, option-a/, option-b/) as the canonical reference for the architecture's first proof-of-concept run. Future experiments compare against these.
+
+---
+
 ## 2026-04-28 — Light icons on light cards (thetreeguy.com) — invented icons are OK if quality is high; pale-on-pale icons FAIL
 
 **Feedback** (verbatim, with screenshot of The Tree Guy service-card grid where the icons were drawn in pale tan / pale green and nearly disappeared into the cream card backgrounds): "do you see an issue here, it is more innocuous" — followed by the critical correction: "we have a rule about contrast, icons are light with light design, so, hard to see, I do not mid inventing icon assets where appropriate, but they need to be top quality assets!"
