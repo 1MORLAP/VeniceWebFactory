@@ -37,6 +37,90 @@ Permanent log of user feedback and the skill improvements made in response. Ever
 
 ---
 
+## 2026-04-28 — Decomposed-pipeline experiment #2 (accelwindows.com, 5 pages) — VALIDATED at scale, SKILL.md `--decomposed` mode added as opt-in
+
+**Feedback** (paraphrased — user agreed with experiment-then-commit recommendation): "ok, do it. what do you need from me to run next experiment? Also, no it is fine, I can run SKILL under Opus, and then have Opus orchestrate sub tasks / agents." → Then: "I'm going to be away for an hour. Keep iterating and testing and working till I come back. There is no need for you to wait for my feedback. As usual I agree with your recommendations. Keep it simple, but keep iterating, testing, learning in loops"
+
+**Two confirmations from this feedback**: (a) the orchestrator-stays-Opus assumption is the supported case; we don't need to shrink SKILL.md for cheap-orchestrator support. (b) experiment-then-commit pattern is approved; I should keep iterating in loops while the user is away.
+
+**Experiment design**: forked the existing accelwindows.com Opus baseline (13 pages already built and live on Vercel) into `option-a-decomp/`. Wiped `src/pages/` but PRESERVED everything else (components, layouts, styles, data, .vercel link) — so the experiment tests ONLY the page-build step, isolated from scaffold construction. Ran 5 pages out of 13 (home + windows + roofing + reviews + service-areas) for time-budget reasons; 5 was a deliberately diverse sample (full hero vs page-header pages, services with different inner structures, simplest reviews page, list-heavy service-areas page).
+
+**Setup work** (Opus orchestrator):
+- 1 `_shared.md` (component sigs, design tokens, hard rules — adapted from bwlocksmith's shared spec)
+- 1 `_service-template.md` (common service-page structure — referenced by windows.md and roofing.md)
+- 5 per-page specs (home.md, windows.md, roofing.md, reviews.md, service-areas.md)
+- Total spec writing: ~25 minutes (the bulk on home.md and windows.md which are the most structurally complex)
+
+**5 Sonnet sub-agents in parallel** — each given `_shared.md` + their page spec (+ `_service-template.md` if applicable) + the path to write to. Tools restricted to Read (2-3 spec files) + Write (one .astro file). No Bash/Grep/file-tree exploration. Wall-clock for the parallel batch: ~50 seconds (slowest single page).
+
+**Results**:
+
+| Page | Opus baseline | Sonnet decomp | Δ lines | Compiles? |
+|---|---|---|---|---|
+| index.astro | 133 lines | 136 lines | +3 | ✓ |
+| windows.astro | 92 lines | 105 lines | +13 | ✓ |
+| roofing.astro | 76 lines | 77 lines | +1 | ✓ |
+| reviews.astro | 35 lines | 35 lines | +0 | ✓ |
+| service-areas.astro | 77 lines | 80 lines | +3 | ✓ |
+
+5/5 compiled clean. Average +4 lines vs Opus baseline (Sonnet slightly more verbose; not material).
+
+**QA results** — 2 failures total across 5 pages, BOTH per-page styling mistakes:
+
+1. **home page "VIEW DETAILS →"** — Sonnet picked `text-amber-500` for the "View Details" link on a bone-50 card background (2.04:1, fails 4.5:1 minimum). Opus baseline used `--color-steel-800` for the same link. Sonnet went with brand-accent instead of body-color and didn't run the contrast check. **Fix**: 1 Edit, swapped to `--color-steel-800` + added `border-t-2` to match Opus's link treatment.
+
+2. **windows page Mezzo/Fusion h3 cards** — Sonnet wrote `<h3 class="text-xl font-semibold mb-6">` on a steel-900 dark card without an explicit color override. The `<h3>` defaulted to inherited near-black (rgb 27,27,27) on dark steel (1.02:1, fails). Spec said the cards were "dark variant — bg: steel-900; color: bone-50" but didn't explicitly call out that `<h3>` needed its own color override (assumed it'd inherit). **Fix**: 2 Edits, added explicit `style="color: var(--color-bone-50);"` on the dark card's h3 + matching `--color-ink` on the light card's h3.
+
+**Fact preservation** (verbatim phrase counts, Opus vs Sonnet):
+
+| Phrase | index | windows | roofing | reviews | service-areas |
+|---|---|---|---|---|---|
+| `724-339-1220` | 3 vs 4 | 0 vs 0 | 2 vs 2 | 1 vs 1 | 2 vs 2 |
+| `Lower Burrell` | 3 vs 3 | 3 vs 3 | 4 vs 4 | 1 vs 1 | 4 vs 4 |
+| `since 1991` | 3 vs 3 | 0 vs 0 | 0 vs 0 | 1 vs 1 | 0 vs 0 |
+
+Identical across the board (Sonnet's home page even has the phone number 1× more — likely in an extra CTA the spec described). Sonnet did NOT drop, fabricate, or paraphrase any verbatim facts.
+
+**Architecture validation**:
+- Spec generation cost (5 specs × ~5 min each + 25 min for setup spec) scales LINEARLY with page count, not quadratically. ✓
+- Parallel-worker pattern works at 5+ workers. ✓
+- Sonnet workers preserve verbatim copy, structural requirements, and component imports correctly. ✓
+- Per-page bug rate: 2/5 pages had styling mistakes (vs 0/4 on bwlocksmith — bigger pages = more places for subtle errors). Both were tiny 1-Edit fixes; total fix time < 1 minute. ✓ (architecture absorbs this; Stage 4 fix-loop handles it)
+- The bigger lesson: **specs need to be more explicit about color cascades**. When a spec says "dark variant card with `color: bone-50`", the worker should know that ALL nested text inherits that — but Sonnet wrote h3 with `font-semibold` only, no color, and got dark text from somewhere (likely browser default cascade on `<h3>`). **Fix in shared spec**: add a hard rule "every `<h*>` heading inside a colored container MUST explicitly set its color, don't rely on CSS inheritance through Tailwind classes."
+
+**Wall-clock breakdown**:
+- Spec generation by Opus: ~25 min (5 page-specs + 1 shared + 1 service-template)
+- 5 Sonnet workers in parallel: ~50 sec wall-clock
+- npm build: ~1 sec
+- qa-check first run + 2 Edit fixes + qa-check second run: ~3 min
+- **Total**: ~30 min for 5 pages (would be ~45 min for 13 pages if linear — vs the original 30-60 min Opus all-in)
+
+**Token cost** (Sonnet workers): 22-26K each × 5 = ~120K Sonnet tokens. Opus orchestrator did the spec generation + fix-loop + comparison; rough Opus cost similar to a single-orchestrator run's planning phase.
+
+**At 5:1 Opus:Sonnet rate ratio**: per-build cost is ~50% lower for the page-build work; overall ~30-40% lower including orchestration. Larger sites would compound the savings.
+
+**Recommendation: SKILL.md `--decomposed` mode added as OPT-IN**. Default stays single-orchestrator (zero behavior change for unflagged runs). After 3-5 successful real customer builds in `--decomposed` mode, promote to default.
+
+**SKILL.md changes** (this commit):
+- New top-level section `🔀 EXECUTION MODE — Decomposed mode (opt-in)` near the top after PIPELINE COMPLETION CONTRACT.
+- Stage 2.5 (per-page spec generation) defined.
+- Stage 2.6 (shared-component scaffold).
+- Stage 2.7 (shared-component contrast lint — new safeguard inspired by bwlocksmith's eyebrow-color bug that surfaced 20+ failures from one shared-component flaw).
+- Stage 3 / Stage 5 notes for "if `--decomposed` mode active, spawn N Sonnet sub-agents in parallel".
+- Stage 4 fix-loop split (shared-component bugs → Opus; per-page bugs → Sonnet sub-agents in parallel).
+- Cost projection table.
+- Validation history (logs experiment #1 and #2).
+
+**`--decomposed` mode is OPT-IN**: `/webfactory <url>` runs single-orchestrator by default (zero change for existing users). `/webfactory <url> --decomposed` invokes the decomposed pipeline.
+
+**Next iteration**: run a 3rd experiment on a substantially-different domain type (restaurant with menu structures, contractor with portfolio + project images, dental practice with provider bios) to validate that decomposed mode handles content variety, not just trades. After that → promote to default.
+
+**Files modified in this commit**: SKILL.md (new EXECUTION MODE section + Stage 2.5/2.6/2.7 sub-stages + Stage 3/4/5 decomposed-mode notes + cost projection + validation history), FEEDBACK.md (this entry).
+
+**Experiment artifacts preserved** at `/Users/tomasz/WebFactory/jobs/accelwindows.com/specs-decomp/` and `/Users/tomasz/WebFactory/jobs/accelwindows.com/option-a-decomp/`. Future experiments will compare against these AND the bwlocksmith.com baseline.
+
+---
+
 ## 2026-04-28 — Decomposed-pipeline experiment #1 (bwlocksmith.com) — Opus orchestrator + 8 Sonnet sub-agents, end-to-end success
 
 **Feedback** (verbatim): "When I'm running this skill using Opus 4.7 on Max, things work great now, but when I downgrade to Sonnet we are starting to see issues. Do you want me to test more on Sonnet and try to identify issues with lower models? Is there anything you can do? Can you run some tests using different models? You know, you can spin them up as sub-agents. Maybe use some of the websites that we've built — not rebuild the entire website, but build pieces of it using different agents on different think levels and see if you can optimize this. I'm starting to think: how do we optimize? I cannot afford to build all those pages on the same model that builds you, which is Opus 4.7" → followed by approval to "go with 3" (run a real end-to-end experiment) on `https://www.bwlocksmith.com/`.

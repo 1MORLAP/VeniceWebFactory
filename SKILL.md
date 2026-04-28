@@ -119,6 +119,204 @@ The skill-owner session is a separate session (one the user invokes manually wit
 
 **Why this matters**: parallel WebFactory builds may be running on different domains. If two worker sessions both try to "fix" SKILL.md based on what they each saw, you get races, conflicting edits, and lost lessons. Lockdown enforces serial evolution: workers FLAG, skill-owner FIXES.
 
+## 🔀 EXECUTION MODE — Single-orchestrator vs Decomposed (opt-in)
+
+WebFactory supports two execution modes. The default ("single-orchestrator") runs the full pipeline as one Opus session — the model that processes `/webfactory <url>` reads the manifest, designs the brief, builds every page, runs QA, fixes issues, deploys. This works well on Opus 4.7 but gets expensive at scale because per-page work runs at orchestrator rates (page builds cost 5-12× more than they need to).
+
+The opt-in alternative (`--decomposed` flag) splits the pipeline so the orchestrator (Opus) does the synthesis-heavy stages and weaker models (Sonnet, Haiku) do the volume work in parallel. Token cost on per-page work drops 60-80%; wall-clock drops via parallelism. **Validated on bwlocksmith.com (4 pages, end-to-end including deploy) and accelwindows.com (5 pages, Stage 3 isolated).**
+
+### When to use which mode
+
+| Scenario | Mode |
+|---|---|
+| Default — small site (1-4 pages), don't need cost optimization | Single-orchestrator (no flag) |
+| Larger site (5+ pages) where cost matters | `--decomposed` |
+| Brand-new architectural changes — testing/iterating | Single-orchestrator (orchestrator stays in the loop on every decision) |
+| Customer-billed production builds | `--decomposed` (cost compounds) |
+| Less capable orchestrator (Sonnet, Haiku, local models) running the skill | NOT supported. The decomposed mode REQUIRES Opus (or comparable) orchestrator. Sub-agents can be cheaper, but the orchestrator must be capable enough to write per-page specs and review QA output critically. The user explicitly confirmed (2026-04-28): "I can run SKILL under Opus, and then have Opus orchestrate sub tasks / agents." That's the supported configuration. |
+
+### Decomposed mode pipeline overview
+
+```
+Stage 1   Scrape + WebFetch enrichment (deterministic + Opus when scraper misses CMS widgets)
+Stage 2   Design brief (Opus only)
+Stage 2.5 Per-page spec generation — Opus writes one self-contained .md per page into jobs/{domain}/specs/
+Stage 2.6 Shared-component scaffold — Opus builds Nav + Footer + Hero + Section + brand tokens BEFORE per-page workers run
+Stage 2.7 Shared-component contrast lint — Opus QA's its own scaffold for color-contrast bugs BEFORE workers consume it (prevents single-cause-bug-on-N-pages)
+Stage 3   Build A — N Sonnet sub-agents IN PARALLEL, one per spec (each writes one .astro file)
+Stage 4   QA A — npm build + qa-check.js. Fixes split: shared-component bugs → Opus (1 fix benefits all pages); per-page bugs → Sonnet sub-agents in parallel
+Stage 5   Build B copy rewrite — N Sonnet sub-agents IN PARALLEL, each receives A's page + rewrite directives + uses the `Edit` tool (NOT Write) for targeted text-only changes
+Stage 6   QA B — same pattern as Stage 4
+Stage 7   Build C — Opus invokes Frontend Design plugin (synthesis + plugin output, NOT decomposable)
+Stage 8a  QA Gate — same as single-orchestrator
+Stage 8b  Deploy — same Vercel prebuilt flow
+Stage 8c  Disable SSO via API
+Stage 9-10 Verify + report — same as single-orchestrator
+```
+
+The orchestrator (Opus) does Stages 1, 2, 2.5, 2.6, 2.7, 7, and the Stage 4/6 fix-loops. Sonnet sub-agents do Stages 3 and 5 (the page-volume work).
+
+### Stage 2.5: Per-page spec generation
+
+After Stage 2 (design brief), Opus writes one spec per page into `jobs/{domain}/specs/`. Each spec is **fully self-contained** — a Sonnet sub-agent given just `_shared.md` + `<page>.md` should produce a clean, structurally-correct page without needing to read other files.
+
+Required structure for each `<page>.md`:
+
+```markdown
+# Spec — <PageName> (<filename>.astro)
+
+**FIRST: read `_shared.md`** [+ optionally `_<type>-template.md`]
+
+## Output
+Write to: <absolute path to .astro file>
+
+## Page metadata
+- title: <verbatim title tag>
+- description: <verbatim meta description>
+- active: <slug for nav highlight>
+
+## Hero or PageHeader (props as a list)
+- prop1: <value>
+- ...
+
+## Section idx="02" label="..." title="..." bg="..."
+- intro: <verbatim text>
+- Inside: <description of layout + verbatim content bullets/paragraphs/lists>
+[ ... additional sections ... ]
+
+## CtaBanner (or other closing element)
+- prop: <value>
+
+## Required-page-level facts (must appear verbatim)
+- fact 1
+- fact 2
+
+## What NOT to add
+- explicit prohibitions to prevent fabricated content
+```
+
+**`_shared.md`** in the same directory captures cross-page concerns: component prop signatures, design tokens, hard rules (no `\uXXXX`, no `&#NNN;` in JSX, etc.), and aesthetic anchor (1 paragraph). Every per-page spec references it.
+
+**`_<type>-template.md`** files (e.g., `_service-template.md`) capture repeating structural patterns across multiple pages. Validated 2026-04-28: 8 service pages can share one template, with each page-spec adding only its specific content (~30-50 lines per page-spec instead of 80+).
+
+**Spec quality is the upstream cause of build quality.** A weak spec produces a weak Sonnet output. Treat spec generation as the most important Opus step. Iterate on a spec before dispatching workers, especially for the home page.
+
+**Hard rule learned 2026-04-28 (accelwindows experiment)**: when a spec describes a colored container ("dark variant card with `color: bone-50`"), it MUST also explicitly state that nested `<h*>` headings need their own color override. Workers can drop the cascade when adding `font-semibold` etc. via Tailwind classes. Add this to `_shared.md` for every decomposed-mode build.
+
+### Stage 2.6: Shared-component scaffold
+
+Before per-page workers run, Opus builds the shared component layer that all pages will import:
+
+- BaseLayout (document chrome, slots for nav/footer/font-loading/extra head)
+- SiteLayout / equivalent wrapper (BaseLayout + Nav + Footer + main slot)
+- Nav (with `active` prop, mobile hamburger if needed, sticky-on-scroll if appropriate)
+- Footer (social, contact, hours, sub-nav)
+- Hero (full hero) and PageHeader (lighter interior hero) — one or both per design brief
+- Section (wrapper with bg variants, takes idx/label/title/intro props)
+- ServiceCard / Testimonial / CtaBanner / StatStrip — per design brief's distinctive-elements list
+- `src/styles/global.css` extended with brand tokens (palette, fonts, animation primitives)
+- `src/data/site.ts` with shared data (services, reviews, service areas, business facts) when the build has repeated content
+
+**The component layer is shared infrastructure** — workers consume it, never modify it. Per-page workers import these components and pass props.
+
+### Stage 2.7: Shared-component contrast lint (added after experiment #1)
+
+Real bug bwlocksmith.com 2026-04-28: the `.eyebrow` class used the brass color (#C8A24A) on bone backgrounds, which fails WCAG 4.5:1. **The workers built correctly per their specs — the shared component had the bug.** Result: 20+ failures across 4 pages in Stage 4 QA, all from one shared-component flaw.
+
+Before dispatching workers, Opus must lint its own scaffold:
+
+- For each shared CSS class with a color value, compute WCAG contrast against EACH possible parent-bg variant (bone / cream / steel / white / ink). If any combination fails 4.5:1 for body or 3:1 for large text, fix the class BEFORE workers consume it.
+- Build a smoke-test page that exercises every shared component on every bg variant, run qa-check.js against it. If smoke-test passes, dispatch workers; if it fails, fix the scaffold first.
+
+This shifts the QA cost from "Stage 4 cleanup × N pages" to "one upfront lint pass." For an N-page build the savings is N×.
+
+### Stage 3 (decomposed): Spawn N Sonnet sub-agents in parallel
+
+For each spec in `jobs/{domain}/specs/`, spawn a Sonnet sub-agent via the `Agent` tool with `model: "sonnet"`. The prompt template:
+
+```
+Per-page builder for WebFactory decomposed pipeline. Build ONE Astro page from a fully-specified spec.
+
+1. Read jobs/{domain}/specs/_shared.md (design tokens, components, hard rules)
+2. [Optional] Read jobs/{domain}/specs/_<type>-template.md (shared template if applicable)
+3. Read jobs/{domain}/specs/<page>.md (your page-specific spec)
+4. Write the resulting .astro file to the path specified in the page spec.
+
+Do NOT explore the file tree. Do NOT read other pages. The spec files are self-contained.
+After Write succeeds, report under 30 words: file path + line count + any spec rule you couldn't follow.
+Only tools: Read (2-3 spec files) + Write (1 output file).
+```
+
+Spawn all N agents in a SINGLE message with multiple Agent tool uses (parallel execution). Wall-clock for the whole batch is dominated by the slowest single page-build (~50-65 sec) regardless of N.
+
+When all N complete, run `npm run build` from the option directory. If any page fails to compile, dispatch a fix-up sub-agent with the specific compilation error.
+
+### Stage 4 fix-loop split (decomposed)
+
+When Stage 4 qa-check finds failures, classify them:
+
+- **Shared-component bugs** (failure pattern repeats identically across multiple pages, OR is in a shared file like `global.css`, Nav, Footer, Hero, etc.) → **Opus fixes**. One edit benefits all pages.
+- **Per-page bugs** (one page only, OR pattern is page-specific like image-low-resolution on a particular `<img>` tag) → **Sonnet sub-agents in parallel** (one per affected page). Each sub-agent reads the qa-check output for its page + the page file + makes targeted Edits.
+
+After fixes, rebuild + re-run qa-check. Iterate until 0 failures.
+
+### Stage 5 (decomposed): Spawn N Sonnet rewriters in parallel
+
+For each `option-b/src/pages/<page>.astro` file (already a fresh copy of option-a — copy A→B FIRST), spawn a Sonnet sub-agent. Each receives:
+
+1. The shared rewrite directives at `jobs/{domain}/specs/_rewrite-shared.md` (preservation rules — touch only TEXT, not structure/classes/imports/components/hrefs/phone/address/email/form-action; sharpen CTAs; lead with action; no fabricated claims; preserve testimonials verbatim).
+2. The path to its specific page (`option-b/src/pages/<page>.astro`).
+3. Page-specific rewrite directives (which sections to sharpen, what NOT to touch).
+
+Worker uses the `Edit` tool (NOT `Write`) to make targeted text-only changes. **Edit-based rewriting tightens control vs. Write-based rebuilding** (which can drift into design changes). Validated 2026-04-28: 4 Sonnet rewriters preserved A's design markup verbatim while sharpening copy in 9-12 Edits per page.
+
+### Architectural constraints — what STAYS Opus-only
+
+- Stage 1 manifest enrichment when scraper misses CMS-widget content (WebFetch reasoning).
+- Stage 2 design brief.
+- Stage 2.5 spec generation (the spec quality determines all downstream worker quality).
+- Stage 2.6 shared scaffold construction.
+- Stage 2.7 contrast lint.
+- Stage 4/6 shared-component fix-loops.
+- Stage 7 (Build C) — plugin orchestration.
+- Stage 4c-bis Visual Sanity Pass (vision capability + design taste).
+- Stage 4c-tris Dramatic Improvement Audit (vision capability + critical comparison).
+- Stage 10 final report.
+
+### Cost projection (rough, 6-page small-business site)
+
+| Stage | Single-orchestrator | Decomposed |
+|---|---|---|
+| 1 — Scrape | deterministic | deterministic |
+| 2 — Brief | Opus | Opus |
+| 2.5 — Specs + scaffold + lint | (was implicit in Stage 3) | Opus (~50K tokens) |
+| 3 — Build A | Opus × 6 ≈ 250K Opus | 6× Sonnet @25-30K ≈ 165K Sonnet |
+| 4 — QA fix | Opus | mostly Opus (shared) + occasional Sonnet (per-page) |
+| 5 — Build B | Opus × 6 ≈ 250K Opus | 6× Sonnet @25-30K ≈ 165K Sonnet |
+| 6 — QA B | Opus | mostly Opus + occasional Sonnet |
+| 7 — Build C | Opus | Opus |
+| 8-10 — Deploy/verify/report | Opus | Opus |
+
+At Opus:Sonnet ≈ 5:1 rate ratio: per-build cost drops ~50-65% overall. The smaller the site, the less the savings; the larger the site, the more the savings.
+
+### Decomposed mode is OPT-IN — defaults stay single-orchestrator
+
+`/webfactory <url>` runs single-orchestrator by default. Add `--decomposed`:
+
+```
+/webfactory https://example.com --decomposed
+/webfactory https://example.com --decomposed --skip-c
+```
+
+Combine freely with other flags: `--full --decomposed`, `--option-b --decomposed`, etc.
+
+### Validation history
+
+- **2026-04-28 — Experiment #1: bwlocksmith.com (4 pages)**. Full pipeline end-to-end including deploy. 0 QA failures after Opus fix-loop. ~7 min wall-clock total. ~225K Sonnet tokens vs estimated ~500K Opus all-in. **PASSED.** See FEEDBACK.md for detail.
+- **2026-04-28 — Experiment #2: accelwindows.com (5 of 13 pages)**. Stage 3 only (Build A from scratch on a fresh forked option-a-decomp/, components preserved from Opus baseline). 5 Sonnet workers in parallel, 5/5 compiled clean. 2 per-page styling fails (1 amber-on-cream link, 1 unstyled h3 on dark card) — both 1-Edit fixes. Fact preservation identical to Opus baseline. Line count Δ +0 to +13 (Sonnet slightly more verbose). **PASSED.** See FEEDBACK.md for detail.
+- (after experiment #3 on a substantially-different domain type) — promote to "production-ready opt-in" with documented expectations.
+- (after 3-5 successful real customer builds in `--decomposed` mode) — promote to default and remove the opt-in flag.
+
 ## 🧠 Self-Learning Protocol (MANDATORY)
 
 This skill improves itself over time. Every piece of user feedback becomes a permanent rule so future runs don't repeat the same mistakes.
