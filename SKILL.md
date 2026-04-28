@@ -859,6 +859,41 @@ Stage 8a `qa-check.js` checks:
 
 ---
 
+#### ICON QUALITY RULE (strict, all options — INVENTING ICONS IS OK; SHIPPING POOR ICONS IS NOT)
+
+Real bug shipped 2026-04-28 (thetreeguy.com Option A): five service-card icons were drawn in a light tan / pale-green palette that nearly matched the cream card backgrounds — icons were barely visible. The icons themselves were drawn from scratch by the worker. **That part is allowed.** The bug was contrast and quality, not provenance.
+
+> Unlike the LOGO RULE — where inventing is forbidden because the brand identity is sacred — **icons are decoration, and decoration is fair game**. The customer's manifest rarely contains usable service-card icons in the first place; insisting on manifest-only icons would force every build into typographic-only cards. That is the WRONG default for trades / industrial / service businesses where iconography reads instantly.
+
+**The rule** (every option, every icon — whether scraped from the manifest, generated, sourced from icon library, or hand-drawn by the worker):
+
+1. **Contrast ≥ 3:1 against container** (WCAG 1.4.11). The icon's dominant non-transparent color must contrast with the card / panel / background it sits on. Pale icons on pale cards FAIL. Light icons on dark cards PASS. If the design wants tonal subtlety, add a contrasting badge shape behind the icon (filled circle, rounded square in the brand accent color) so the icon-on-badge contrast is what gets measured.
+
+2. **Consistent style across a grid.** All icons in the same card grid / feature row must come from the same visual family — same stroke weight, same fill style (outline vs solid), same corner radius, same color palette. Don't mix Material Symbols outline icons with hand-drawn flat-fill icons in the same grid. Pick one family and stick to it across that section.
+
+3. **Top-quality assets.** If the worker invents icons:
+   - SVG preferred (vector — scales cleanly at any resolution)
+   - PNG fallback only if SVG isn't possible — minimum 128×128px source, 24-bit color, transparent background
+   - No bitmap-fonted "icons" rendered as text-on-PNG. No grainy / dithered / JPEG-artifacted icons.
+   - Drawn icons must look intentional — clean shapes, even strokes, balanced negative space. If the result looks like a child's MS-Paint drawing (the bigdaddysdumpers blob-logo equivalent for icons), it fails.
+
+4. **Semantic match.** A house icon goes on a "Residential" card, not a "Commercial" card. A wrench icon goes on "Repairs", not "New construction". This is obvious but worth stating because workers sometimes pick aesthetically-pleasing icons that don't match the service.
+
+5. **Material Symbols / icon-font fallback** (when SVG generation isn't worth it). Material Symbols (Outlined or Sharp variant) loaded via Google Fonts is a perfectly good zero-effort default. If using it: pick verified icon names only — the SKILL.md icon-name list is canonical. Invented names render as ALL-CAPS text and fail the build.
+
+**Hard prohibition (all options)**: NEVER ship icons that visually disappear into their container. The "barely visible" bug is the exact thing that signals "amateur build" to the customer — even when every other rule passes.
+
+##### QA gate enforcement
+
+Stage 4 / 6 / 8a `qa-check.js` runs the `icon-contrast` check (added 2026-04-28):
+- For every `<img>` between 16×16 and 80×80 displayed pixels, OUTSIDE nav/header/footer (logos covered separately), sample the icon's dominant non-transparent color via canvas, find the effective container background, compute WCAG contrast ratio.
+- If ratio < 3.0 → **fail** with message naming the icon URL, sampled icon hex, container hex, and ratio. Suggested fixes: darker icon variant, recolor, change card background, OR add contrasting badge shape behind icon.
+- Cross-origin tainted canvases are silently skipped (we can't read the pixels).
+- Inline-SVG icons whose color is set via `fill="currentColor"` get caught by the generic `text-contrast` audit instead (the color flows through CSS `color`).
+- Material Symbols / icon-font glyphs render as text and are likewise covered by `text-contrast`.
+
+---
+
 #### HERO CONTRAST RULE (strict, all options — TEXT MUST BE READABLE OVER ANY BACKGROUND)
 
 Real bugs we shipped (2026-04-25):

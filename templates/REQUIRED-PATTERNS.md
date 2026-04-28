@@ -271,6 +271,20 @@ This semantic discipline matters because the `testimonial-tampering` check treat
 
 **qa-check enforcement**: `image-low-resolution` (FAIL if natural < displayed; warn if natural < 1.5× displayed).
 
+### 7.4 Icon contrast and quality (ICON QUALITY RULE)
+
+**Structural rule**: every icon (whether scraped, generated, library-sourced, or hand-drawn by the worker) MUST meet:
+
+1. **Contrast ≥ 3:1** vs. the container background (WCAG 1.4.11). Pale icons on pale cards FAIL. Add a contrasting badge shape (filled circle / rounded square in an accent color) behind the icon if the design wants tonal subtlety.
+2. **Consistent style across a grid**: same stroke weight, same fill style (outline vs solid), same corner radius, same color palette. Don't mix Material Symbols outline with hand-drawn flat-fill in the same row.
+3. **Asset quality**: SVG preferred (vector). PNG fallback only with ≥ 128×128 source, 24-bit color, transparent background. No grainy / dithered / JPEG-artifacted icons. Drawn icons must look intentional (clean shapes, even strokes).
+4. **Semantic match**: a wrench icon goes on "Repairs", not "New construction".
+5. **Material Symbols safe-default**: load via Google Fonts, use only verified names from the SKILL.md list. Invented names render as ALL-CAPS text and fail.
+
+**Visual freedom**: ANY icon style (line, solid, duotone, hand-drawn, photographic), ANY family (Material Symbols, Heroicons, Phosphor, Lucide, custom SVG), ANY color treatment, ANY badge shape behind the icon. Inventing icons is FINE — what's not fine is shipping ones that visually disappear or look amateur.
+
+**qa-check enforcement**: `icon-contrast` (FAIL — for every `<img>` between 16×16 and 80×80 displayed pixels outside nav/header/footer, sample dominant non-transparent color via canvas, compute WCAG ratio against effective container background, FAIL if < 3.0:1). Inline-SVG icons whose color is set via `fill="currentColor"` are caught by `text-contrast` instead. Icon-font glyphs (Material Symbols) likewise covered by `text-contrast`.
+
 ---
 
 ## 8. Video CTAs (VIDEO CTA RULE)
@@ -395,6 +409,8 @@ This semantic discipline matters because the `testimonial-tampering` check treat
 | `fake-play-button` | 8.1 Never fabricate video |
 | `hero-low-contrast` | 3.1 Hero three-layer contrast |
 | `hero-no-overlay` | 3.1 Hero three-layer pattern |
+| `html-entity-literal` | (general — no `&#NNN;` literal in DOM) |
+| `icon-contrast` | 7.4 Icon contrast and quality |
 | `image-low-resolution` | 7.3 Image resolution |
 | `logo` | 4.1 Always preserve original |
 | `logo-bg-mismatch` | 4.2 Background-aware placement |

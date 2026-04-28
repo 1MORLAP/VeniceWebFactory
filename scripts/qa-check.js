@@ -1281,6 +1281,94 @@ function rgbToHexFromComputed(rgb) {
       }
       // ---- end image resolution audit ----
 
+      // ---- Icon contrast audit (added 2026-04-28 after thetreeguy.com) ----
+      // Real bug: Worker shipped service-card icons that were nearly the same
+      // color as the card background — icons visually disappeared into the card.
+      // (User feedback 2026-04-28: "icons are light with light design, so, hard
+      //  to see... I do not mind inventing icon assets where appropriate, but
+      //  they need to be top quality assets!")
+      //
+      // The check: for each small <img> outside nav/header/footer, sample the
+      // icon's dominant non-transparent color via canvas, find the effective
+      // container background, and require WCAG 1.4.11 contrast ≥ 3:1 (the
+      // minimum for graphics conveying information). Inline-SVG icons whose
+      // color comes from CSS get caught by the generic text-contrast audit
+      // already (currentColor flows through). Material Symbols / icon-font
+      // glyphs render as text and are likewise covered by text-contrast.
+      //
+      // Skipped:
+      // - Logo images (already covered by logo + logo-bg-mismatch checks)
+      // - Sub-16px pixels (decorative spacers, tracking pixels — not real icons)
+      // - Cross-origin tainted canvases (silently — we can't read the pixels)
+      // - <img> over a background-image (HERO CONTRAST handles photo backdrops)
+      const ICON_MIN_PX = 16;
+      const ICON_MAX_PX = 80;
+      const ICON_CONTRAST_MIN = 3.0;   // WCAG 1.4.11 minimum for non-text content
+      const iconCandidates = Array.from(document.querySelectorAll('img[src]')).filter(img => {
+        if (img.closest('nav, header, footer')) return false;
+        const r = img.getBoundingClientRect();
+        return r.width >= ICON_MIN_PX && r.width <= ICON_MAX_PX
+            && r.height >= ICON_MIN_PX && r.height <= ICON_MAX_PX;
+      });
+      const iconSeen = new Set();
+      for (const img of iconCandidates) {
+        if (img.naturalWidth === 0) continue; // already caught by broken-image
+        // Sample the icon's dominant opaque color via canvas
+        let dominantRgb = null;
+        try {
+          const cv = document.createElement('canvas');
+          const W = Math.min(img.naturalWidth, 64);
+          const H = Math.min(img.naturalHeight, 64);
+          cv.width = W; cv.height = H;
+          const cx = cv.getContext('2d');
+          cx.drawImage(img, 0, 0, W, H);
+          const data = cx.getImageData(0, 0, W, H).data;
+          let rSum = 0, gSum = 0, bSum = 0, count = 0;
+          for (let i = 0; i < data.length; i += 4) {
+            const a = data[i + 3];
+            if (a < 200) continue;            // skip transparent + semi-transparent
+            const R = data[i], G = data[i + 1], B = data[i + 2];
+            // Skip near-white pixels (icon backplate + anti-aliased edges) so we
+            // measure the icon's actual graphic color, not its negative space
+            if (R > 245 && G > 245 && B > 245) continue;
+            rSum += R; gSum += G; bSum += B; count++;
+          }
+          if (count >= 8) {
+            dominantRgb = {
+              r: Math.round(rSum / count),
+              g: Math.round(gSum / count),
+              b: Math.round(bSum / count),
+              a: 1,
+            };
+          }
+        } catch (_) {
+          // Cross-origin / tainted canvas — silently skip
+          continue;
+        }
+        if (!dominantRgb) continue;
+        const bg = effectiveBgRgb(img);
+        if (!bg) continue;  // background-image — covered by HERO CONTRAST
+        const ratio = contrastRatio(dominantRgb, bg);
+        if (ratio < ICON_CONTRAST_MIN) {
+          const rect = img.getBoundingClientRect();
+          const dispW = Math.round(rect.width);
+          const dispH = Math.round(rect.height);
+          const iconHex = '#' + [dominantRgb.r, dominantRgb.g, dominantRgb.b]
+            .map(n => n.toString(16).padStart(2, '0')).join('');
+          const bgHex = '#' + [bg.r, bg.g, bg.b]
+            .map(n => n.toString(16).padStart(2, '0')).join('');
+          const key = `${img.src}::${iconHex}::${bgHex}`;
+          if (iconSeen.has(key)) continue;
+          iconSeen.add(key);
+          report.issues.push({
+            severity: 'fail',
+            check: 'icon-contrast',
+            msg: `Icon "${img.src}" (${dispW}×${dispH}px) has dominant color ${iconHex} on container background ${bgHex} — WCAG contrast ${ratio.toFixed(2)}:1 is below the 3:1 minimum for graphics that convey information (WCAG 1.4.11). The icon is visually disappearing into its container. Fix by (a) using a darker / higher-contrast icon variant, (b) recoloring the icon, (c) changing the card background to contrast with the icon, OR (d) adding a contrasting badge shape (filled circle, rounded square) behind the icon. Inventing icon assets is OK if quality is high — but they MUST have ≥ 3:1 contrast against their container. See ICON QUALITY rule in SKILL.md.`,
+          });
+        }
+      }
+      // ---- end icon contrast audit ----
+
       // ---- Mobile-specific overflow audit (added 2026-04-25 with dual-viewport refactor) ----
       // Catches text or block-level content that spills past the viewport edge horizontally
       // — the most common mobile-only bug. Only meaningful when viewport is narrow.

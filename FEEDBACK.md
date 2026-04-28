@@ -37,6 +37,44 @@ Permanent log of user feedback and the skill improvements made in response. Ever
 
 ---
 
+## 2026-04-28 — Light icons on light cards (thetreeguy.com) — invented icons are OK if quality is high; pale-on-pale icons FAIL
+
+**Feedback** (verbatim, with screenshot of The Tree Guy service-card grid where the icons were drawn in pale tan / pale green and nearly disappeared into the cream card backgrounds): "do you see an issue here, it is more innocuous" — followed by the critical correction: "we have a rule about contrast, icons are light with light design, so, hard to see, I do not mid inventing icon assets where appropriate, but they need to be top quality assets!"
+
+**My initial misdiagnosis (rejected)**: I looked at the broken cards, ran `find jobs/thetreeguy.com/option-a/public/images/`, saw 5 icon PNGs that aren't in the customer's scraped manifest (`climber-icon.png`, `storm-damage.png`, `emergency-icon.png`, `line-trim-icon.png`, `beautification-icon.png`), and jumped to "worker invented these icons → that's the bug." I started building an `image-provenance` qa-check rule that would compare every shipped image's content hash to the manifest's `assets/img/` set and FAIL on any non-matching hash (extending the LOGO RULE prohibition on invented assets to all imagery).
+
+**Why that was wrong**: the user clarified that for ICONS specifically (not logos, not photos, not photos of the product/service), inventing is fine. The bug class on this build wasn't provenance — it was contrast. The customer's manifest rarely contains usable service-card icons in the first place; insisting on manifest-only icons would force every WebFactory build into typographic-only cards, which is the WRONG default for trades / industrial / service businesses where iconography reads instantly. The icons on The Tree Guy were drawn (fine), but they were drawn in colors that nearly matched the card background (NOT fine) — that's why they "disappeared."
+
+**Mid-edit correction → rollback**: I had already added `--check-images` and `--build-dist` argv flags, imported `basename` and `createHash`, written `sha256Short()` and `walkImageFiles()` helpers, defined `runImageProvenanceCheck()` (~120 lines total in qa-check.js between the testimonial check and the fact-grounding rules). All of that was rolled back cleanly — the file went back to its pre-misdiagnosis state with `import { join } from 'node:path';` and no provenance code. Then I re-pivoted to the actual bug: contrast.
+
+**scripts/qa-check.js change** — new `icon-contrast` rule (added between `image-low-resolution` and `mobile-overflow`):
+- Selector: every `<img>` with displayed dimensions in `[16px, 80px]` × `[16px, 80px]`, OUTSIDE `nav / header / footer` (logos covered separately).
+- Sample dominant non-transparent color: draw the image onto a `<= 64×64` canvas, iterate pixels, ignore alpha < 200 (transparent + semi-transparent), ignore RGB > (245,245,245) (icon backplate + anti-aliased edges so we measure the icon's actual color, not its negative space). Average remaining pixels.
+- Find effective container background using the existing `effectiveBgRgb()` helper (walks parents until a non-transparent background; returns `null` if a `background-image` is encountered, in which case HERO CONTRAST handles it).
+- Compute WCAG contrast ratio between sampled icon color and container bg using the existing `contrastRatio()` + `relativeLuminance()` helpers. If ratio < 3.0, FAIL with message naming icon URL, sampled icon hex, container hex, the ratio, and four suggested fixes (darker variant, recolor, change card bg, OR add contrasting badge shape).
+- Cross-origin tainted canvases silently skipped (try/catch around `getImageData`).
+- Inline-SVG icons whose `fill="currentColor"` flows from CSS get caught by the existing generic `text-contrast` audit (color cascades through). Material Symbols / icon-font glyphs render as text and are likewise covered by `text-contrast`. So this new rule is targeted specifically at raster `<img>` icons, which is where the bug class lives.
+
+**SKILL.md change** — new top-level rule **ICON QUALITY RULE** inserted between LOGO RULE and HERO CONTRAST RULE:
+- Header explicitly contrasts with LOGO RULE: "Unlike the LOGO RULE — where inventing is forbidden because the brand identity is sacred — icons are decoration, and decoration is fair game."
+- Five numbered requirements: (1) contrast ≥ 3:1 vs container per WCAG 1.4.11, (2) consistent style across a grid (same stroke weight, fill, corner radius, palette — don't mix Material Symbols outline with hand-drawn flat-fill in the same row), (3) top-quality assets (SVG preferred; PNG ≥ 128×128 with 24-bit color and transparent bg; no grainy / dithered / JPEG-artifacted icons; drawn icons must look intentional), (4) semantic match (wrench on Repairs, not New Construction), (5) Material Symbols safe-default (must use verified names — invented names render as ALL-CAPS text and fail the build).
+- "Hard prohibition": NEVER ship icons that visually disappear into their container.
+- QA gate enforcement section maps directly to the new `icon-contrast` rule with full description.
+
+**templates/REQUIRED-PATTERNS.md change** — new pattern §7.4 "Icon contrast and quality (ICON QUALITY RULE)":
+- "Visual freedom: ANY icon style (line, solid, duotone, hand-drawn, photographic), ANY family (Material Symbols, Heroicons, Phosphor, Lucide, custom SVG), ANY color treatment, ANY badge shape behind the icon. Inventing icons is FINE — what's not fine is shipping ones that visually disappear or look amateur."
+- Quick-reference table at the bottom of the doc updated to include `icon-contrast` → 7.4 mapping. Also added the pre-existing `html-entity-literal` rule which had been missing from the table.
+
+**MEMORY.md change**: top-level architectural-rules summary updated to mention "ICON QUALITY RULE (NEW 2026-04-28: inventing icons is OK if quality is high; pale-on-pale icons FAIL via `icon-contrast` qa-check)" and qa-check count bumped from 27→29 (icon-contrast was 28th alongside today's earlier html-entity-literal at 27).
+
+**Lesson for future me (skill-owner sessions)**: when a screenshot looks bad, do NOT immediately assume the closest "obviously bad" thing is the bug. The Tree Guy screenshot showed faint icons; my first instinct was "the icons aren't in the manifest, that's the bug" because I'd just shipped a similar-shape rule for the bigdaddysdumpers blob-logo. But the visible symptom was contrast — light-on-light — and the user had already articulated that exact rule shape ("we have a rule about contrast"). I should have led with the visual-symptom diagnosis (low contrast) before reaching for the structural-provenance diagnosis. Pattern: when in doubt, ask "what's the visible symptom?" before "what's the structural rule it violates?" — they don't always agree.
+
+**Files modified**: scripts/qa-check.js (new `icon-contrast` rule, ~75 lines after image-low-resolution audit), SKILL.md (new ICON QUALITY RULE between LOGO RULE and HERO CONTRAST RULE, ~30 lines), templates/REQUIRED-PATTERNS.md (new §7.4 + quick-reference table additions), `~/.claude/projects/-Users-tomasz-WebFactory/memory/MEMORY.md` (rule-list summary + check count), FEEDBACK.md (this entry)
+
+**qa-check rules now total**: 29 (was 28). Added `icon-contrast`.
+
+---
+
 ## 2026-04-28 — HTML entity references (`&#128027;` etc.) shipped as literal text on Bugs-B-Gone Pest Control
 
 **Feedback** (verbatim, with screenshot of the broken homepage showing `&#128027;`, `&#128030;`, `&#129412;`, `&#127968;`, `&#127970;`, `&#128218;` rendered as literal text in service-card icon slots): "do you see the issue, error here?"
