@@ -557,6 +557,7 @@ Parse the input:
 - If input contains `--deploy` or `--stage 7` → skip to Stage 8
 - If input contains `--full` → **delete `jobs/{domain}/` entirely** (`rm -rf`), then run all stages from scratch. This is a true clean slate — no stale files from prior runs, no risk of mixing old + new artifacts. Run the delete BEFORE Stage 1 (scrape), no confirmation prompt — `--full` is itself the confirmation.
 - If input contains `--skip-c` (or the aliases `--no-c` / `--ab-only`) or the user says "skip option C" / "no C" / "just A and B" → **build A and B only, skip Stage 7 (Build Option C) entirely**, and emit only 3 links in the final report (Original + A + B). See "SKIP-C MODE" callout below for what gets gated. **`--skip-c` and `--option-c` are mutually exclusive** — if both are passed, error and ask the user which they meant. Combine freely with `--full` (a clean rebuild that produces only A + B).
+- If input contains `--decomposed` → invoke the decomposed pipeline mode (Opus orchestrates, Sonnet sub-agents do per-page builds in parallel). See "🔀 DECOMPOSED MODE" callout below + the "🔀 EXECUTION MODE" section near the top of this skill for the full architecture. **REQUIRES Opus orchestrator** (Sonnet sub-agents do the volume; orchestrator capability is non-negotiable). Combine freely with other flags: `--full --decomposed`, `--decomposed --skip-c`, `--option-b --decomposed`, etc.
 
 ### ⏭️ SKIP-C MODE (set when `--skip-c` / `--no-c` / `--ab-only` is passed)
 
@@ -588,6 +589,44 @@ Example invocations that use `--skip-c`:
 - `/webfactory https://example.com --full --skip-c` — clean rebuild, A and B only
 - `/webfactory https://example.com --ab-only` — alias, same as `--skip-c`
 - `/webfactory https://example.com --option-b --skip-c` — skip directly to B, don't build C afterward
+
+### 🔀 DECOMPOSED MODE (set when `--decomposed` is passed)
+
+Set a bash variable at the very top of the pipeline alongside `SKIP_C`:
+
+```bash
+DECOMPOSED=0
+case " $INPUT " in
+  *" --decomposed "*) DECOMPOSED=1 ;;
+esac
+if [ "$DECOMPOSED" = "1" ]; then
+  echo "🔀 DECOMPOSED mode active — page builds and copy rewrites delegated to Sonnet sub-agents in parallel."
+fi
+```
+
+When `DECOMPOSED=1`:
+- **Stage 1** runs as normal (deterministic scrape).
+- **Stage 1.5** (manifest enrichment via WebFetch when scraper misses CMS-widget content) — Opus, same as default mode.
+- **Stage 2** (design brief) — Opus, same as default mode.
+- **Stage 2.5 (NEW)** — Opus writes one self-contained per-page spec into `jobs/{domain}/specs/<page>.md` plus a `_shared.md` (component sigs, design tokens, hard rules) plus optionally `_<type>-template.md` files for repeating patterns. Each per-page spec must be ALL-IN-ONE — a Sonnet given just the shared spec + the page spec must produce a clean page.
+- **Stage 2.6 (NEW)** — Opus builds the shared component layer (BaseLayout, Nav, Footer, Hero, Section, brand tokens in global.css, etc.). Workers consume but never modify these.
+- **Stage 2.7 (NEW)** — Opus runs the shared-component contrast lint (the eyebrow-color bug class). For every shared CSS class with a color, compute WCAG contrast against EVERY parent-bg variant (bone/cream/steel/white/ink). Fix any failing combination BEFORE workers consume the scaffold.
+- **Stage 3 (Build A)** — spawn N Sonnet sub-agents in PARALLEL, one per spec, via the Agent tool with `model: "sonnet"`. Each gets the shared spec + its page spec + writes one .astro file. Wall-clock: dominated by the slowest single page-build (~50-65 sec).
+- **Stage 4 (QA A)** — npm build + qa-check.js. Fix-loop split: shared-component bugs (failure pattern repeats across multiple pages OR is in a shared file) → **Opus fixes** (1 edit benefits all pages). Per-page bugs → **Sonnet sub-agents in parallel** (one per affected page, each makes targeted Edits).
+- **Stage 5 (Build B)** — copy A→B FIRST, then spawn N Sonnet rewriters in parallel. Each uses the `Edit` tool (NOT `Write`) for targeted text-only changes preserving design markup.
+- **Stage 6 (QA B)** — same fix-loop split as Stage 4.
+- **Stage 7 (Build C)** — Opus invokes the Frontend Design plugin (NOT decomposable to Sonnet — plugin is a synthesis step that needs orchestrator capability).
+- **Stage 8a / 8b / 8c / 9 / 10** — same as default mode. Deploy uses the standard prebuilt flow; SSO disable; verify; report.
+
+When `DECOMPOSED=0` (default): the original single-orchestrator pipeline runs as normal — Opus does everything.
+
+**Hard requirement**: the orchestrator (the model running `/webfactory`) MUST be Opus or comparable. Sonnet/Haiku sub-agents do the per-page volume work, but the orchestrator does spec generation, scaffold construction, contrast lint, and fix-loop classification — those need synthesis capability the cheaper sub-agents don't have. Validated 2026-04-28: Opus 4.7 orchestrator + Sonnet 4 sub-agents shipped clean on bwlocksmith.com (4 pages) and accelwindows.com (5 pages).
+
+Example invocations that use `--decomposed`:
+- `/webfactory https://example.com --decomposed` — full Smart Resume in decomposed mode
+- `/webfactory https://example.com --full --decomposed` — clean rebuild in decomposed mode
+- `/webfactory https://example.com --decomposed --skip-c` — A and B in decomposed mode, skip C
+- `/webfactory https://example.com --option-b --decomposed` — skip to B (rewrite phase) using decomposed parallel rewriters
 
 ### ⏸️ TESTING MODE (temporary)
 
