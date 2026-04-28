@@ -33,10 +33,12 @@ Thumbs.db
 # These are the dirs we found accumulating over time — added 2026-04-26
 # to prevent them ever being committed if they reappear at the repo root:
 /option-a/
+/a/
 /option-a-plus/
 /option-b/
 /option-c/
 /http:/
+/=
 
 # ─── Reference inspirations: don't ship build artifacts ──────────────
 templates/inspiration/*/node_modules/

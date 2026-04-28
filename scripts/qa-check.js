@@ -724,6 +724,39 @@ function rgbToHexFromComputed(rgb) {
         report.issues.push({ severity: 'fail', check: 'unicode-escapes', msg: `Found ${escapes.length} literal \\uXXXX escapes in visible text: ${[...new Set(escapes)].slice(0, 5).join(', ')}` });
       }
 
+      // ---- HTML numeric character reference literals rendered as visible text ----
+      // Real bug shipped 2026-04-28 (Bugs-B-Gone Pest Control): worker put
+      // `{ icon: '&#128027;' }` in an Astro component data array and rendered
+      // as `{service.icon}` — Astro JSX expressions auto-HTML-escape the `&`,
+      // so the rendered HTML became `&amp;#128027;` which the browser shows as
+      // the LITERAL TEXT "&#128027;" instead of the intended bug emoji 🐛.
+      // Six service cards on the homepage shipped with raw entity-reference
+      // text instead of emoji icons.
+      //
+      // Same bug class as \uXXXX above — escape sequences in a context where
+      // they don't get decoded. Catches both decimal (&#NNNN;) and hex (&#xHHHH;)
+      // numeric character references AND named entities (&someword;) when they
+      // appear as visible text.
+      //
+      // The right fix in source: use literal emoji characters (🐛 not '&#128027;')
+      // OR use Astro's `set:html` directive to inject raw HTML, OR put the
+      // entity in HTML markup directly (outside `{...}` expressions).
+      const htmlEntityLiterals = bodyText.match(/&#\d+;|&#x[0-9a-fA-F]+;|&[a-z]{2,15};/gi);
+      if (htmlEntityLiterals) {
+        // Filter out anything that's likely intentional in body copy (extremely rare;
+        // really anything matching this pattern in innerText is a bug since the
+        // browser SHOULD have decoded the entity at parse time).
+        const literals = [...new Set(htmlEntityLiterals)];
+        if (literals.length > 0) {
+          report.issues.push({
+            severity: 'fail',
+            check: 'html-entity-literal',
+            msg: `Found ${htmlEntityLiterals.length} literal HTML entity reference(s) rendered as visible text: ${literals.slice(0, 6).join(', ')}. The browser should have decoded these at parse time — their visibility means the source was DOUBLE-ESCAPED somewhere (e.g., '&#128027;' put inside an Astro {expression} which HTML-escaped the '&' to '&amp;'). Fix in source: use literal emoji characters (🐛 not '&#128027;'), OR use Astro's set:html directive, OR place the entity in raw HTML markup outside {...} expressions. Same bug class as the \\uXXXX-escape rule above.`,
+          });
+        }
+      }
+      // ---- end HTML entity literal check ----
+
       // Key presence checks
       if (!document.querySelector('nav')) report.issues.push({ severity: 'fail', check: 'structure', msg: 'No <nav> element' });
       if (!document.querySelector('footer')) report.issues.push({ severity: 'fail', check: 'structure', msg: 'No <footer> element' });

@@ -37,6 +37,53 @@ Permanent log of user feedback and the skill improvements made in response. Ever
 
 ---
 
+## 2026-04-28 — HTML entity references (`&#128027;` etc.) shipped as literal text on Bugs-B-Gone Pest Control
+
+**Feedback** (verbatim, with screenshot of the broken homepage showing `&#128027;`, `&#128030;`, `&#129412;`, `&#127968;`, `&#127970;`, `&#128218;` rendered as literal text in service-card icon slots): "do you see the issue, error here?"
+
+**Bug class — same root as `\uXXXX` escapes, different syntax**: a worker session writing the Bugs-B-Gone homepage put HTML numeric character references (intended to render as 🐛 🐞 🪲 🏠 🏢 📚 emoji) into a JS data array:
+
+```astro
+const services = [
+  { icon: '&#128027;', title: 'Pest Control', ... },
+  { icon: '&#128030;', title: 'Termite Control', ... },
+  // ...
+];
+```
+
+Then rendered them as `<div>{service.icon}</div>`. Astro's JSX expression context HTML-escapes the `&` to `&amp;`, so the rendered HTML became `<div>&amp;#128027;</div>` which the browser shows as the LITERAL TEXT "&#128027;" instead of decoding to the bug emoji.
+
+Curl-confirmed in the live deploy `option-gazt9xouo-tomek-group.vercel.app/`:
+- 6 broken: `&amp;#127968;`, `&amp;#127970;`, `&amp;#128027;`, `&amp;#128030;`, `&amp;#128218;`, `&amp;#129412;` (the service-card icons in the JS data array)
+- 5 working: `&#10003;` (✓), `&#8594;` (→), `&#9654;` (▶), `&#9742;` (☎), `&#9993;` (✉) — these were placed as raw HTML in the markup, not via JSX expressions, so the browser's HTML parser decoded them at parse time
+
+**Why qa-check didn't catch it**: I had a `unicode-escapes` rule that catches literal `\uXXXX` patterns in visible DOM text, but no equivalent for `&#NNN;` patterns. Same bug class (escape sequence in wrong context, ships as literal), different syntax. Adding it now.
+
+**scripts/qa-check.js change** — new `html-entity-literal` rule:
+- Scans `document.body.innerText` for `/&#\d+;|&#x[0-9a-f]+;|&[a-z]{2,15};/gi`
+- Matches against the rendered TEXT (browser already decoded valid entities at parse time, so anything matching this regex in `innerText` IS a literal that didn't decode)
+- Reports up to 6 distinct hits with severity `fail`
+- Error message names the exact bug pattern AND lists three valid fixes (literal Unicode character, `set:html` directive, entity in raw HTML outside `{...}`)
+- Smoke-tested against the live broken Bugs-B-Gone deploy — caught all 6 entity literals correctly with the actionable error message
+
+**SKILL.md changes**:
+- Stage 4 capability description (the line listing all qa-check rules) now mentions `html-entity-literal` alongside `unicode-escapes`, with the parenthetical "same bug class as `\uXXXX` escapes, different syntax"
+- Stage 4 troubleshooting section gained a new bullet "HTML entity literal fail" with the three valid fixes spelled out (use literal Unicode char, use `set:html`, place entity in HTML markup outside `{...}`). Cites the Bugs-B-Gone case as the cautionary tale.
+
+**MEMORY.md change** (user-level memory file `feedback_no_unicode_escapes.md`):
+- Renamed in spirit (file path stays the same for backwards-compat) from "Never use \\uXXXX unicode escapes" to "Never ship escape sequences (\\uXXXX OR &#NNN;) as visible page text"
+- Now covers BOTH bug classes A (`\uXXXX` JS escapes) and B (`&#NNN;` HTML entity references) with worked examples for each
+- Closes with "the general rule": when the source contains an escape sequence, verify the context decodes it. When in doubt, just use the literal Unicode character — UTF-8 is the universal answer.
+- Updated MEMORY.md's reference to this file to match the broader scope.
+
+**Files modified**: scripts/qa-check.js (new `html-entity-literal` rule, ~15 lines after the existing `unicode-escapes` check), SKILL.md (Stage 4 capability description + troubleshooting bullet), `~/.claude/projects/-Users-tomasz-WebFactory/memory/feedback_no_unicode_escapes.md` (rewritten to cover both bug classes), `~/.claude/projects/-Users-tomasz-WebFactory/memory/MEMORY.md` (updated cross-reference), FEEDBACK.md (this entry)
+
+**qa-check rules now total**: 28 (was 27). Added `html-entity-literal`.
+
+**Pattern note**: every "shipped escape sequence as visible text" bug class has the same shape — a syntax that's only valid in a specific context (JS string for `\uXXXX`, HTML markup for `&#NNN;`) gets emitted in a context where it doesn't decode. The fix is always "use the literal Unicode character" because UTF-8 makes escape sequences unnecessary. When a worker reaches for an escape sequence, it's almost always because they're avoiding pasting the actual character (maybe they don't have the keyboard for it, or the model output happened to use the escape syntax). Either way: the literal character is the right answer. The two qa-check rules (`unicode-escapes` and `html-entity-literal`) catch both classes at deploy time so workers can't accidentally ship them.
+
+---
+
 ## 2026-04-26 — Less capable models (Qwen, Haiku) stop after Build A — harden the pipeline-completion contract
 
 **Feedback** (verbatim, with screenshot of a Qwen run that stopped after Stage 3): "I'm experimenting with less capable, cheaper open source models and for whatever reason they are stopping after Build A. ... Not sure why this model stops, but if you can harden our processes, our documentation, our skill to make sure that less intelligent Models are still able to use it. I will continue to test things like Sonnet and Haiku in addition to other cheaper models. In this instance I'm using Qwen running locally on my MacBook"
