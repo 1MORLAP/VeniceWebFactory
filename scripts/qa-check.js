@@ -37,11 +37,12 @@ import { chromium } from 'playwright';
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
-// ---- argv parsing (supports --manifest <path> + --reference-dist <path> mixed with positional paths) ----
+// ---- argv parsing (supports --manifest <path> + --reference-dist <path> + --option <a|b|c> mixed with positional paths) ----
 const rawArgs = process.argv.slice(2);
 let baseUrl = 'http://localhost:4321';
 let manifestPath = null;
 let referenceDistPath = null;
+let optionName = null;   // 'a' | 'b' | 'c' — gates per-option checks (e.g. image-reuse-A only fires for 'a')
 const paths = [];
 for (let i = 0; i < rawArgs.length; i++) {
   const a = rawArgs[i];
@@ -49,10 +50,16 @@ for (let i = 0; i < rawArgs.length; i++) {
   if (a.startsWith('--manifest=')) { manifestPath = a.split('=')[1]; continue; }
   if (a === '--reference-dist') { referenceDistPath = rawArgs[++i]; continue; }
   if (a.startsWith('--reference-dist=')) { referenceDistPath = a.split('=')[1]; continue; }
+  if (a === '--option') { optionName = (rawArgs[++i] || '').toLowerCase(); continue; }
+  if (a.startsWith('--option=')) { optionName = a.split('=')[1].toLowerCase(); continue; }
   if (i === 0 && /^https?:\/\//.test(a)) { baseUrl = a; continue; }
   paths.push(a);
 }
 if (paths.length === 0) paths.push('/');
+if (optionName && !['a', 'b', 'c'].includes(optionName)) {
+  console.warn(`⚠ --option must be one of a|b|c (got "${optionName}") — option-specific checks will be skipped.`);
+  optionName = null;
+}
 
 // ---- Build manifest text corpus for FACT GROUNDING check ----
 // The corpus is one big lowercased blob of every text field on every page,
@@ -60,6 +67,11 @@ if (paths.length === 0) paths.push('/');
 // truth" against which rendered fact-claims are validated.
 let manifestCorpus = null;
 let manifestPagesCount = 0;
+// ---- Build structured manifest image inventory for IMAGE REUSE RULE check ----
+// Map of basename → { localPath, src, width, height, alt, kind } for every image
+// the scraper downloaded across pages.images and pages.backgroundImages.
+// Deduplicated by basename. Used by the image-reuse-A check only when --option a.
+const manifestImageInventory = new Map();
 if (manifestPath) {
   if (!existsSync(manifestPath)) {
     console.warn(`⚠ --manifest ${manifestPath} not found — fact-grounding check will be skipped.`);
@@ -90,12 +102,99 @@ if (manifestPath) {
         .trim();
       manifestPagesCount = Array.isArray(m.pages) ? m.pages.length : 0;
       console.log(`✓ Loaded manifest corpus from ${manifestPath} (${manifestCorpus.length} chars, ${manifestPagesCount} pages)`);
+
+      // Walk pages[*].images + pages[*].backgroundImages.
+      //
+      // De-duplication strategy: the scraper assigns a NEW localPath every
+      // time it encounters an image, even if the same src appears on multiple
+      // pages (BBB seal, Duda "Transparent BG" placeholder, repeated logo, etc.).
+      // For the IMAGE REUSE RULE we want one entry per unique IMAGE — not one
+      // per occurrence — so we dedupe by source URL.
+      //
+      // Step 1: collect every src→[localPaths,record] mapping
+      // Step 2: pick a canonical basename per src (the first localPath)
+      //   → so when the build references ANY of the duplicate basenames,
+      //     we count the image as rendered. We track ALL aliases so the
+      //     "rendered" lookup hits regardless of which dup the worker used.
+      const srcToCanonical = new Map();   // src → canonical record (first occurrence)
+      const srcToAliases   = new Map();   // src → Set<basename> (all dup basenames)
+      for (const p of m.pages || []) {
+        for (const imgs of [p.images || [], p.backgroundImages || []]) {
+          for (const i of imgs) {
+            if (!i || !i.localPath) continue;
+            const basename = i.localPath.split('/').pop();
+            if (!basename) continue;
+            // Use src as the dedup key when present; fall back to basename
+            // (so records lacking src still have a unique key).
+            const key = i.src || `__no_src__:${basename}`;
+            if (!srcToCanonical.has(key)) {
+              srcToCanonical.set(key, {
+                basename,                         // canonical basename for this image
+                localPath: i.localPath,
+                src: i.src || '',
+                width: i.width || 0,
+                height: i.height || 0,
+                alt: i.alt || '',
+                kind: i.type || (imgs === p.backgroundImages ? 'background' : 'img'),
+                aliases: new Set([basename]),     // populated below
+              });
+              srcToAliases.set(key, new Set([basename]));
+            } else {
+              srcToAliases.get(key).add(basename);
+            }
+          }
+        }
+      }
+      // Attach aliases set to each canonical record + register every alias
+      // basename in the inventory pointing to the SAME canonical record.
+      for (const [key, rec] of srcToCanonical) {
+        rec.aliases = srcToAliases.get(key);
+        for (const alias of rec.aliases) {
+          // Multiple aliases all map to the same canonical record. The
+          // "rendered" check looks up by basename and finds the same record
+          // regardless of which alias the build used.
+          manifestImageInventory.set(alias, rec);
+        }
+      }
+      if (srcToCanonical.size > 0) {
+        const totalRecords = [...srcToCanonical.values()].reduce((n, r) => n + r.aliases.size, 0);
+        console.log(`✓ Built image inventory: ${srcToCanonical.size} unique images (${totalRecords} basename aliases) from manifest`);
+      }
     } catch (e) {
       console.warn(`⚠ Failed to parse --manifest ${manifestPath}: ${e.message} — fact-grounding check will be skipped.`);
     }
   }
 } else {
   console.warn('⚠ No --manifest <path> passed — fact-grounding check will be skipped. Pass --manifest jobs/<domain>/manifest.json to enable.');
+}
+
+// ---- IMAGE REUSE RULE classifier ----
+// Given an inventory record, decide whether the photo MUST be reused in
+// Option A's build (the denominator for the 90% rule).
+// Skip if:
+//   - tiny icon (1 <= width < 100): social pip, dingbat, tracking pixel
+//   - third-party rating badge by alt text (BBB / Yelp / Google review / etc.)
+//   - utility asset by localPath (favicon, spinner, loading, placeholder, transparent-bg)
+//   - small logo variant: width >= 1 AND width < 400 AND (alt contains "logo" OR
+//     localPath contains "logo"). Full-bleed logo PHOTOS (e.g. 1920×1458 logo
+//     over a forest path) ARE work photos and DO count.
+//   - blank / transparent / solid-background filler by alt or src — Duda / Wix
+//     templates ship per-section "Transparent BG" or "White background" assets
+//     that are content padding, not photos.
+//   - third-party CDN utility tiles (mapbox tiles, google static maps, etc.)
+function isMustReusePhoto(rec) {
+  const w = rec.width || 0;
+  const alt = (rec.alt || '').toLowerCase();
+  const lp  = (rec.localPath || '').toLowerCase();
+  const src = (rec.src || '').toLowerCase();
+  if (w >= 1 && w < 100) return false;
+  if (/bbb|better business|yelp|google review|trustpilot|angie|home advisor|verified by|accredited|certified by/.test(alt)) return false;
+  if (/favicon|spinner|loading|placeholder|transparent.?bg|background.?pattern/.test(lp)) return false;
+  if (w >= 1 && w < 400 && (/logo/.test(alt) || /logo/.test(lp))) return false;
+  if (/blank|empty.*background|white\s+background|solid\s+background|transparent\s+bg/.test(alt)) return false;
+  // CDN utility-tile sources (mapbox tiles, google static maps, etc.)
+  if (/tiles\.mapbox\.com|\.tiles\.|maps\.google|gstatic\.com\/maps/.test(src)) return false;
+  return true;
 }
 
 // ---- Build reference testimonial corpus for TESTIMONIAL & REVIEW PRESERVATION check ----
@@ -1461,6 +1560,54 @@ function rgbToHexFromComputed(rgb) {
       report.liveTestimonials = liveTestimonials;
       // ---- end testimonial extraction ----
 
+      // ---- Collect rendered image basenames for IMAGE REUSE RULE check ----
+      // Walks the rendered DOM for every image reference: <img src>, inline
+      // style="background-image: url(...)", computed CSS background-image on
+      // every element, and any inline <style> blocks' url(...) entries.
+      // Returned as an array of basenames (deduped Node-side after aggregation).
+      // The 90% gate runs ONCE site-wide after all pages are walked, in Node.
+      (function collectRenderedImages() {
+        const basenames = new Set();
+        const fromUrl = (raw) => {
+          if (!raw) return null;
+          try {
+            const cleaned = raw.split('?')[0].split('#')[0];
+            const segs = cleaned.split('/').filter(Boolean);
+            if (!segs.length) return null;
+            return segs[segs.length - 1];
+          } catch { return null; }
+        };
+        // <img src>
+        for (const el of document.querySelectorAll('img[src]')) {
+          const b = fromUrl(el.getAttribute('src') || '');
+          if (b) basenames.add(b);
+        }
+        // <picture><source srcset>
+        for (const el of document.querySelectorAll('source[srcset]')) {
+          const set = (el.getAttribute('srcset') || '').split(',').map(s => s.trim().split(/\s+/)[0]);
+          for (const u of set) {
+            const b = fromUrl(u);
+            if (b) basenames.add(b);
+          }
+        }
+        // Computed background-image on every visible-ish element.
+        // (Iterating every element is fast — ~few hundred max on a typical page.)
+        for (const el of document.querySelectorAll('*')) {
+          const cs = getComputedStyle(el);
+          const bgi = cs.backgroundImage;
+          if (!bgi || bgi === 'none') continue;
+          const matches = bgi.match(/url\(["']?([^"'\)]+)["']?\)/g);
+          if (!matches) continue;
+          for (const m of matches) {
+            const u = m.replace(/^url\(["']?/, '').replace(/["']?\)$/, '');
+            const b = fromUrl(u);
+            if (b) basenames.add(b);
+          }
+        }
+        report.renderedImageBasenames = [...basenames];
+      })();
+      // ---- end rendered-image collection ----
+
       // Surface visibleText so Node-side checks (FACT GROUNDING) can run against it
       report.visibleText = visibleText;
 
@@ -1493,6 +1640,69 @@ function rgbToHexFromComputed(rgb) {
 
   await browser.close();
 
+  // ---- IMAGE REUSE RULE site-wide check (Option A only) ----
+  // Aggregates the per-page renderedImageBasenames from every desktop visit
+  // (mobile would double-count without adding new basenames) and computes the
+  // reuse ratio against the must-reuse pool from the manifest. Fails the
+  // build at < 90%. See SKILL.md `IMAGE REUSE RULE` for the full rationale.
+  //
+  // De-dup gotcha: manifestImageInventory has one entry per BASENAME, but
+  // multiple basenames can share a canonical record (because the scraper
+  // saves the same src URL under different filenames per page). We must
+  // dedupe to canonical records before computing the ratio — otherwise the
+  // BBB seal saved 12× counts as 12 different images, distorting the
+  // denominator. We collect canonical records into a Set by identity.
+  let imageReuseSiteIssue = null;
+  if (optionName === 'a' && manifestImageInventory.size > 0) {
+    const renderedBasenames = new Set();
+    for (const r of results) {
+      if (r.viewport !== 'desktop') continue;       // dedupe — desktop sees the same images mobile does
+      if (Array.isArray(r.renderedImageBasenames)) {
+        for (const b of r.renderedImageBasenames) renderedBasenames.add(b);
+      }
+    }
+    // Dedupe inventory by canonical record identity (multiple basenames can
+    // point at the same record via the aliases mechanism).
+    const canonicalRecords = new Set(manifestImageInventory.values());
+    const mustReuse = [...canonicalRecords].filter(isMustReusePhoto);
+    // A canonical record counts as RENDERED if ANY of its alias basenames
+    // appears in the rendered set — the build can use any of the duplicates.
+    const renderedMustReuse = mustReuse.filter(r => {
+      for (const alias of (r.aliases || [r.basename])) {
+        if (renderedBasenames.has(alias)) return true;
+      }
+      return false;
+    });
+    const ratio = mustReuse.length === 0 ? 1 : renderedMustReuse.length / mustReuse.length;
+    const unused = mustReuse.filter(r => {
+      for (const alias of (r.aliases || [r.basename])) {
+        if (renderedBasenames.has(alias)) return false;
+      }
+      return true;
+    });
+    const ratioPct = (ratio * 100).toFixed(1);
+
+    if (ratio < 0.90) {
+      const sample = unused.slice(0, 5).map(r => `${r.basename} (${r.width || '?'}×${r.height || '?'}${r.alt ? ` "${r.alt.slice(0,40)}"` : ''})`).join(', ');
+      imageReuseSiteIssue = {
+        severity: 'fail',
+        check: 'image-reuse-A',
+        msg: `Option A renders only ${renderedMustReuse.length} of ${mustReuse.length} must-reuse manifest photos (${ratioPct}%, target ≥ 90%). The customer's site is a small-business contractor's website with photos of the work — it's drifted to magazine / NYT layout. Add a portfolio / gallery / "Recent Work" section, give every service card a photo, add an about-the-crew section. Editorial / typographic / file-tab / bracket-numbered design language belongs to Option C, not A. First ${unused.slice(0,5).length} unused photos: ${sample}. (See IMAGE REUSE RULE in SKILL.md.)`,
+      };
+    } else {
+      imageReuseSiteIssue = {
+        severity: 'pass',
+        check: 'image-reuse-A',
+        msg: `Option A renders ${renderedMustReuse.length}/${mustReuse.length} must-reuse photos (${ratioPct}% ≥ 90%).`,
+      };
+    }
+  } else if (optionName === 'a' && manifestPath && manifestImageInventory.size === 0) {
+    console.warn('⚠ --option a passed but manifest had no image records — image-reuse-A check skipped.');
+  } else if (!optionName && manifestImageInventory.size > 0) {
+    // Quiet — back-compat for invocations that don't pass --option (e.g. checking C, B, or smoke tests)
+  }
+  // ---- end IMAGE REUSE RULE check ----
+
   // Report — grouped by viewport, with dedupe for issues that fire at both.
   // An issue that fires at desktop+mobile gets counted ONCE but tagged "[both]".
   // An issue that only fires at one viewport gets counted once and tagged with that viewport.
@@ -1502,6 +1712,16 @@ function rgbToHexFromComputed(rgb) {
 
   let failCount = 0;
   let warnCount = 0;
+
+  // Site-wide image-reuse result (printed before per-page results)
+  if (imageReuseSiteIssue) {
+    if (imageReuseSiteIssue.severity === 'fail') {
+      console.log(`\n[site-wide]\n  ✗ [${imageReuseSiteIssue.check}] ${imageReuseSiteIssue.msg}`);
+      failCount++;
+    } else {
+      console.log(`\n[site-wide]\n  ✓ [${imageReuseSiteIssue.check}] ${imageReuseSiteIssue.msg}`);
+    }
+  }
 
   // Build a per-path, cross-viewport view: map path -> { desktop: result, mobile: result }
   const byPath = {};

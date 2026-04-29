@@ -1,12 +1,26 @@
 # Inspiration: Industrial-Trades
 
+> ## ⚠️ A vs C compatibility warning (added 2026-04-29 after Option A drift bug)
+>
+> The aesthetic in this directory — **bracket-numbered eyebrows, file-tab nav, hatched caution-tape borders, ALL-CAPS condensed display, label-mono captions, hard 90° edges** — IS the workwear-document vocabulary that should be reserved for **Option C** (the plugin track), not Option A.
+>
+> When this directory was used as inspiration for **Option A** trade-customer builds (giffins.net, ifixplumbing.com), the result was a magazine / NYT-editorial layout with **typographic-only service cards** and **0–2 photos on the home page**, while the customer's manifest had 30+ work photos sitting unused. The customer's verbatim feedback: *"It used to be a website that had images that somehow looked like the original website. Right now it looks like a magazine, which is the Claude Design aesthetic. But we wanted to reserve [editorial] for Option C while Option A aligns a little more with the original."*
+>
+> **For Option A on trade customers**: do NOT draw the aesthetic skeleton from this directory. Option A's job is to render a small-business contractor's website (suddenly expensive), NOT to repackage the customer as an editorial brand. The right reference is `https://elysian-gc-786s9d1zc-tomek-group.vercel.app/` — photo-led, hero with real work shot, service tiles each with a photo, "A craftsman's portfolio — photographed honestly" gallery grid, contractor headshot. **At least 90% of must-reuse manifest photos must appear in Option A's build** (qa-check `image-reuse-A` rule, see SKILL.md `IMAGE REUSE RULE`).
+>
+> **For Option C on trade customers**: this is the right reference — `industry-tokens.json` for trades calls for exactly this vocabulary (bracket-numbered, file-tab, mono captions, hatched borders, hi-vis CTA on workwear navy).
+>
+> A photo-led `industrial-trades-photo-led/` inspiration directory is planned (see master `templates/inspiration/README.md`) — until it ships, **for Option A trade builds, lean on the elysian-gc reference URL + the patterns described in SKILL.md `IMAGE REUSE RULE` rather than this directory's aesthetic**.
+
+---
+
 > **Status**: reference only. Read for ideas; do NOT `cp -r` this into a customer build.
 >
 > **Aesthetic**: Workwear / safety / utility-poster / contact-sheet. Dark workwear navy + crew red + hi-vis safety yellow + warm cream. Industrial sans display + Inter body + JetBrains Mono captions. Hard 90° edges, bracket-numbered sections (`[01]`), file-tab nav, hatched caution-tape borders.
 >
-> **Industry fit**: plumbing, HVAC, electrical, roofing, landscaping, auto repair, body shop, cleaning, construction, septic/excavation, dumpster rental — anything where the customer's brand should signal "we show up and do the work" rather than "we're a tech company."
+> **Industry fit (Option C only — see warning above for Option A)**: plumbing, HVAC, electrical, roofing, landscaping, auto repair, body shop, cleaning, construction, septic/excavation, dumpster rental — when designing **Option C** for trades. The plugin's `industry-tokens.json` for trades selects this vocabulary.
 >
-> **Wrong for**: SaaS, consulting (use `saas-default/`), restaurants/cafes (use `food-led/` when built), medical/dental (use `clinical-warm/` when built), law/finance (use editorial-restrained, future).
+> **Wrong for Option A on trades** — see warning above. Wrong for: SaaS, consulting (use `saas-default/`), restaurants/cafes (use `food-led/` when built), medical/dental (use `clinical-warm/` when built), law/finance (use editorial-restrained, future).
 
 ## Aesthetic moves to draw from
 

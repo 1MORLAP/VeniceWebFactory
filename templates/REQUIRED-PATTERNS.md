@@ -271,7 +271,27 @@ This semantic discipline matters because the `testimonial-tampering` check treat
 
 **qa-check enforcement**: `image-low-resolution` (FAIL if natural < displayed; warn if natural < 1.5× displayed).
 
-### 7.4 Icon contrast and quality (ICON QUALITY RULE)
+### 7.4 Image reuse — Option A renders ≥ 90% of must-reuse photos (IMAGE REUSE RULE)
+
+**Structural rule (Option A only)**: at least **90%** of the manifest's "must-reuse" photo inventory MUST appear in Option A's built `dist/`. Must-reuse = every `<img>` and CSS-background image with a `localPath`, EXCEPT (a) widths of 1–99px (tiny icons), (b) third-party rating badges (BBB / Yelp / Google Reviews / Trustpilot / Angie / Home Advisor / accreditation), (c) favicon / spinner / placeholder utility assets, (d) duplicate copies of the same image (counted once by content). The customer's logo as a small chrome asset can be skipped; full-bleed photographic logo variants (e.g. "logo over a forest path" 1920×1458) ARE work photos and DO count.
+
+**Why**: the customer's original site is a small-business contractor's website with photos of the work. Option A is the same kind of site, suddenly expensive — NOT a magazine. The drift this rule prevents: Option A workers reach for `templates/inspiration/industrial-trades/`'s editorial vocabulary (bracket-numbered eyebrows, file-tab nav, ALL-CAPS condensed display, hard 90° corners, **typographic-only service cards**) and ship a layout that uses 0–2 photos when the manifest has 60+. Editorial / typographic / file-tab / bracket-numbered design language belongs to **Option C**, not A.
+
+**Practical pattern for trade customers** (which absorbs the photo budget naturally):
+1. Hero with one full-bleed work photo per page (different photo per service)
+2. Service tiles each with a representative work photo (text-only service cards = the failure mode)
+3. A **portfolio / gallery / "Recent Work" section** of 6–12 customer-work photos somewhere on the home page (model: `https://elysian-gc-786s9d1zc-tomek-group.vercel.app` "A craftsman's portfolio — photographed honestly")
+4. About / crew / team section with photos of owner / crew / trucks / equipment
+5. Inline accent photos in long-form pages (blog articles, service pages) breaking up text-heavy sections
+6. Optional one more photo as backdrop for closing CTA
+
+**Visual freedom**: ANY layout, ANY treatment, ANY visual hierarchy. The rule is about coverage of the inventory, not specific composition.
+
+**qa-check enforcement**: `image-reuse-A` (FAIL — when invoked with `--option a --manifest <path>`, parses manifest, applies must-reuse classifier, walks every `dist/**/*.html` and `dist/**/*.css` for image references, fails if `rendered ∩ must-reuse / |must-reuse| < 0.90`. Reports the ratio + first 5 unused photos + the suggestion to add a portfolio / gallery / per-service-card / about-the-crew section).
+
+**Real bug fixed 2026-04-29**: giffins.net Option A — manifest had 89 image records (~70 must-reuse photos), `index.astro` rendered 0 `<img>` tags, site-wide reuse ratio was ~15%. ifixplumbing.com had the same drift. See full rule (`IMAGE REUSE RULE`) in SKILL.md.
+
+### 7.5 Icon contrast and quality (ICON QUALITY RULE)
 
 **Structural rule**: every icon (whether scraped, generated, library-sourced, or hand-drawn by the worker) MUST meet:
 

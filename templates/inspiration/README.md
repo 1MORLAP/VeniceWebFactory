@@ -6,20 +6,34 @@ See the parent `templates/REQUIRED-PATTERNS.md` for the structural requirements 
 
 ## Available inspirations
 
-| Directory | Aesthetic | Industry fit |
-|---|---|---|
-| `saas-default/` | SaaS / consumer / tech-forward. Gradient orbs, blue+amber palette, Plus Jakarta Sans + Inter. Was the original `templates/astro-base/` until 2026-04-25. | Tech, professional services, consultancies. Wrong for trades, food, medical. |
-| `industrial-trades/` | Workwear / safety / utility-poster. Navy + crew red + hi-vis yellow + bone. Bricolage Grotesque + Inter + JetBrains Mono. Bracket numbers, file-tab nav, hatched borders. | Plumbing, HVAC, electrical, roofing, landscaping, auto, cleaning, construction. |
+| Directory | Aesthetic | Industry fit | A or C? |
+|---|---|---|---|
+| `saas-default/` | SaaS / consumer / tech-forward. Gradient orbs, blue+amber palette, Plus Jakarta Sans + Inter. Was the original `templates/astro-base/` until 2026-04-25. | Tech, professional services, consultancies. Wrong for trades, food, medical. | A or C |
+| `industrial-trades/` | Workwear / safety / utility-poster. Navy + crew red + hi-vis yellow + bone. Bricolage Grotesque + Inter + JetBrains Mono. Bracket numbers, file-tab nav, hatched borders. **Editorial / typographic — see warning in directory README.** | **Option C only** for plumbing, HVAC, electrical, roofing, landscaping, auto, cleaning, construction. **DO NOT use for Option A on trade customers** — drift bug 2026-04-29 (giffins.net + ifixplumbing). | **C only** |
 
 ## Planned (not yet built)
 
-| Directory | Aesthetic | Industry fit |
-|---|---|---|
-| `food-led/` | Warm earth tones (clay, terracotta, espresso, cream). Editorial serif display + cozy sans text. Texture overlays, hand-drawn dividers, ingredient lists. | Restaurants, cafes, bakeries, food trucks, catering. |
-| `clinical-warm/` | Cool whites + soft sage/dusty blue + warm cream accents. Friendly sans display + readable sans text. Soft rounded shapes, generous whitespace. | Medical, dental, veterinary, mental health, wellness clinics. |
-| `architectural/` | Concrete grey + ink black + 1 muted brand accent. Architectural sans + serif text. Thin lines, oversized photography. | Real estate, architecture firms, interior design, high-end builders. |
-| `editorial-restrained/` | Restrained monochrome + 1 muted accent (oxblood, forest, navy). Confident serif display + serif text. | Law, accounting, finance, professional services. |
-| `garage/` | Asphalt black + steel grey + signal orange. Stencil/mechanical display + sans text. Diagonal stripes, gear/tool dingbats. | Auto repair, body shop, motorcycle, detailing. |
+| Directory | Aesthetic | Industry fit | A or C? |
+|---|---|---|---|
+| **`industrial-trades-photo-led/`** (HIGH PRIORITY) | Photo-led contractor site modeled on `https://elysian-gc-786s9d1zc-tomek-group.vercel.app/`. Hero with real work shot, photo-per-service-card, "Recent Work" gallery grid, contractor headshot section, about-the-crew block. Uses 8–12 customer photos on the home page. | **Option A** for trade customers — currently the missing inspiration that workers reach for `industrial-trades/` when they shouldn't. | **A only** |
+| `food-led/` | Warm earth tones (clay, terracotta, espresso, cream). Editorial serif display + cozy sans text. Texture overlays, hand-drawn dividers, ingredient lists. | Restaurants, cafes, bakeries, food trucks, catering. | A or C |
+| `clinical-warm/` | Cool whites + soft sage/dusty blue + warm cream accents. Friendly sans display + readable sans text. Soft rounded shapes, generous whitespace. | Medical, dental, veterinary, mental health, wellness clinics. | A or C |
+| `architectural/` | Concrete grey + ink black + 1 muted brand accent. Architectural sans + serif text. Thin lines, oversized photography. | Real estate, architecture firms, interior design, high-end builders. | A or C |
+| `editorial-restrained/` | Restrained monochrome + 1 muted accent (oxblood, forest, navy). Confident serif display + serif text. | Law, accounting, finance, professional services. | C-leaning |
+| `garage/` | Asphalt black + steel grey + signal orange. Stencil/mechanical display + sans text. Diagonal stripes, gear/tool dingbats. | Auto repair, body shop, motorcycle, detailing. | A or C |
+
+## A vs C aesthetic split (added 2026-04-29)
+
+WebFactory ships THREE versions per customer (A, B, C). The aesthetic vocabulary an inspiration brings is NOT neutral between them:
+
+- **Option A** = "faithful rebuild — same site, suddenly expensive." The customer's original site is the input; A renders the SAME KIND of site (small-business contractor, restaurant, clinic, etc.) with dramatically improved craft. **Photo-led**: at least 90% of must-reuse manifest photos must appear (qa-check `image-reuse-A` rule). Editorial / magazine / typographic-only layout = wrong for A. See `IMAGE REUSE RULE` in SKILL.md.
+- **Option B** = inherits A's design verbatim, swaps copy for conversion-tuned rewrite. No new design moves.
+- **Option C** = plugin-driven, industry-anchored design language (workwear-document for trades, food-led for restaurants, etc.). C is allowed to lean editorial / typographic / industrial-document because that's its differentiation against A. The plugin's `industry-tokens.json` selects the C vocabulary.
+
+When picking an inspiration directory:
+1. Check the "A or C?" column above
+2. For Option A on a trade customer, photo density is mandatory (`industrial-trades-photo-led/` once it exists; until then, lean on the elysian-gc reference URL described in SKILL.md `IMAGE REUSE RULE`)
+3. For Option C on a trade customer, `industrial-trades/` is the right reference
 
 ## Design principle
 

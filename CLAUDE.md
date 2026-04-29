@@ -179,6 +179,7 @@ This is the executive summary. **The full rule definitions live in SKILL.md** �
 
 ### Image semantics
 
+- **IMAGE REUSE (Option A)**: at least **90%** of must-reuse manifest images MUST appear in Option A's build. The customer's original site is a small-business website with photos of the work; A is the same kind of site, suddenly expensive — NOT a magazine layout. Service cards must each have a representative photo (text-only service cards are the failure mode). Add a portfolio / gallery / "Recent Work" section to absorb 6-12 photos at once. Editorial / typographic / file-tab / bracket-numbered design language belongs to **Option C**, not A. qa-check.js `image-reuse-A` rule fails the build if rendered images cover < 90% of the must-reuse pool. Real bug fixed 2026-04-29 (giffins.net + ifixplumbing — see `IMAGE REUSE RULE` in SKILL.md).
 - **IMAGE-TO-PAGE MAPPING**: each page uses images from THAT page's manifest entry, not a generic image pool. Don't put residential photos on landscaping pages.
 - **IMAGE DIVERSITY (within page)**: never use the same image multiple times in adjacent service cards. qa-check `duplicate-content-image` fails the build for any content image > 80×80px appearing 2+ times in the same page.
 - **Visual consistency**: All cards within the same grid must use the same styling. One CTA-accent card per grid is OK; otherwise no mixed card sizes/styles within a section.

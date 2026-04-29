@@ -1304,6 +1304,88 @@ This rule applies pipeline-wide (A, B, C). One real bug, one structural fix.
 
 ---
 
+#### IMAGE REUSE RULE (architectural — applies to Option A; Option C uses curated subset)
+
+Real bug shipped 2026-04-29 (giffins.net + ifixplumbing.com): Option A drifted into editorial / NYT-magazine layout — bracket-numbered eyebrows, file-tab labels, ALL-CAPS condensed display titles, **typographic-only service cards with no photos**, no portfolio / gallery section. The customer's original site was a small-business contractor's website with photos of the work; the rebuild ended up looking like a magazine. The customer's verbatim feedback: *"It used to be a website that had images that somehow looked like the original website. Right now it looks like a magazine, which is the Claude Design aesthetic. But we wanted to reserve [editorial] for Option C while Option A aligns a little more with the original."*
+
+Concrete numbers from giffins.net: the scraper captured **89 image records** (70 real customer-work photos after filtering badges and tiny icons). Option A's `index.astro` rendered **0** `<img>` tags. The home page used **0** of the 70 must-reuse photos. Pipeline-wide reuse ratio: ~15% (only the hero backgrounds survived). All 60+ work photos sat unused in `public/images/`.
+
+Root cause: after the 2026-04-25 pivot from monolithic-template-copy to scaffold + inspiration architecture, Option A workers reach for `templates/inspiration/industrial-trades/` and find editorial design language (bracket eyebrows, file-tab nav, hard 90° corners, ALL-CAPS condensed display) — the same vocabulary `industry-tokens.json` uses for **Option C**. The plugin's natural editorial bias leaks into Option A. There was no qa-check gate for image-density, so a typographic-only Option A passes QA cleanly.
+
+##### The rule
+
+**For Option A: at least 90% of must-reuse manifest images MUST be rendered in the rebuild.** The remaining ≤ 10% can be skipped only for genuine quality reasons (≤ 100px wide icons, third-party badges, broken/missing files, duplicates). Customer photos depicting the actual business — work shots, crew photos, portfolio items, before/after, gear, trucks, jobsites — must all appear somewhere on the rebuilt site. The rebuild stays a small-business website with photos of the work, just suddenly expensive.
+
+**Definition of "must-reuse"** (the denominator for the 90% rule):
+- A foreground `<img>` record from `manifest.pages[*].images`, OR a CSS background-image record from `manifest.pages[*].backgroundImages`
+- AND has a non-null `localPath` (was actually downloaded by the scraper)
+- AND is NOT one of the following exclusions:
+  - `width >= 1 && width < 100` — tiny icon (social pip, dingbat, 1×1 tracking pixel)
+  - `alt` matches `/bbb|better business|yelp|google review|trustpilot|angie|home advisor|verified by|accredited|certified by/i` — third-party rating badge
+  - `localPath` matches `/favicon|spinner|loading|placeholder/i` — utility asset
+  - Detected as a duplicate of another image in the inventory by content hash (e.g. the BBB seal saved 6 times because it appeared on every page → counts once)
+  - The customer's logo (only the smallest size variant — full-bleed logo photos like "logo over a forest path" 1920×1458 ARE work photos and DO count)
+
+**Definition of "rendered"** (the numerator):
+- The image's basename appears as the `src` of any `<img>` tag in any built `dist/**/*.html` file, OR
+- The image's basename appears in any inline `style="background-image: url(...)"` declaration, OR
+- The image's basename appears inside any inline `<style>` block as a `url(...)` reference, OR
+- The image's basename appears inside any external CSS file referenced by the build
+
+Cross-page reuse is fine: the same hero photo can serve as the hero on `/` and the secondary card on `/about`. Each unique basename counts once.
+
+##### Why 90% and not 100%
+
+10% slack covers:
+- Images the scraper grabbed that turned out to be utility / chrome assets (small badges, social pips, malformed SVG variants the worker correctly chose to skip)
+- Images that are genuinely low-quality (50% JPEG artifacts, screenshots of someone else's site, images < 200×200 that weren't caught by the width filter)
+- Image variants of the same photo (the scraper sometimes captures `image-300w.jpg` AND `image-1920w.jpg` — only one needs to render)
+
+If the worker is dropping more than 10% of the must-reuse pool, the design is wrong: typographic-only service cards, missing gallery section, missing about-us section — find the structural omission and fix the layout, don't filter the image inventory to fit a magazine layout.
+
+##### What the worker should DO with all those photos (Stage 3b guidance)
+
+Don't just dump them into a single carousel. The right pattern for trade customers:
+1. **Hero**: one full-bleed work photo per page (not the same photo on every page — pick a different one per service)
+2. **Service tiles / service cards**: each service has a representative work photo as part of the card. Tree Removal → photo of crew clearing a tree. Tree Trimming → photo of a manicured tree. Property Management → photo of a managed property. Text-only service cards are the failure mode.
+3. **Portfolio / gallery / "Recent Work" section**: a 6-12 image grid of customer-work photos somewhere on the home page (modeled on `https://elysian-gc-786s9d1zc-tomek-group.vercel.app` — "A craftsman's portfolio — photographed honestly"). This single section absorbs 6-12 photos in one move.
+4. **About / crew / team section**: photos of the owner, the crew, the trucks, the equipment. Small contractors WANT to show that they're real people with real gear.
+5. **Inline accent photos in long-form pages** (blog articles, service pages): break up text-heavy sections with relevant work photos.
+6. **Footer / closing CTA**: optional one more photo as a backdrop.
+
+If your home page can fit 8-12 photos using the patterns above, you're at the right density. If your home page has 0-2 photos, you've drifted to magazine layout — restructure.
+
+##### What this rule is NOT
+
+- It is NOT a license to cram unrelated photos into a page. If a service has only one good photo, use that one — don't stack three different photos on a single tile. Cohesion still matters.
+- It is NOT a quota that mandates duplicating the same photo. Each photo counts once across the site; reuse the inventory by spreading distinct photos to distinct contexts (hero / cards / portfolio / about / inline).
+- It is NOT applicable to **Option C**. Option C is plugin-driven and curates a subset for editorial impact — its `industry-tokens.json` already has its own imagery directive ("USE the customer's scraped photos AGGRESSIVELY at full-bleed" for trades, but with editorial selection). The 90% gate applies to A only.
+- It does NOT apply to **Option B**. B inherits A's design verbatim — if A satisfies the rule, B will too. (qa-check enforces this on A, not B.)
+
+##### QA gate enforcement (NEW in qa-check.js)
+
+`scripts/qa-check.js` accepts a new `--option <a|b|c>` flag. When `--option a` is passed AND `--manifest <path>` is also passed:
+
+1. Parse `manifest.pages[*].images` and `manifest.pages[*].backgroundImages` into a flat inventory keyed by basename
+2. Apply the must-reuse classifier (see "Definition of must-reuse" above)
+3. Walk every `dist/**/*.html` file (computed from the served URL → corresponding dist tree) AND every `dist/**/*.css` file, collect every referenced image basename
+4. Compute `rendered ∩ must-reuse / |must-reuse|`
+5. If ratio < 0.90, **FAIL** the build with a message naming the ratio + the count of unused photos + the first ~5 unused basenames + the suggestion to "add a portfolio / gallery section, photo-per-service-card, or about-the-crew section to absorb them" — pointing at IMAGE REUSE RULE in SKILL.md
+
+The check runs once per QA invocation (not once per page) since reuse is a site-wide property. If `--option` is not passed OR `--manifest` is not passed, the check is skipped silently (back-compat for existing invocations).
+
+##### What this rule rules out
+
+- Magazine / NYT editorial Option A with no body photos
+- Typographic-only service cards (one card per service with NO image)
+- Skipping the gallery section because "the design felt cleaner without it"
+- Reaching for `templates/inspiration/industrial-trades/`'s editorial bracket-labels + file-tab nav + condensed display + zero-photo layouts — those moves belong to Option C, not A
+- Worker arguing "the photos weren't great" as justification for dropping more than 10% of the pool. If a photo is genuinely unusable (1×1 px, broken file), it falls in the skip-list. Otherwise it appears.
+
+The customer's original site is the input. Option A's job is to render that input dramatically better — same kind of site, same content, sharper craft. Not to reframe the customer as an editorial brand.
+
+---
+
 ---
 
 > **→ NEXT: Stage 2 — Analyze & Design Brief.** Stage 1 (Scrape) just completed. Continue IMMEDIATELY to Stage 2. Do NOT ask the user "want me to continue?" Do NOT pause for confirmation. Just proceed. (See PIPELINE COMPLETION CONTRACT at top.)
@@ -1454,6 +1536,7 @@ Specifically:
 - Copy ALL relevant images from `../assets/img/` to `public/images/` — BOTH regular images AND background images
 - **Use `backgroundImages` from the manifest as hero section backgrounds** (the large full-bleed images behind text). Every page that had a background image in the original MUST have one in the rebuild
 - **HERO CONTRAST — mandatory three-layer pattern.** Every hero section with a photo background MUST use the layered pattern: (1) image, (2) overlay/scrim div with non-transparent background-color, (3) text positioned above the overlay with a color chosen to contrast with the overlay-blended bg. Skipping the overlay or using dark text on a dark-overlayed photo is the bug we shipped on Naples FL Pressure Washing (Options A and C) and Tampa Bay landscape co (Option A). See full rule at top of SKILL.md (`HERO CONTRAST RULE`). qa-check.js will fail the build if a heading sits on a `background-image` without a detectable overlay, OR if computed contrast ratio < 3:1 for large text.
+- **IMAGE REUSE — at least 90% of must-reuse manifest images MUST appear in the build.** See full rule at top of SKILL.md (`IMAGE REUSE RULE`). The customer's original site is a small-business website with photos of the work; A is the same kind of site, suddenly expensive — NOT a magazine layout. Service cards must each have a representative photo (text-only service cards are the failure mode). Add a portfolio / gallery / "Recent Work" section to absorb 6-12 photos in one move (model: `https://elysian-gc-786s9d1zc-tomek-group.vercel.app` "A craftsman's portfolio — photographed honestly"). If the brief calls for editorial / typographic / file-tab / bracket-numbered design language, **that belongs to Option C** — Option A stays photo-led. qa-check.js will fail the build if the rendered set covers < 90% of the must-reuse pool.
 - Use regular `images` as inline content images in two-column layouts alongside text
 - Preserve ALL original text word-for-word
 - Keep all video embeds (YouTube/Vimeo iframes)
@@ -1590,13 +1673,15 @@ Save the PID so you can stop it later. Wait a few seconds for the server to star
 
 #### 4b. Run Headless QA
 
-**FIRST** — run the automated gate. It exits non-zero on real defects (blurry logo, broken images, unicode escapes, console/network errors). If it fails, fix and re-run; do not proceed to screenshots until it passes:
+**FIRST** — run the automated gate. It exits non-zero on real defects (blurry logo, broken images, unicode escapes, console/network errors, **image-reuse < 90% for Option A**). If it fails, fix and re-run; do not proceed to screenshots until it passes:
 
 ```bash
 PORT_A=$(node scripts/get-port.cjs "$DOMAIN" a)
 cd /Users/tomasz/WebFactory
-node scripts/qa-check.js http://localhost:$PORT_A --manifest jobs/$DOMAIN/manifest.json / /about /contact
+node scripts/qa-check.js http://localhost:$PORT_A --manifest jobs/$DOMAIN/manifest.json --option a / /about /contact
 ```
+
+**Why `--option a`?** It activates the `image-reuse-A` rule (IMAGE REUSE RULE in this doc): at least 90% of must-reuse manifest photos must appear in Option A's build. If this fails, the design has drifted into magazine / typographic-only layout — restructure to add a portfolio / gallery section, photo-per-service-card, and about-the-crew block to absorb the photo budget. **Always pass `--option a` (or `b` or `c`) when running qa-check on a built option.** Omitting it is a silent back-compat fallback that disables option-specific gates.
 
 **THEN** — run the screenshot QA script for visual inspection:
 
@@ -2513,7 +2598,7 @@ sleep 4
 ```bash
 PORT_A=$(node scripts/get-port.cjs "$DOMAIN" a)
 cd /Users/tomasz/WebFactory
-node scripts/qa-check.js http://localhost:$PORT_A --manifest jobs/$DOMAIN/manifest.json / /about /contact
+node scripts/qa-check.js http://localhost:$PORT_A --manifest jobs/$DOMAIN/manifest.json --option a / /about /contact
 ```
 
 If `qa-check.js` exits non-zero, **STOP**. Read the output, fix the root cause, and re-run:
@@ -2544,7 +2629,7 @@ sleep 3
 ```bash
 PORT_A_PLUS=$(node scripts/get-port.cjs "$DOMAIN" a-plus)
 cd /Users/tomasz/WebFactory
-node scripts/qa-check.js http://localhost:$PORT_A_PLUS --manifest jobs/$DOMAIN/manifest.json --reference-dist jobs/$DOMAIN/option-a/dist / /about /contact
+node scripts/qa-check.js http://localhost:$PORT_A_PLUS --manifest jobs/$DOMAIN/manifest.json --reference-dist jobs/$DOMAIN/option-a/dist --option b / /about /contact
 pkill -f "serve dist"
 ```
 
@@ -2574,7 +2659,7 @@ sleep 3
 ```bash
 PORT_C=$(node scripts/get-port.cjs "$DOMAIN" c)
 cd /Users/tomasz/WebFactory
-node scripts/qa-check.js http://localhost:$PORT_C --manifest jobs/$DOMAIN/manifest.json --reference-dist jobs/$DOMAIN/option-a/dist / /about /contact
+node scripts/qa-check.js http://localhost:$PORT_C --manifest jobs/$DOMAIN/manifest.json --reference-dist jobs/$DOMAIN/option-a/dist --option c / /about /contact
 pkill -f "serve dist"
 ```
 
