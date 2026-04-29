@@ -119,21 +119,20 @@ The skill-owner session is a separate session (one the user invokes manually wit
 
 **Why this matters**: parallel WebFactory builds may be running on different domains. If two worker sessions both try to "fix" SKILL.md based on what they each saw, you get races, conflicting edits, and lost lessons. Lockdown enforces serial evolution: workers FLAG, skill-owner FIXES.
 
-## 🔀 EXECUTION MODE — Single-orchestrator vs Decomposed (opt-in)
+## 🔀 EXECUTION MODE — Decomposed (default since 2026-04-29) vs Monolithic (escape hatch)
 
-WebFactory supports two execution modes. The default ("single-orchestrator") runs the full pipeline as one Opus session — the model that processes `/webfactory <url>` reads the manifest, designs the brief, builds every page, runs QA, fixes issues, deploys. This works well on Opus 4.7 but gets expensive at scale because per-page work runs at orchestrator rates (page builds cost 5-12× more than they need to).
+WebFactory supports two execution modes. **The default is "decomposed"** — the orchestrator (Opus) handles synthesis-heavy stages (scrape enrichment, design brief, per-page specs, shared scaffold, contrast lint, fix-loops, plugin invocation, deploy, report) and **dispatches per-page Sonnet sub-agents in parallel for the volume work** (Stage 3 Build A pages, Stage 5 Build B copy rewrite). Token cost on per-page work drops 60-80%; wall-clock drops via parallelism. Validated on 5 real customer builds across 5 CMS platforms and 5 industries (see Validation history below).
 
-The opt-in alternative (`--decomposed` flag) splits the pipeline so the orchestrator (Opus) does the synthesis-heavy stages and weaker models (Sonnet, Haiku) do the volume work in parallel. Token cost on per-page work drops 60-80%; wall-clock drops via parallelism. **Validated on bwlocksmith.com (4 pages, end-to-end including deploy) and accelwindows.com (5 pages, Stage 3 isolated).**
+The escape hatch (`--monolithic` flag) reverts to the old single-orchestrator pipeline where Opus does everything. Use this only if decomposed mode hits an edge case — there's no current known reason to prefer monolithic over decomposed in production.
 
 ### When to use which mode
 
 | Scenario | Mode |
 |---|---|
-| Default — small site (1-4 pages), don't need cost optimization | Single-orchestrator (no flag) |
-| Larger site (5+ pages) where cost matters | `--decomposed` |
-| Brand-new architectural changes — testing/iterating | Single-orchestrator (orchestrator stays in the loop on every decision) |
-| Customer-billed production builds | `--decomposed` (cost compounds) |
-| Less capable orchestrator (Sonnet, Haiku, local models) running the skill | NOT supported. The decomposed mode REQUIRES Opus (or comparable) orchestrator. Sub-agents can be cheaper, but the orchestrator must be capable enough to write per-page specs and review QA output critically. The user explicitly confirmed (2026-04-28): "I can run SKILL under Opus, and then have Opus orchestrate sub tasks / agents." That's the supported configuration. |
+| Default — any real customer build | Decomposed (no flag — this is now the default) |
+| Skill development / debugging — when you want Opus to stay in every decision | `--monolithic` (escape hatch) |
+| Less capable orchestrator (Sonnet, Haiku, local models) running the skill | NOT supported. Decomposed mode REQUIRES Opus (or comparable) orchestrator. Sub-agents can be cheaper, but the orchestrator must write per-page specs and review QA output critically. User confirmed (2026-04-28): "I can run SKILL under Opus, and then have Opus orchestrate sub tasks / agents." That's the supported configuration. |
+| Backwards compat — existing `--decomposed` flag in a saved invocation | Still works — it's now a no-op alias (decomposed is default). |
 
 ### Decomposed mode pipeline overview
 
@@ -299,23 +298,32 @@ Worker uses the `Edit` tool (NOT `Write`) to make targeted text-only changes. **
 
 At Opus:Sonnet ≈ 5:1 rate ratio: per-build cost drops ~50-65% overall. The smaller the site, the less the savings; the larger the site, the more the savings.
 
-### Decomposed mode is OPT-IN — defaults stay single-orchestrator
+### Decomposed mode is the DEFAULT (since 2026-04-29)
 
-`/webfactory <url>` runs single-orchestrator by default. Add `--decomposed`:
+`/webfactory <url>` runs decomposed mode by default. The `--decomposed` flag is now a no-op alias (kept for backwards compatibility with saved invocations).
 
 ```
-/webfactory https://example.com --decomposed
-/webfactory https://example.com --decomposed --skip-c
+/webfactory https://example.com               # decomposed (default)
+/webfactory https://example.com --decomposed   # same as above (no-op flag)
+/webfactory https://example.com --skip-c       # decomposed + skip C
 ```
 
-Combine freely with other flags: `--full --decomposed`, `--option-b --decomposed`, etc.
+Use `--monolithic` only as an escape hatch if decomposed mode hits an edge case:
+
+```
+/webfactory https://example.com --monolithic   # old single-orchestrator pipeline (escape hatch)
+```
+
+Combine freely with other flags: `--full`, `--option-b`, `--skip-c`, etc.
 
 ### Validation history
 
 - **2026-04-28 — Experiment #1: bwlocksmith.com (4 pages)**. Full pipeline end-to-end including deploy. 0 QA failures after Opus fix-loop. ~7 min wall-clock total. ~225K Sonnet tokens vs estimated ~500K Opus all-in. **PASSED.** See FEEDBACK.md for detail.
 - **2026-04-28 — Experiment #2: accelwindows.com (5 of 13 pages)**. Stage 3 only (Build A from scratch on a fresh forked option-a-decomp/, components preserved from Opus baseline). 5 Sonnet workers in parallel, 5/5 compiled clean. 2 per-page styling fails (1 amber-on-cream link, 1 unstyled h3 on dark card) — both 1-Edit fixes. Fact preservation identical to Opus baseline. Line count Δ +0 to +13 (Sonnet slightly more verbose). **PASSED.** See FEEDBACK.md for detail.
 - **2026-04-29 — Experiment #3: giffins.net (6 pages — tree service + property mgmt + blog + long-form article)**. Full pipeline end-to-end including deploy, with Stage 2.7 contrast lint inserted BEFORE worker dispatch. Stage 2.7 caught 16 scaffold bugs upfront (eyebrow color, btn-rust contrast, sage-on-cream muted text). After 2 lint iterations, **Stage 4 QA on 6 worker-built pages had 0 failures on first run** (vs 29 fails first-run on bwlocksmith without Stage 2.7). Stage 6 QA on B (post-rewrite) also 0 fails + testimonial-tampering check clean. Both deploys 200 after `vercel project protection disable --sso` (the SSO disable section was updated this run — API alone insufficient). **PASSED. Strongest result yet.** Content-variety test passed: blog index + long-form article rendered correctly. See FEEDBACK.md for detail.
-- (after 3-5 successful real customer builds in `--decomposed` mode) — promote to default and remove the opt-in flag.
+- **2026-04-29 — Customer build #4: twoirishplumbers.squarespace.com (5 pages — Squarespace, plumbing trade with brand-pun voice)**. Full pipeline end-to-end. Stage 2.7 caught 16 scaffold contrast bugs (1 iteration). Stage 4 QA on 5 worker-built pages had 35 first-run fails but ALL 35 were 3 single-cause classes: (1) emerald-bright color failed 4.43:1 by 0.07 — single CSS edit; (2) workers added "Free estimates" not in manifest — single sed across 5 pages; (3) workers used non-existent image filenames (hero-about.jpg, hero-contact.jpg) — single sed. Lesson: even with Stage 2.7, ALL workers can introduce identical fact-grounding fabrications if the spec author (Opus) seeded the wrong claim into multiple per-page specs. **PASSED. Both A+B deployed 200, all facts preserved (12-14 phone refs each, brand-pun "Don't Flush Your Luck Away" intact).**
+- **2026-04-29 — Customer build #5: apachecostructionllc.wixsite.com (1 page — Wix single-page contractor site)**. Full pipeline end-to-end on a single-page site (rare). Stage 2.7 SKIPPED (reused contrast tokens from giffins.net + plumbers). Stage 4 QA had 4 fails: cedar-on-cedar contrast in contact section (single SectionLabel onDark fix), img_2 used twice (hero + gallery), img_2 too small at 345px wide. **All 4 fails fixed in 2 sed commands** (remove hero bg image since manifest images are too small for 1440px hero; flip contact section bg from cedar to charcoal). PASSED. Both A+B deployed 200, all facts preserved (license # APACHCL820KQ rendered 4-5×, all 4 cities present, both phone numbers present). Smallest scope yet — proves the architecture works at the small-scale extreme.
+- **2026-04-29 — DECISION: `--decomposed` PROMOTED TO DEFAULT.** 5 successful real customer builds across 5 different CMS platforms (Duda, Wix, Squarespace) and 5 different industries (locksmith, contractor, tree service, plumber, construction). Architecture validated. Going forward, `/webfactory <url>` runs decomposed mode by default. The `--decomposed` flag is kept as a no-op alias for backwards compatibility but is no longer required. A new `--monolithic` flag can be passed to revert to the old single-orchestrator pipeline (kept as an escape hatch in case decomposed mode hits an edge case I haven't seen).
 
 ## 🧠 Self-Learning Protocol (MANDATORY)
 
@@ -557,7 +565,7 @@ Parse the input:
 - If input contains `--deploy` or `--stage 7` → skip to Stage 8
 - If input contains `--full` → **delete `jobs/{domain}/` entirely** (`rm -rf`), then run all stages from scratch. This is a true clean slate — no stale files from prior runs, no risk of mixing old + new artifacts. Run the delete BEFORE Stage 1 (scrape), no confirmation prompt — `--full` is itself the confirmation.
 - If input contains `--skip-c` (or the aliases `--no-c` / `--ab-only`) or the user says "skip option C" / "no C" / "just A and B" → **build A and B only, skip Stage 7 (Build Option C) entirely**, and emit only 3 links in the final report (Original + A + B). See "SKIP-C MODE" callout below for what gets gated. **`--skip-c` and `--option-c` are mutually exclusive** — if both are passed, error and ask the user which they meant. Combine freely with `--full` (a clean rebuild that produces only A + B).
-- If input contains `--decomposed` → invoke the decomposed pipeline mode (Opus orchestrates, Sonnet sub-agents do per-page builds in parallel). See "🔀 DECOMPOSED MODE" callout below + the "🔀 EXECUTION MODE" section near the top of this skill for the full architecture. **REQUIRES Opus orchestrator** (Sonnet sub-agents do the volume; orchestrator capability is non-negotiable). Combine freely with other flags: `--full --decomposed`, `--decomposed --skip-c`, `--option-b --decomposed`, etc.
+- **`--decomposed` is now the DEFAULT** (promoted 2026-04-29 after 5 successful real customer builds). The flag is kept as a no-op alias for backwards compat. Decomposed mode = Opus orchestrates, Sonnet sub-agents do per-page builds + copy rewrites in parallel. See the "🔀 EXECUTION MODE" section near the top + the "🔀 DECOMPOSED MODE" callout below for the full architecture. **REQUIRES Opus orchestrator.** Skipping decomposition (escape hatch only): pass `--monolithic` to revert to the single-orchestrator pipeline.
 
 ### ⏭️ SKIP-C MODE (set when `--skip-c` / `--no-c` / `--ab-only` is passed)
 
@@ -590,21 +598,24 @@ Example invocations that use `--skip-c`:
 - `/webfactory https://example.com --ab-only` — alias, same as `--skip-c`
 - `/webfactory https://example.com --option-b --skip-c` — skip directly to B, don't build C afterward
 
-### 🔀 DECOMPOSED MODE (set when `--decomposed` is passed)
+### 🔀 DECOMPOSED MODE (now the DEFAULT — escape hatch is `--monolithic`)
 
-Set a bash variable at the very top of the pipeline alongside `SKIP_C`:
+As of 2026-04-29, decomposed mode is the default. Set a bash variable at the very top of the pipeline alongside `SKIP_C`:
 
 ```bash
-DECOMPOSED=0
+DECOMPOSED=1   # default
 case " $INPUT " in
-  *" --decomposed "*) DECOMPOSED=1 ;;
+  *" --monolithic "*) DECOMPOSED=0 ;;   # escape hatch — old single-orchestrator pipeline
+  *" --decomposed "*) DECOMPOSED=1 ;;   # explicit (no-op — already default)
 esac
 if [ "$DECOMPOSED" = "1" ]; then
   echo "🔀 DECOMPOSED mode active — page builds and copy rewrites delegated to Sonnet sub-agents in parallel."
+else
+  echo "⚠️  MONOLITHIC mode active — single-orchestrator pipeline (escape hatch). Decomposed is preferred for production."
 fi
 ```
 
-When `DECOMPOSED=1`:
+When `DECOMPOSED=1` (the default):
 - **Stage 1** runs as normal (deterministic scrape).
 - **Stage 1.5** (manifest enrichment via WebFetch when scraper misses CMS-widget content) — Opus, same as default mode.
 - **Stage 2** (design brief) — Opus, same as default mode.

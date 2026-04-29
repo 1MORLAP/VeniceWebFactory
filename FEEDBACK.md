@@ -37,6 +37,92 @@ Permanent log of user feedback and the skill improvements made in response. Ever
 
 ---
 
+## 2026-04-29 — Customer builds #4 + #5 (twoirishplumbers + apachecostructionllc) — `--decomposed` PROMOTED TO DEFAULT
+
+**Feedback** (verbatim): "Path A: https://twoirishplumbers.squarespace.com/ https://apachecostructionllc.wixsite.com/website" — user picked Path A from the recommendation tree, providing 2 real customer URLs to ship with `--decomposed` mode end-to-end. Per the validation history rule ("after 3-5 successful real customer builds in --decomposed mode, promote to default"), these 2 builds bring the total to 5 → trigger the promotion.
+
+**Live URLs (4 deploys, all 200, all facts preserved):**
+
+Plumbers (Squarespace, 5-page site, plumbing trade):
+- A: https://twoirishplumbers-com-option-1ow16kxmd-tomek-group.vercel.app
+- B: https://twoirishplumbers-com-option-eh41gugjx-tomek-group.vercel.app
+
+Construction (Wix, 1-page site, contractor):
+- A: https://apache-construction-llc-option-cu87t52cf-tomek-group.vercel.app
+- B: https://apache-construction-llc-option-9moqbnrxv-tomek-group.vercel.app
+
+### Plumbers metrics
+
+5 pages: home, services, about, "Gallery of Thrones" (the customer's brilliant page name — preserved verbatim), contact. Pub-emerald + cream + copper palette + Fraunces display. Two named owners (Ian Harris, Steve Katz, both Master Plumbers).
+
+| Stage | Result |
+|---|---|
+| 2.7 contrast lint | 16 fails (white-on-copper at 4.01:1 — copper too light) → 0 in 1 iteration after darkening copper from #B26F3D to #9F5E2F |
+| 3. Build A | 5 Sonnet workers parallel, ~70s wall-clock, 131/143/148/57/117 lines, all compiled |
+| 4. QA A | 35 first-run fails — but ALL were 3 single-cause classes |
+| 4 fix-loop | 3 batched edits (1 sed for emerald-bright color, 1 sed for "Free estimates" removal across 5 pages, 1 sed for broken image refs) → 1 lingering duplicate-image fail → 2 more sed commands → 0 |
+| 5. Build B | 5 Sonnet rewriters parallel, ~60s wall-clock, all sharpened CTAs, Irish-luck pun threaded through |
+| 6. QA B | 0 fails on first run + testimonial-tampering check clean |
+| 9. Verify | Both A and B HTTP 200, 12-14 phone refs each, brand-pun "Don't Flush Your Luck Away" preserved verbatim |
+
+### Construction metrics
+
+1-page site (rare). Concrete charcoal + sand cream + cedar rust + sage palette + Bricolage Grotesque. Owner-operated contractor with license # APACHCL820KQ. Tri-Cities WA.
+
+| Stage | Result |
+|---|---|
+| 2.7 contrast lint | SKIPPED (reused tokens validated on giffins.net + plumbers — proved the pattern is portable) |
+| 3. Build A | 1 Sonnet worker, 185 lines, compiled |
+| 4. QA A | 4 fails — all single-cause: cedar-on-cedar contrast on contact section, img_2 duplicated, img_2 too small for 1440px hero |
+| 4 fix-loop | 2 sed commands (remove hero bg image since manifest images are <600px wide, flip contact section bg cedar→charcoal) → 0 |
+| 5. Build B | 1 Sonnet rewriter, 10 targeted edits, sharpened all CTAs |
+| 6. QA B | 0 fails on first run |
+| 9. Verify | Both A and B HTTP 200, 4-5 license # refs, all 4 cities present, both phones present |
+
+### KEY LESSON #1 — Spec author can seed fact-grounding bugs across N workers
+
+Plumbers Stage 4 had 35 first-run fails but ALL were 3 single-cause classes. The biggest one: **"Free estimates" got into 5 separate workers' output because I (Opus, the spec author) seeded it into 5 separate per-page specs.** Workers faithfully copied. Fact-grounding qa-check correctly caught it on every page.
+
+This is a NEW failure mode I hadn't seen before. Not a worker bug — a spec-author bug. The Stage 2.5 spec author must verify every claim against the manifest before writing it into a spec, especially claims that get repeated across multiple per-page specs (CTA banners, footer copy, etc).
+
+**Mitigation logged**: when writing per-page specs, run a final pass to grep each spec against the manifest. Any claim in a spec that isn't traceable to a manifest fact = pre-removed before workers consume the spec. Cheaper than catching it 5× in Stage 4.
+
+### KEY LESSON #2 — Stage 2.7 contrast lint can be SKIPPED on the second site of a customer family if tokens are reused
+
+Construction skipped Stage 2.7 by reusing the contrast-validated tokens from the giffins.net + plumbers builds. Saved ~10 minutes of lint setup. Safe because:
+1. The token names are identical (--color-cedar, --color-charcoal — same pattern as giffins forest+rust)
+2. The hex values were copy-from-validated palette, not new tokens
+3. The 4 fails Stage 4 caught were per-page bugs (cedar-on-cedar in ONE section, image issues), NOT shared-token bugs
+
+**When you can skip Stage 2.7**: if you're reusing a validated token palette from a previous customer build (just renaming colors but keeping the same contrast relationships). When you can't: any time you introduce a new color combination.
+
+### KEY LESSON #3 — Single-page sites work fine in decomposed mode
+
+Construction is the smallest scope yet (1 page). The decomposed pipeline still added value: spec-driven worker, parallel deploy with plumbers, validated palette pattern reuse. The architecture isn't only for big sites — it's the right default for everything.
+
+### Architectural conclusion: PROMOTE `--decomposed` TO DEFAULT
+
+5 successful real customer builds:
+- bwlocksmith.com (locksmith, Duda, 4 pages)
+- accelwindows.com (windows contractor, 13 pages — Stage 3 isolated)
+- giffins.net (tree service, Duda, 6 pages incl. blog)
+- twoirishplumbers.squarespace.com (plumbing, Squarespace, 5 pages)
+- apachecostructionllc.wixsite.com (construction, Wix, 1 page)
+
+5 industries × 3 CMS platforms × scope range from 1 to 13 pages. Architecture handles all.
+
+**SKILL.md changes (this commit)**:
+- "🔀 EXECUTION MODE" section header changed from "Single-orchestrator vs Decomposed (opt-in)" to "Decomposed (default since 2026-04-29) vs Monolithic (escape hatch)"
+- "When to use which mode" table flipped — decomposed is default, monolithic is the rare escape hatch
+- "Decomposed mode is OPT-IN" subsection retitled to "Decomposed mode is the DEFAULT"
+- Smart Resume flag-detection bullet for `--decomposed` updated to note it's a no-op alias now
+- "🔀 DECOMPOSED MODE" callout rewritten — `DECOMPOSED=1` is the default, `--monolithic` flag is what flips it to 0
+- Validation history table extended with builds #4 + #5 + the PROMOTION decision row
+
+**Files modified**: SKILL.md (4 sections updated to flip default), FEEDBACK.md (this entry).
+
+---
+
 ## 2026-04-29 — Decomposed-pipeline experiment #3 (giffins.net, 6 pages) — strongest result yet + 2 SKILL bug fixes
 
 **Feedback** (verbatim): "OK, this one? https://www.giffins.net/" — single-line approval to run experiment #3 on a real customer URL.
