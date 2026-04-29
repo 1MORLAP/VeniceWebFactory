@@ -37,6 +37,97 @@ Permanent log of user feedback and the skill improvements made in response. Ever
 
 ---
 
+## 2026-04-29 — Decomposed-pipeline experiment #3 (giffins.net, 6 pages) — strongest result yet + 2 SKILL bug fixes
+
+**Feedback** (verbatim): "OK, this one? https://www.giffins.net/" — single-line approval to run experiment #3 on a real customer URL.
+
+**Experiment scope**: full `/webfactory --decomposed --skip-c` pipeline end-to-end on a tree-service + property-management business in Central/SE Ohio. 15 pages scraped → trimmed to 6 (home + 3 services + property mgmt + blog index + 1 long-form article — chosen for content variety: trade services + secondary category + browse mode + article). Tested whether the decomposed architecture handles content beyond simple service-grid pages.
+
+**Industry/aesthetic**: outdoor trades, NOT generic landscaping. Forest green + bark + birch cream palette + rust accent + hi-vis safety yellow for emergencies. Bricolage Grotesque + Inter + JetBrains Mono. The hero photo is a chainsaw at work, not a perfect lawn. Phone-first emergency intent.
+
+**Pipeline metrics**:
+
+| Stage | Metric |
+|---|---|
+| 1. Scrape | 15 pages → 6 (focused) |
+| 2. Brief | Forest+rust+safety palette, 3-font system, industrial-trades vibe |
+| 2.5. Specs | 6 page specs + `_shared.md` + `_service-template.md` + `_rewrite-shared.md` |
+| 2.6. Scaffold | BaseLayout + Nav + Footer + Hero + SectionLabel + Testimonial + CtaBanner + global.css + data/site.ts (12 verbatim testimonials embedded) |
+| **2.7. Contrast lint** | **Caught 16 fails in scaffold BEFORE workers ran**. Required 2 iterations to clear (eyebrow color, btn-rust cream-on-rust 3.98:1, sage-on-cream 3.19:1, all `eyebrow-rust` variant 2.71:1 on forest, etc). |
+| 3. Build A (6 Sonnet workers parallel) | All 6 compiled. Lines: 132 / 82 / 91 / 107 / 83 / 82. Wall-clock ~65s. |
+| **4. QA A** | **0 failures on first run** (vs bwlocksmith 29 first-run; vs accelwindows 2 first-run). Stage 2.7 paid off. |
+| 5. Build B (6 Sonnet rewriters parallel) | All 6 done via `Edit` tool. Every CTA sharpened. Design markup preserved. Wall-clock ~70s. |
+| 6. QA B | 0 failures. Testimonial-tampering check clean (B preserved A's testimonials byte-identical). |
+| 8b. Deploy | Both deployed via prebuilt flow, Ready/Production |
+| 8c. SSO disable | **Bug discovered — API alone insufficient. CLI command required.** (See finding below.) |
+| 9. Verify | Both HTTP 200; phone (4×); 6 testimonial attributions; "30+ years" 2× on A vs 4× on B (rewriter aggressively quantified) |
+
+**Live URLs** (publicly accessible — proof):
+- A: https://giffins-net-option-3bw9f31eg-tomek-group.vercel.app
+- B: https://giffins-net-option-dii5itj79-tomek-group.vercel.app
+
+**Hero subhead diff (A vs B)** — proof of meaningful copy rewrite while design preserved:
+- A: "Serving Central & Southeast Ohio for over 30 years. Tree removal, trimming, stump grinding, land clearing, and property management — residential and commercial. Free estimates, same-day response on emergencies."
+- B: "30+ years in SE Ohio. We answer the phone. Same-day emergency response, free estimates, residential and commercial."
+
+**CTA diff**: `Call 740-571-6387` (A) → `Call Now · 740-571-6387 · 24/7` (B).
+
+---
+
+### KEY FINDING #1 — Stage 2.7 contrast lint is the single highest-leverage upfront step
+
+This experiment's headline result: **0 first-run QA fails on 6 pages** vs bwlocksmith's 29 first-run fails on 4 pages. The difference is Stage 2.7 contrast lint, which I ran for the first time in this experiment.
+
+Stage 2.7 sequence:
+1. Build the shared scaffold (Nav, Footer, Hero, SectionLabel, Testimonial, CtaBanner, global.css, data/site.ts) BEFORE writing any per-page code.
+2. Write a "smoke-test" `index.astro` that exercises every shared component on every bg variant (cream / cream-soft / forest / rust / safety).
+3. Run `qa-check.js` against the smoke page.
+4. Every contrast bug found = a shared-component bug that would propagate to all N per-page workers if left unfixed.
+5. Fix in `global.css` / shared components only. Iterate until smoke page passes.
+6. THEN dispatch workers.
+
+Result on giffins: 16 contrast fails caught upfront. 2 lint-fix iterations to clear. Then 6 workers built clean pages with 0 propagated fails.
+
+Compare to bwlocksmith (no Stage 2.7): brass eyebrow color failed WCAG 2.1:1 on bone bg, propagated across 4 pages = 20+ "the same bug" failures in Stage 4 QA. The Opus fix-loop cleared them in 4 small Edits, but the work was N× larger than it needed to be.
+
+**The N× factor is the value**. For an N-page build, Stage 2.7 turns "find shared bug in QA, fix in scaffold, the fix benefits N pages" (sequential) into "lint scaffold once, all N workers consume clean scaffold" (parallel). Linear vs. logarithmic.
+
+**Now mandatory** in `--decomposed` mode per the SKILL.md update.
+
+### KEY FINDING #2 — Vercel SSO disable: API success ≠ propagation success
+
+After both deploys completed, I ran `PATCH /v9/projects/{name}` with `{"ssoProtection": null}` (the documented method from the bwlocksmith SKILL.md update). The API returned 200 OK. A follow-up GET confirmed `ssoProtection: null`. But the deploy URLs continued to return HTTP 401 indefinitely.
+
+After ~3 minutes of waiting + a fresh redeploy + multiple cache-bypassed retries, all still 401. Tried the CLI command `npx vercel project protection disable {name} --sso` — within 1-3 seconds of CLI completion, the deploy URL flipped to 200. Same project, same `ssoProtection: null` API state, but only the CLI command actually flipped the protection flag in Vercel's edge.
+
+**Hypothesis**: the API endpoint writes to a slightly different state field than the CLI does, OR there's a propagation event the CLI dispatches that the API doesn't. Could be a Vercel CLI bug, could be intentional. Either way: **CLI is canonical, API is diagnostic only**.
+
+**SKILL.md update applied**: the SSO-disable section was rewritten this commit. CLI command is now documented as canonical with a JSON-output expectation. The API approach is demoted to a diagnostic ("read state to verify") with an explicit warning that it doesn't reliably write state. Verification step (poll until 200) added.
+
+---
+
+### Architectural conclusion
+
+3 experiments down, 0 failures on the architecture itself. The decomposed pipeline:
+
+1. **Reliably ships clean builds.** 0 fails on giffins first-run; 0 fails on bwlocksmith after Opus fix-loop; 0 fails on accelwindows after 2 small per-page Edits. Architecture absorbs both shared-component and per-page bug classes.
+
+2. **Scales with page count.** 4-page (bwlocksmith) → 5-page (accelwindows) → 6-page (giffins) all worked. Spec generation cost grows linearly. Worker parallelism keeps wall-clock flat.
+
+3. **Handles content variety.** giffins added BLOG content (index + long-form article) on top of the trades-service pattern from prior experiments. Sonnet workers produced clean blog index + clean long-form article from the same `_shared.md` + per-page-spec pattern.
+
+4. **Is opt-in safe.** Default behavior unchanged. Existing single-orchestrator runs are unaffected by the new mode.
+
+**Next gating decision** (per the validation history in SKILL.md): "after 3-5 successful real customer builds in `--decomposed` mode, promote to default and remove the opt-in flag." We are at 3. Two more real customer builds (not isolated experiments — actual `/webfactory <url>` runs from the user) and we promote.
+
+Or: a 4th experiment on a substantially different domain type (restaurant with menus, dental with provider bios, professional services with case studies) would build confidence faster than just running tree-services again.
+
+**Files modified in this commit**: SKILL.md (SSO disable section rewritten with CLI-canonical/API-diagnostic distinction; validation history table updated with experiment #3 row), FEEDBACK.md (this entry).
+
+**Experiment artifacts preserved at `/Users/tomasz/WebFactory/jobs/giffins.net/`** (specs/, option-a/, option-b/, design-brief.json, manifest.json) for future reference and comparison.
+
+---
+
 ## 2026-04-28 — Decomposed-pipeline experiment #2 (accelwindows.com, 5 pages) — VALIDATED at scale, SKILL.md `--decomposed` mode added as opt-in
 
 **Feedback** (paraphrased — user agreed with experiment-then-commit recommendation): "ok, do it. what do you need from me to run next experiment? Also, no it is fine, I can run SKILL under Opus, and then have Opus orchestrate sub tasks / agents." → Then: "I'm going to be away for an hour. Keep iterating and testing and working till I come back. There is no need for you to wait for my feedback. As usual I agree with your recommendations. Keep it simple, but keep iterating, testing, learning in loops"

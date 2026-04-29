@@ -314,7 +314,7 @@ Combine freely with other flags: `--full --decomposed`, `--option-b --decomposed
 
 - **2026-04-28 — Experiment #1: bwlocksmith.com (4 pages)**. Full pipeline end-to-end including deploy. 0 QA failures after Opus fix-loop. ~7 min wall-clock total. ~225K Sonnet tokens vs estimated ~500K Opus all-in. **PASSED.** See FEEDBACK.md for detail.
 - **2026-04-28 — Experiment #2: accelwindows.com (5 of 13 pages)**. Stage 3 only (Build A from scratch on a fresh forked option-a-decomp/, components preserved from Opus baseline). 5 Sonnet workers in parallel, 5/5 compiled clean. 2 per-page styling fails (1 amber-on-cream link, 1 unstyled h3 on dark card) — both 1-Edit fixes. Fact preservation identical to Opus baseline. Line count Δ +0 to +13 (Sonnet slightly more verbose). **PASSED.** See FEEDBACK.md for detail.
-- (after experiment #3 on a substantially-different domain type) — promote to "production-ready opt-in" with documented expectations.
+- **2026-04-29 — Experiment #3: giffins.net (6 pages — tree service + property mgmt + blog + long-form article)**. Full pipeline end-to-end including deploy, with Stage 2.7 contrast lint inserted BEFORE worker dispatch. Stage 2.7 caught 16 scaffold bugs upfront (eyebrow color, btn-rust contrast, sage-on-cream muted text). After 2 lint iterations, **Stage 4 QA on 6 worker-built pages had 0 failures on first run** (vs 29 fails first-run on bwlocksmith without Stage 2.7). Stage 6 QA on B (post-rewrite) also 0 fails + testimonial-tampering check clean. Both deploys 200 after `vercel project protection disable --sso` (the SSO disable section was updated this run — API alone insufficient). **PASSED. Strongest result yet.** Content-variety test passed: blog index + long-form article rendered correctly. See FEEDBACK.md for detail.
 - (after 3-5 successful real customer builds in `--decomposed` mode) — promote to default and remove the opt-in flag.
 
 ## 🧠 Self-Learning Protocol (MANDATORY)
@@ -2367,27 +2367,52 @@ If you need to discover the team ID dynamically (you shouldn't — it's hardcode
 
 New Vercel projects in `tomek-group` ship with `ssoProtection: { deploymentType: "all_except_custom_domains" }` enabled by default. Customers visiting the preview URL get a 401 login wall until you disable it. Run this for EACH option after `vercel deploy` succeeds.
 
+**Use the CLI command — NOT the REST API alone.** Real bug 2026-04-29 (giffins.net): the API call `PATCH /v9/projects/{name} {"ssoProtection": null}` returned 200 OK and a follow-up GET confirmed `ssoProtection: null` — but the live deployment URL still returned 401 indefinitely. The Vercel CLI's `vercel project protection disable` subcommand is what actually triggers the propagation. The API is useful as a diagnostic (verify the field really is null) but doesn't reliably flip the protection state on its own.
+
 ```bash
-# Preferred: CLI subcommand (project-name first, then --sso flag — exact syntax matters)
+# CANONICAL: CLI subcommand (project-name first, then --sso flag — exact syntax matters)
 cd jobs/{domain}/option-a/
 npx vercel project protection disable {domain-slug}-option-a --sso
+# Repeat for option-b, option-c (with --skip-c, only the first 2)
 ```
 
-**Fallback** (use when the CLI subcommand misbehaves — verified working 2026-04-28 on bwlocksmith.com):
+The CLI prints a JSON confirmation:
+```json
+{
+  "action": "disable",
+  "projectId": "prj_...",
+  "projectName": "{domain-slug}-option-a",
+  "ssoProtection": false
+}
+```
+
+**API call as diagnostic only** (use to verify state, do NOT rely on it for the disable itself):
 
 ```bash
-# Direct REST call. Reads the team token from the macOS Vercel CLI auth file.
 TOKEN=$(jq -r '.token' "$HOME/Library/Application Support/com.vercel.cli/auth.json")
 TEAM=team_4Hr5Lqd6pY5D7gmeXDVsDmYx
-PROJECT={domain-slug}-option-a   # repeat for option-b, option-c
+PROJECT={domain-slug}-option-a
 
+# Read state (diagnostic):
+curl -s "https://api.vercel.com/v9/projects/$PROJECT?teamId=$TEAM" \
+  -H "Authorization: Bearer $TOKEN" | jq '.ssoProtection'
+
+# Write state (NOT reliable on its own — use CLI above; this is a fallback only):
 curl -s -X PATCH "https://api.vercel.com/v9/projects/$PROJECT?teamId=$TEAM" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"ssoProtection": null}'
 ```
 
-**Verification**: after disable, `curl -sL -o /dev/null -w "%{http_code}" https://{deploy-url}/` should return `200`, not `401`. If still `401`, the disable didn't apply — re-run with the API fallback.
+**Verification**: after `vercel project protection disable`, poll the deploy URL until it returns 200:
+
+```bash
+DEPLOY_URL=https://{domain-slug}-option-a-{hash}-tomek-group.vercel.app
+until [ "$(curl -s -o /dev/null -w '%{http_code}' "$DEPLOY_URL/?t=$(date +%s)")" = "200" ]; do sleep 2; done
+echo "✓ public"
+```
+
+Propagation is usually 1-3 seconds after the CLI command succeeds.
 
 This relies on the project being correctly scoped to `tomek-group` already (Step 1 or 2 above). If the project landed in the personal account, this command targets the wrong project and fails silently.
 
