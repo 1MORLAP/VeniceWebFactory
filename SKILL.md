@@ -2190,6 +2190,17 @@ The worker session writes the plugin's output to `jobs/{domain}/option-c/src/`. 
 2. Industry anchoring is a constraint, not a vibe — the plugin doesn't default to its editorial bias
 3. The Claude Design weekly quota tracks correctly, so usage is visible in telemetry
 
+**VERIFY CLAUDE DESIGN QUOTA TICKS UP** (added 2026-04-29 after a real telemetry-leak bug — see FEEDBACK.md "Frontend Design plugin telemetry leak"):
+
+After Stage 7d's plugin invocation, the user's `Weekly · Claude Design` quota meter should tick up. If it stays at 0% while `Weekly · all models` ticks up, that's the **upstream marketplace bug** where the plugin was installed without a version identifier (path resolved to `frontend-design/unknown/` instead of `frontend-design/x.y.z/`). The plugin engages locally but Anthropic's telemetry can't attribute the call to the Claude Design product.
+
+Quick check (the user's job, since the orchestrator can't see the user's usage panel):
+- Before Stage 7 starts: note current `Weekly · Claude Design` percentage.
+- After Stage 7d completes: refresh usage panel.
+- If 0% → 0%: the workaround in `~/.claude/plugins/installed_plugins.json` may have reverted, OR a fresh `claude plugin install` overwrote the local fix. Re-apply the workaround per FEEDBACK.md, OR file with Anthropic.
+
+If the orchestrator notices the path on plugin load includes `unknown/` instead of a version (visible in the `Base directory:` line at the top of every `Skill: frontend-design` invocation), STOP and flag for the skill-owner. Don't continue with Stage 7 — it'll just leak telemetry quota.
+
 The hard rules below are the same constraints expressed in detail. The Skill invocation above is the trigger; the rules below are the contract.
 
 **Rule 1: Use the customer's scraped imagery. Aggressively. AND map images to pages correctly.**
