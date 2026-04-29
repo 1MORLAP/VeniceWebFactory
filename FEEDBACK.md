@@ -37,6 +37,73 @@ Permanent log of user feedback and the skill improvements made in response. Ever
 
 ---
 
+## 2026-04-29 — Tooling + Architecture: validate-specs.cjs + Option C decomposition
+
+**Feedback** (verbatim): "work now on: Auto-spec-validation: I have a TODO to add a script that greps each per-page spec against the manifest, catching the 'Free estimates' pattern before workers dispatch. Worth ~30 min to script. Option C decomposition: still untested in decomposed mode (Frontend Design plugin path). If you want to extend cost savings to all 3 tracks, this is the next architectural frontier. Finish it, loop, test, etc, I am goign to lunch, finish it. I will also test latest skill now"
+
+User asked me to ship both items while they were at lunch. Both shipped clean. Two commits.
+
+### Phase 1: scripts/validate-specs.cjs (commit cb6cee3)
+
+Pre-dispatch fact-grounding lint for Stage 2.5 specs. Closes the bug class that bit us yesterday on the plumbers build (I, as the spec author, seeded "Free estimates" into 4 per-page specs; 5 Sonnet workers faithfully copied; Stage 4 QA caught it 4× — should have been caught 1× at Stage 2.5).
+
+The script walks `jobs/{domain}/specs/*.md` (skipping shared underscore-prefixed specs), runs the same 9 fact-grounding regex patterns from `scripts/qa-check.js` (years-experience, since-year, awards, BBB/A+, licensed-bonded-insured, X-owned, review counts, star ratings, availability/free-estimate promises), and verifies each pattern match against the manifest+design-brief corpus.
+
+Two non-trivial implementation details:
+1. **Skips prohibition sections** — `## What NOT to add` / `## Do NOT touch` / lines starting with "Do NOT" / "Don't" / "Never" — those are the spec author teaching the worker what NOT to write. Without this, the script flags negative-example phrases as if they were claims.
+2. **Includes numbers in corpus** — the manifest stores `yearsExperience: 35` as a JS number. Without including numbers, the corpus would only have the string "yearsExperience" not "35", so a "30+ years" claim wouldn't ground against "35" in the manifest. Fixed by including numbers and object keys in the corpus walker.
+
+**Regression test against all 5 customer builds**:
+- twoirishplumbers: catches all 4 "Free estimates" instances (the original bug — across about/gallery/home/services specs)
+- bwlocksmith: catches a real spec drift ("30+ Years of Service" / "30+ years experience" when manifest says yearsExperience: 35) — minor understatement, same bug class
+- giffins: passes cleanly (6 specs, 0 issues)
+- apachecostructionllc: passes cleanly (1 spec, 0 issues)
+- accelwindows specs-decomp: passes cleanly (5 specs, 0 issues)
+
+SKILL.md integration: new mandatory "Stage 2.5b: Auto-spec-validation" sub-stage between Stage 2.5 (spec generation) and Stage 2.6 (scaffold). Specs that fail validate-specs.cjs MUST NOT be dispatched to workers.
+
+### Phase 2: Option C decomposition (commit pending — this commit)
+
+Until now the C track ran monolithic — Opus invoked the plugin AND built every page. The plugin output is structured (palette + typography + components + ornament + CSS classes), so it should decompose the same way A and B do: plugin produces shared scaffold + Opus writes per-page specs + Sonnet workers build pages in parallel.
+
+**Test setup**: forked `jobs/libertylandscapefl.com/option-c/` → `option-c-decomp/`. Wiped `src/pages/`. Preserved everything else: components (Hero, ServiceTile, StatStrip, LicenseStrip, Footer, Nav), layouts (BaseLayout, SiteLayout), styles (global.css with all the workwear-document utility classes, palette, fonts), industry-tokens.json, public/images/. The plugin's output IS the scaffold workers consume — no re-invocation needed for this experiment.
+
+**Specs**: 4 per-page specs in `specs-c-decomp/` (`_shared.md` + `home.md` + `services.md` + `projects.md` + `contact.md`). Each references the existing components + B's verbatim text + the industry-tokens palette/typography/ornament directives. Total ~700 lines of spec.
+
+**validate-specs.cjs**: passed clean (0 unsupported fact claims). The auto-spec-validation script worked on C specs too — same patterns, same logic.
+
+**4 Sonnet workers in parallel**: all 4 compiled clean. Wall-clock ~55s for the slowest worker. Token cost 25-28K each = ~105K total (compared to estimated ~250K Opus for the same per-page work).
+
+**Comparison vs Opus C baseline** (libertylandscapefl is the strongest A+B+C build we have):
+
+| Page | Opus C | Sonnet C-decomp | Δ lines | Hero headline match | Phone count | License # count |
+|---|---|---|---|---|---|---|
+| index | 149 | 178 | +29 | ✓ verbatim | 2 / 2 | 3 / 3 |
+| services | 93 | 95 | +2 | ✓ verbatim | 2 / 2 | 2 / 2 |
+| projects | 87 | 96 | +9 | ✓ verbatim | 2 / 2 | 0 / 0 |
+| contact | 110 | 209 | +99 | ✓ verbatim | 5 / 5 | 1 / 1 |
+
+All 4 hero headlines byte-identical to Opus baseline. All fact counts identical. Line-count Δ varies from +2 to +99 (contact is the outlier — Sonnet was more verbose with form-field SVG markup). Sonnet's verbosity isn't a quality issue — the QA pass confirmed structural correctness.
+
+**Stage 4 QA**: **0 failures** on first run (9 cosmetic warnings — mobile tap targets, image retina ratios, the usual). No fact-grounding fails, no contrast fails, no broken images, no testimonial tampering. Equivalent quality to the Opus baseline.
+
+### Architectural conclusion
+
+The plugin's design coherence is preserved BECAUSE Sonnet workers consume plugin-output components — they don't re-design. The plugin produces the design system; workers compose it per spec. Same pattern as A (Opus produces scaffold; workers compose per spec) — just with a different scaffold source.
+
+**All 3 tracks (A, B, C) now decompose cleanly.** WebFactory's per-page work runs at Sonnet rates across all 3 tracks. Token-cost reduction estimate: per-customer page-build work drops from ~750K Opus tokens (3 tracks × 5-6 pages × ~50K) to ~225K Sonnet tokens (~3× rate ratio in cost terms, but ~5-10× cheaper per token). For typical 5-6 page sites this is the largest cost reduction WebFactory has achieved since the orchestrator-decomposition pivot.
+
+SKILL.md changes:
+- Stage 7d: NEW DECOMPOSED-MODE NOTE callout at the top, defining the 6-step decomposed-C flow (plugin invocation → contrast lint on plugin scaffold → spec generation → validate-specs → parallel Sonnet workers → standard 7e/f/g QA flow).
+- Validation history: 2 new rows — the validate-specs.cjs tooling row + the C-decomposition row.
+- "All 3 tracks decompose cleanly" is now the validated statement in the architecture summary.
+
+**Files modified**: SKILL.md (Stage 7d note + validation history), FEEDBACK.md (this entry).
+
+**Files created**: scripts/validate-specs.cjs (Phase 1 commit cb6cee3), jobs/libertylandscapefl.com/specs-c-decomp/* (4 specs + shared), jobs/libertylandscapefl.com/option-c-decomp/ (the experiment artifact, preserved as reference).
+
+---
+
 ## 2026-04-29 — Customer builds #4 + #5 (twoirishplumbers + apachecostructionllc) — `--decomposed` PROMOTED TO DEFAULT
 
 **Feedback** (verbatim): "Path A: https://twoirishplumbers.squarespace.com/ https://apachecostructionllc.wixsite.com/website" — user picked Path A from the recommendation tree, providing 2 real customer URLs to ship with `--decomposed` mode end-to-end. Per the validation history rule ("after 3-5 successful real customer builds in --decomposed mode, promote to default"), these 2 builds bring the total to 5 → trigger the promotion.
