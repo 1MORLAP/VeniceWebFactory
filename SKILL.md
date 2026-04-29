@@ -202,6 +202,43 @@ Write to: <absolute path to .astro file>
 
 **Hard rule learned 2026-04-28 (accelwindows experiment)**: when a spec describes a colored container ("dark variant card with `color: bone-50`"), it MUST also explicitly state that nested `<h*>` headings need their own color override. Workers can drop the cascade when adding `font-semibold` etc. via Tailwind classes. Add this to `_shared.md` for every decomposed-mode build.
 
+#### Stage 2.5b: Auto-spec-validation (MANDATORY — added after plumbers build 2026-04-29)
+
+Before dispatching workers in Stage 3, run `scripts/validate-specs.cjs` to catch fact-grounding bugs that the spec author (Opus) may have introduced into the per-page specs.
+
+**Why it exists**: real bug 2026-04-29 (twoirishplumbers build). I (Opus) seeded "Free estimates" into 4 separate per-page specs as a CTA closer. The customer's manifest does NOT claim free estimates — that was my fabrication. 5 Sonnet workers faithfully copied. Stage 4 QA caught it on every page (4 fact-grounding fails). 4× the fix work it should have been.
+
+The fix: catch unsupported claims at Stage 2.5 (1 author, 1 work session) instead of Stage 4 (N workers × N pages of fail messages). Linear cost reduction with N pages.
+
+**Run**:
+
+```bash
+node scripts/validate-specs.cjs \
+  --manifest jobs/{domain}/manifest.json \
+  --design-brief jobs/{domain}/design-brief.json \
+  --specs jobs/{domain}/specs/
+```
+
+**What it checks**: every per-page spec is scanned for fact-shaped claims (years experience, since-year, BBB / awards / star ratings / licensed-bonded / X-owned / review counts / 24-7 / free estimates) using the same regex patterns as `scripts/qa-check.js` fact-grounding rule. Each match is verified against the manifest + design-brief corpus. Unsupported claims fail the script (exit 1) with file + line number.
+
+**What it skips correctly**: prohibition sections (e.g. `## What NOT to add` listing negative examples) are NOT validated — those are the spec author teaching the worker what NOT to write. Lines starting with "Do NOT" / "Don't" / "Never" / "Avoid" are also skipped.
+
+**What to do when it fails**:
+
+1. For each unsupported claim, decide:
+   - **Drop the claim from the spec** — most common case (the spec author got carried away). Edit the spec, remove the phrase.
+   - **Add the claim to the manifest** — the customer DOES say it on their actual site, but my scrape missed it. Add the verbatim phrase to `manifest.business` or wherever appropriate, then re-run validate-specs.
+   - **Add the claim to the design-brief** — only if the brief is the right place (e.g. a value-prop callout). Edit `design-brief.json`.
+2. Re-run `validate-specs.cjs` until exit 0.
+3. THEN dispatch workers.
+
+**Validated regression** (2026-04-29):
+- Plumbers (twoirishplumbers): correctly catches all 4 "Free estimates" instances across 4 specs.
+- Bwlocksmith: caught a real spec drift (manifest says "35 years", spec said "30+ years") — minor understatement, but the same class of bug.
+- Giffins, Construction, Accelwindows-decomp: pass cleanly (no false positives).
+
+This step is NOT optional in decomposed mode. Specs that fail validate-specs.cjs MUST NOT be dispatched to workers.
+
 ### Stage 2.6: Shared-component scaffold
 
 Before per-page workers run, Opus builds the shared component layer that all pages will import:
