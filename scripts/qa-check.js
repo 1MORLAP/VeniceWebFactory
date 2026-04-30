@@ -37,12 +37,16 @@ import { chromium } from 'playwright';
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
-// ---- argv parsing (supports --manifest <path> + --reference-dist <path> + --reference-dist-es <path> + --option <a|b|c> mixed with positional paths) ----
+// ---- argv parsing (supports --manifest <path> + --reference-dist <path> + --reference-dist-i18n <path> + --option <a|b|c> mixed with positional paths) ----
+// MULTILINGUAL SUPPORT (2026-04-30 extended for any language): --reference-dist-es
+// is now an alias for --reference-dist-i18n.  The i18n flag points at a dist/ tree
+// that has /<lang-code>/ subdirs for every active language; qa-check walks each
+// of those to build per-language testimonial reference sets.
 const rawArgs = process.argv.slice(2);
 let baseUrl = 'http://localhost:4321';
 let manifestPath = null;
 let referenceDistPath = null;
-let referenceDistEsPath = null;   // BILINGUAL SUPPORT: option-b/dist when checking C, so the testimonial-tampering check can compare C's /es/ against B's /es/
+let referenceDistI18nPath = null;   // MULTILINGUAL SUPPORT: option-b/dist when checking B/C, so testimonial-tampering compares each /<lang>/ against B's /<lang>/
 let optionName = null;   // 'a' | 'b' | 'c' — gates per-option checks (e.g. image-reuse-A only fires for 'a')
 const paths = [];
 for (let i = 0; i < rawArgs.length; i++) {
@@ -51,8 +55,12 @@ for (let i = 0; i < rawArgs.length; i++) {
   if (a.startsWith('--manifest=')) { manifestPath = a.split('=')[1]; continue; }
   if (a === '--reference-dist') { referenceDistPath = rawArgs[++i]; continue; }
   if (a.startsWith('--reference-dist=')) { referenceDistPath = a.split('=')[1]; continue; }
-  if (a === '--reference-dist-es') { referenceDistEsPath = rawArgs[++i]; continue; }
-  if (a.startsWith('--reference-dist-es=')) { referenceDistEsPath = a.split('=')[1]; continue; }
+  // --reference-dist-i18n is canonical (MULTILINGUAL SUPPORT, generalized 2026-04-30)
+  if (a === '--reference-dist-i18n') { referenceDistI18nPath = rawArgs[++i]; continue; }
+  if (a.startsWith('--reference-dist-i18n=')) { referenceDistI18nPath = a.split('=')[1]; continue; }
+  // --reference-dist-es is a back-compat alias from the bilingual era.
+  if (a === '--reference-dist-es') { referenceDistI18nPath = referenceDistI18nPath || rawArgs[++i]; continue; }
+  if (a.startsWith('--reference-dist-es=')) { referenceDistI18nPath = referenceDistI18nPath || a.split('=')[1]; continue; }
   if (a === '--option') { optionName = (rawArgs[++i] || '').toLowerCase(); continue; }
   if (a.startsWith('--option=')) { optionName = a.split('=')[1].toLowerCase(); continue; }
   if (i === 0 && /^https?:\/\//.test(a)) { baseUrl = a; continue; }
@@ -62,6 +70,32 @@ if (paths.length === 0) paths.push('/');
 if (optionName && !['a', 'b', 'c'].includes(optionName)) {
   console.warn(`⚠ --option must be one of a|b|c (got "${optionName}") — option-specific checks will be skipped.`);
   optionName = null;
+}
+
+// ---- Language code → translation tag mapping (MULTILINGUAL SUPPORT) ----
+// Used by the testimonial-translation-tag rule to verify each /<lang>/ page's
+// translated testimonials have the right per-language tag below the attribution.
+// Generic English fallback applies when a code isn't in the table.
+const LANG_TAGS = {
+  es: { tag: '(traducido del inglés)',          tagPattern: /\(traducido del ingl[eé]s\)/i,        nameEn: 'Spanish'    },
+  de: { tag: '(aus dem Englischen übersetzt)',  tagPattern: /\(aus dem englischen [üu]bersetzt\)/i, nameEn: 'German'     },
+  ru: { tag: '(переведено с английского)',      tagPattern: /\(переведено с английского\)/i,       nameEn: 'Russian'    },
+  it: { tag: "(tradotto dall'inglese)",          tagPattern: /\(tradotto dall['’]inglese\)/i,       nameEn: 'Italian'    },
+  fr: { tag: "(traduit de l'anglais)",           tagPattern: /\(traduit de l['’]anglais\)/i,        nameEn: 'French'     },
+  pt: { tag: '(traduzido do inglês)',           tagPattern: /\(traduzido do ingl[eê]s\)/i,         nameEn: 'Portuguese' },
+  pl: { tag: '(przetłumaczone z angielskiego)', tagPattern: /\(przetłumaczone z angielskiego\)/i,  nameEn: 'Polish'     },
+  zh: { tag: '(从英语翻译)',                      tagPattern: /\(从英语翻译\)/,                       nameEn: 'Chinese'    },
+  ja: { tag: '(英語からの翻訳)',                   tagPattern: /\(英語からの翻訳\)/,                    nameEn: 'Japanese'   },
+  ko: { tag: '(영어에서 번역됨)',                  tagPattern: /\(영어에서 번역됨\)/,                  nameEn: 'Korean'     },
+  nl: { tag: '(vertaald uit het Engels)',       tagPattern: /\(vertaald uit het engels\)/i,        nameEn: 'Dutch'      },
+  sv: { tag: '(översatt från engelska)',        tagPattern: /\([öo]versatt fr[åa]n engelska\)/i,   nameEn: 'Swedish'    },
+};
+function langTagFor(code) {
+  return LANG_TAGS[code] || {
+    tag: '(translated from English)',
+    tagPattern: /\(translated from english\)/i,
+    nameEn: code.toUpperCase(),
+  };
 }
 
 // ---- Build manifest text corpus for FACT GROUNDING check ----
@@ -304,61 +338,116 @@ if (referenceDistPath) {
   console.warn('⚠ No --reference-dist <path> passed — testimonial-tampering check will be skipped. Pass --reference-dist jobs/<domain>/option-a/dist when QA-checking Option B or C.');
 }
 
-// ---- Build SPANISH reference testimonial corpus (BILINGUAL SUPPORT) ----
-// When QA-checking Option C, the worker passes --reference-dist-es pointing at
-// option-b/dist (B is the canonical Spanish source).  Walk that dist's /es/
-// directory and build a separate Set.  C's Spanish testimonials must appear
-// here verbatim — same byte-identical contract as EN, just for the translated
-// text.  Strip the literal "(traducido del inglés)" tag during normalization
-// since it's added on top of the testimonial body and shouldn't cause a
-// false-mismatch (B has it, C must too — checked separately by the
-// testimonial-translation-tag rule).
-const referenceTestimonialSetEs = new Set();
-let referenceFileCountEs = 0;
-function normalizeQuoteTextEs(s) {
+// ---- Build PER-LANGUAGE reference testimonial corpora (MULTILINGUAL SUPPORT) ----
+// When QA-checking Option B or C, the worker passes --reference-dist-i18n pointing at
+// option-b/dist (B is the canonical translation source for ALL languages — ES is the
+// default-included language; DE/RU/IT/FR/etc. are added incrementally via
+// `--add-language`).  Walk every /<lang-code>/ subdirectory in that dist and build
+// per-language reference Sets.  C's translated testimonials must appear in the
+// corresponding language Set verbatim — same byte-identical contract as EN, just
+// applied per-language.  Strip the per-language translation tag wrapper during
+// normalization (the tag's PRESENCE is checked separately by
+// `testimonial-translation-tag`).
+const referenceTestimonialSetsByLang = new Map();   // lang-code → Set<normalized>
+let referenceFileCountI18n = 0;
+function normalizeQuoteTextForLang(s, langCode) {
   if (!s) return '';
-  // Strip the translation tag wrapper before normalizing — it's metadata, not
-  // part of the testimonial body.
+  const langInfo = langTagFor(langCode);
+  // Strip the <small>(translation tag)</small> wrapper plus the bare tag pattern.
+  // Both forms can appear in real-world HTML, so handle both.
   const stripped = s
-    .replace(/<small[^>]*>[^<]*traducido[^<]*<\/small>/gi, ' ')
-    .replace(/\(traducido del ingl[eé]s\)/gi, ' ');
+    .replace(/<small[^>]*>[^<]*<\/small>/gi, ' ')   // any <small>(…)</small> wrapper near attribution
+    .replace(langInfo.tagPattern, ' ');
   return normalizeQuoteText(stripped);
 }
-if (referenceDistEsPath) {
-  if (!existsSync(referenceDistEsPath)) {
-    console.warn(`⚠ --reference-dist-es ${referenceDistEsPath} not found — ES testimonial-tampering check will be skipped.`);
+function detectLangCodesInDist(distPath) {
+  // Detect /<lang-code>/ subdirs at the top level of a dist tree.  ISO 639-1
+  // codes are 2-letter lowercase; we accept 2-3 chars to allow rare 3-letter
+  // codes (mostly for safety — qa-check is opinionated about 2-letter codes
+  // matching ISO 639-1).
+  if (!existsSync(distPath)) return [];
+  const found = [];
+  try {
+    for (const name of readdirSync(distPath)) {
+      const full = join(distPath, name);
+      if (statSync(full).isDirectory() && /^[a-z]{2,3}$/.test(name)) {
+        // Skip _astro, blog, etc.  ISO 639-1 lookup confirms it's a real lang.
+        if (LANG_TAGS[name] || /^[a-z]{2}$/.test(name)) found.push(name);
+      }
+    }
+  } catch { /* swallow */ }
+  return found;
+}
+if (referenceDistI18nPath) {
+  if (!existsSync(referenceDistI18nPath)) {
+    console.warn(`⚠ --reference-dist-i18n ${referenceDistI18nPath} not found — translated testimonial-tampering checks will be skipped.`);
   } else {
     try {
-      const allFiles = walkHtmlFiles(referenceDistEsPath);
-      const esFiles = allFiles.filter(f => f.includes('/es/') || f.includes('\\es\\'));
-      referenceFileCountEs = esFiles.length;
+      const detectedLangs = detectLangCodesInDist(referenceDistI18nPath);
+      const allFiles = walkHtmlFiles(referenceDistI18nPath);
       const QUOTE_RX = /<(blockquote|q)[^>]*>([\s\S]*?)<\/\1>/gi;
-      for (const filePath of esFiles) {
-        const html = readFileSync(filePath, 'utf8');
-        let m;
-        while ((m = QUOTE_RX.exec(html)) !== null) {
-          const norm = normalizeQuoteTextEs(m[2]);
-          if (norm.length >= 8) referenceTestimonialSetEs.add(norm);
+      for (const lang of detectedLangs) {
+        const langFiles = allFiles.filter(f => {
+          // Match /<lang>/ as a path segment, not as a substring of a filename.
+          // Examples: "/dist/es/index.html", "C:\\dist\\es\\index.html"
+          const seg = `/${lang}/`;
+          const segWin = `\\${lang}\\`;
+          return f.includes(seg) || f.includes(segWin);
+        });
+        if (langFiles.length === 0) continue;
+        const langSet = new Set();
+        for (const filePath of langFiles) {
+          const html = readFileSync(filePath, 'utf8');
+          let m;
+          while ((m = QUOTE_RX.exec(html)) !== null) {
+            const norm = normalizeQuoteTextForLang(m[2], lang);
+            if (norm.length >= 8) langSet.add(norm);
+          }
+        }
+        if (langSet.size > 0) {
+          referenceTestimonialSetsByLang.set(lang, langSet);
+          referenceFileCountI18n += langFiles.length;
         }
       }
-      console.log(`✓ Loaded ${referenceTestimonialSetEs.size} ES testimonial(s) from ${referenceFileCountEs} /es/ file(s) at ${referenceDistEsPath}`);
+      const langSummary = [...referenceTestimonialSetsByLang.entries()]
+        .map(([k, v]) => `${k}=${v.size}`).join(', ');
+      console.log(`✓ Loaded translated testimonials from ${referenceFileCountI18n} file(s) at ${referenceDistI18nPath} (${langSummary || 'no /<lang>/ dirs found'})`);
     } catch (e) {
-      console.warn(`⚠ Failed to load --reference-dist-es ${referenceDistEsPath}: ${e.message} — ES testimonial-tampering check will be skipped.`);
+      console.warn(`⚠ Failed to load --reference-dist-i18n ${referenceDistI18nPath}: ${e.message} — translated testimonial-tampering checks will be skipped.`);
     }
   }
 }
 
+// ---- Detect language code from a URL path (MULTILINGUAL SUPPORT) ----
+// /es/about → "es". /de/index → "de". / → null (English).
+function langCodeFromPath(p) {
+  if (!p) return null;
+  const m = p.match(/^\/([a-z]{2,3})(?:\/|$)/);
+  if (m && (LANG_TAGS[m[1]] || /^[a-z]{2}$/.test(m[1]))) return m[1];
+  return null;
+}
+
 function runTestimonialTamperingCheck(liveTestimonials, viewportName, pagePath) {
-  // Pick the right reference set based on whether the page is EN or ES.
-  // BILINGUAL SUPPORT 2026-04-30: /es/* pages compare against B's ES
-  // (referenceTestimonialSetEs); everything else compares against A's EN
-  // (referenceTestimonialSet).
-  const isEsPage = (pagePath || '').startsWith('/es/') || pagePath === '/es';
-  const refSet = isEsPage ? referenceTestimonialSetEs : referenceTestimonialSet;
-  const refLabel = isEsPage ? 'ES reference dist' : 'reference dist';
-  const refPath = isEsPage ? (referenceDistEsPath || '(none)') : (referenceDistPath || '(none)');
-  const normalizer = isEsPage ? normalizeQuoteTextEs : normalizeQuoteText;
-  if (refSet.size === 0) return [];
+  // Pick the right reference set based on the page's language (URL prefix).
+  // MULTILINGUAL SUPPORT 2026-04-30: /<lang>/* pages compare against B's
+  // /<lang>/ (referenceTestimonialSetsByLang.get(lang)); everything else
+  // compares against A's EN (referenceTestimonialSet).
+  const langCode = langCodeFromPath(pagePath);
+  let refSet, refLabel, refPath, normalizer;
+  if (langCode) {
+    refSet = referenceTestimonialSetsByLang.get(langCode);
+    if (!refSet) return [];   // no ref set for this language — skip silently
+    const langInfo = langTagFor(langCode);
+    refLabel = `${langInfo.nameEn} (${langCode}) reference dist`;
+    refPath = referenceDistI18nPath || '(none)';
+    normalizer = (s) => normalizeQuoteTextForLang(s, langCode);
+  } else {
+    if (referenceTestimonialSet.size === 0) return [];
+    refSet = referenceTestimonialSet;
+    refLabel = 'EN reference dist';
+    refPath = referenceDistPath || '(none)';
+    normalizer = normalizeQuoteText;
+  }
   const issues = [];
   const reportedAlready = new Set();
   for (const live of liveTestimonials) {
@@ -382,7 +471,7 @@ function runTestimonialTamperingCheck(liveTestimonials, viewportName, pagePath) 
     issues.push({
       severity: 'fail',
       check: 'testimonial-tampering',
-      msg: `Testimonial text "${live.slice(0, 120)}${live.length > 120 ? '…' : ''}" rendered on ${pagePath} does NOT appear verbatim in the ${refLabel} (${refPath}). Reviews/testimonials are real people's words attributed by name — they MUST be byte-identical between A and B (and C) in EN, AND between B and C in ES (BILINGUAL SUPPORT extends the rule to translations). Either revert the rewrite of this testimonial, OR confirm it was a new-from-manifest review the worker added (still must match the manifest verbatim). See TESTIMONIAL & REVIEW PRESERVATION + BILINGUAL SUPPORT rules in SKILL.md.`,
+      msg: `Testimonial text "${live.slice(0, 120)}${live.length > 120 ? '…' : ''}" rendered on ${pagePath} does NOT appear verbatim in the ${refLabel} (${refPath}). Reviews/testimonials are real people's words attributed by name — they MUST be byte-identical between A and B (and C) in EN, AND between B and C in every translated language (MULTILINGUAL SUPPORT extends the rule to translations). Either revert the rewrite of this testimonial, OR confirm it was a new-from-manifest review the worker added (still must match the manifest verbatim). See TESTIMONIAL & REVIEW PRESERVATION + MULTILINGUAL SUPPORT rules in SKILL.md.`,
     });
   }
   return issues;
@@ -1523,93 +1612,144 @@ function rgbToHexFromComputed(rgb) {
       }
       // ---- end numbered section labels audit ----
 
-      // ---- Bilingual support: per-page checks (added 2026-04-30) ----
+      // ---- MULTILINGUAL SUPPORT: per-page checks (generalized from BILINGUAL 2026-04-30 → MULTILINGUAL 2026-04-30) ----
       // Activated by Node-side scope filter when --option=b or --option=c.  Always
       // emits these candidate issues; the scope filter strips them on options
-      // where bilingual doesn't apply (A, or no --option flag).
+      // where multilingual doesn't apply (A, or no --option flag).
       //
-      // Three per-page checks fire here:
-      //   1. html-lang-attribute — <html lang="es"> on /es/* pages, "en" otherwise.
-      //   2. language-switcher-presence — nav must have a working EN/ES toggle
-      //      with the right href (parallel-language path) and aria-label.
-      //   3. testimonial-tag-on-es — every translated testimonial has the
-      //      `(traducido del inglés)` tag near its <cite>.
+      // Per-page checks:
+      //   1. html-lang-attribute — <html lang="<code>"> matches URL prefix
+      //      (/es/* → "es"; /de/* → "de"; /index → "en").
+      //   2. language-switcher-presence — nav must have an anchor for at least
+      //      one OTHER language (i.e., the page-language is not the only language
+      //      on the site).  Each switcher anchor's aria-label should reference
+      //      the target language.
+      //   3. testimonial-translation-tag — every translated testimonial in
+      //      a /<lang>/ page has the per-language translation tag near its <cite>.
       //
-      // (The 4th rule, bilingual-page-parity, is site-wide — runs Node-side after
-      // all pages walked.)
-      const isEsPage = window.location.pathname.startsWith('/es/') || window.location.pathname === '/es';
+      // (The 4th rule, multilingual-page-parity, is site-wide — runs Node-side
+      // after all pages walked.)
+      //
+      // Inline language table mirrors the LANG_TAGS in the Node scope.  Kept here
+      // because page.evaluate runs in the browser context and can't reach the
+      // outer Node table directly.
+      const LANG_TAG_PATTERNS = {
+        es: /\(traducido del ingl[eé]s\)/i,
+        de: /\(aus dem englischen [üu]bersetzt\)/i,
+        ru: /\(переведено с английского\)/i,
+        it: /\(tradotto dall['’]inglese\)/i,
+        fr: /\(traduit de l['’]anglais\)/i,
+        pt: /\(traduzido do ingl[eê]s\)/i,
+        pl: /\(przetłumaczone z angielskiego\)/i,
+        zh: /\(从英语翻译\)/,
+        ja: /\(英語からの翻訳\)/,
+        ko: /\(영어에서 번역됨\)/,
+        nl: /\(vertaald uit het engels\)/i,
+        sv: /\([öo]versatt fr[åa]n engelska\)/i,
+      };
+      function pageLangCode(path) {
+        const m = path.match(/^\/([a-z]{2,3})(?:\/|$)/);
+        if (m && /^[a-z]{2,3}$/.test(m[1])) return m[1];
+        return null;   // English / no prefix
+      }
+      const currentPath = window.location.pathname;
+      const pageLang = pageLangCode(currentPath);
       const htmlLang = (document.documentElement.getAttribute('lang') || '').toLowerCase();
-      const expectedLang = isEsPage ? 'es' : 'en';
+      const expectedLang = pageLang || 'en';
       if (htmlLang !== expectedLang) {
         report.issues.push({
           severity: 'fail',
           check: 'html-lang-attribute',
-          msg: `<html lang="${htmlLang || '(unset)'}"> on ${window.location.pathname} — expected lang="${expectedLang}". Per BILINGUAL SUPPORT rule, /es/* pages must have <html lang="es"> and English pages must have <html lang="en">. Pass the lang prop to BaseLayout from each /es/*.astro page.`,
+          msg: `<html lang="${htmlLang || '(unset)'}"> on ${currentPath} — expected lang="${expectedLang}". Per MULTILINGUAL SUPPORT rule, /<lang>/* pages must have <html lang="<lang>">. Pass the lang prop to BaseLayout from each /<lang>/*.astro page.`,
         });
       }
 
-      // language-switcher-presence: look for a nav anchor that links to the
-      // parallel-language URL.  On an EN page, expect a link to /es/<currentPath>.
-      // On an ES page, expect a link to <currentPath>.replace(/^\/es/, '').
-      const currentPath = window.location.pathname;
-      const expectedSwitcherHref = isEsPage
-        ? (currentPath.replace(/^\/es\//, '/').replace(/^\/es$/, '/'))
-        : ('/es' + (currentPath === '/' ? '/' : currentPath));
+      // language-switcher-presence: walk nav/header anchors, find any whose
+      // href matches /<2-3-letter-code>/<currentPath-without-lang-prefix> OR
+      // (when on a /<lang>/ page) the parallel non-prefixed English URL.
+      // Detect at least ONE such switcher; if missing entirely, fail.
+      // Each switcher anchor SHOULD have aria-label naming the target language;
+      // missing aria is a warn.
       const navAnchors = document.querySelectorAll('nav a, header a');
-      let switcherFound = false;
-      let switcherHasAria = false;
+      const baseEnPath = pageLang
+        ? (currentPath.replace(new RegExp('^/' + pageLang + '(/|$)'), '/'))
+        : currentPath;
+      const normPath = (p) => (p || '/').replace(/\/+$/, '') || '/';
+      const normalizedBaseEn = normPath(baseEnPath);
+      let foundSwitchers = [];   // [{href, lang, aria}]
       for (const a of navAnchors) {
         const href = a.getAttribute('href') || '';
-        // Normalize trailing slashes for the comparison
-        const norm = (p) => p.replace(/\/+$/, '') || '/';
-        if (norm(href) === norm(expectedSwitcherHref)) {
-          switcherFound = true;
-          const aria = a.getAttribute('aria-label') || '';
-          if (isEsPage) {
-            if (/switch.*english|english/i.test(aria)) switcherHasAria = true;
-          } else {
-            if (/cambiar|espa[ñn]ol|spanish/i.test(aria)) switcherHasAria = true;
+        if (!href || href === '#') continue;
+        const normHref = normPath(href);
+        // Match /<lang-code>/<rest> OR / (the EN root)
+        const m = normHref.match(/^\/([a-z]{2,3})(?:\/|$)(.*)/);
+        if (m && /^[a-z]{2,3}$/.test(m[1])) {
+          const targetLang = m[1];
+          const remainder = '/' + (m[2] || '');
+          if (normPath(remainder) === normalizedBaseEn && targetLang !== pageLang) {
+            foundSwitchers.push({ href, lang: targetLang, aria: a.getAttribute('aria-label') || '' });
           }
-          break;
+          continue;
+        }
+        // Match the parallel English URL when on a /<lang>/ page
+        if (pageLang && normHref === normalizedBaseEn) {
+          foundSwitchers.push({ href, lang: 'en', aria: a.getAttribute('aria-label') || '' });
         }
       }
-      if (!switcherFound) {
+      if (foundSwitchers.length === 0) {
         report.issues.push({
           severity: 'fail',
           check: 'language-switcher-presence',
-          msg: `No language switcher found in nav on ${currentPath}. Per BILINGUAL SUPPORT rule, every page in Options B and C must have a visible nav anchor linking to the parallel-language URL. Expected an anchor with href="${expectedSwitcherHref}" in <nav> or <header>. Add an EN/ES toggle to the Nav component.`,
+          msg: `No language switcher found in nav on ${currentPath}. Per MULTILINGUAL SUPPORT rule, every page in Options B and C must have at least one nav anchor linking to a parallel-language version of this same page. Expected anchor href like "/es${normalizedBaseEn === '/' ? '/' : normalizedBaseEn}" or similar for any active language. Add a multi-language switcher to the Nav component.`,
         });
-      } else if (!switcherHasAria) {
-        report.issues.push({
-          severity: 'warn',
-          check: 'language-switcher-presence',
-          msg: `Language switcher found on ${currentPath} but missing the expected aria-label. On ${isEsPage ? 'ES' : 'EN'} pages, expected aria-label like "${isEsPage ? 'Switch to English' : 'Cambiar a Español'}". Improves accessibility without blocking deploy.`,
-        });
+      } else {
+        // Warn (not fail) on missing aria-label
+        for (const sw of foundSwitchers) {
+          if (!sw.aria) {
+            report.issues.push({
+              severity: 'warn',
+              check: 'language-switcher-presence',
+              msg: `Language switcher anchor href="${sw.href}" on ${currentPath} has no aria-label. For accessibility, add aria-label like "Switch to ${sw.lang.toUpperCase()}" or the native-language equivalent (per MULTILINGUAL SUPPORT rule's per-language table).`,
+            });
+            break;   // one warn per page is enough
+          }
+        }
       }
 
-      // testimonial-tag-on-es: on /es/* pages, every <cite> following a
-      // <blockquote> should have "(traducido del inglés)" near it (in <small>,
-      // adjacent text, or anywhere in cite descendants/siblings within the
-      // figure/article wrapper).
-      if (isEsPage) {
+      // testimonial-translation-tag: on /<lang>/ pages, every <blockquote>'s
+      // surrounding figure/article wrapper must contain the per-language
+      // translation tag near the attribution.
+      if (pageLang) {
+        const expectedPattern = LANG_TAG_PATTERNS[pageLang] || /\(translated from english\)/i;
+        const expectedTagDescription = ({
+          es: '(traducido del inglés)',
+          de: '(aus dem Englischen übersetzt)',
+          ru: '(переведено с английского)',
+          it: "(tradotto dall'inglese)",
+          fr: "(traduit de l'anglais)",
+          pt: '(traduzido do inglês)',
+          pl: '(przetłumaczone z angielskiego)',
+          zh: '(从英语翻译)',
+          ja: '(英語からの翻訳)',
+          ko: '(영어에서 번역됨)',
+          nl: '(vertaald uit het Engels)',
+          sv: '(översatt från engelska)',
+        })[pageLang] || '(translated from English)';
         const blockquotes = document.querySelectorAll('blockquote');
         for (const bq of blockquotes) {
-          // Look for the attribution element and the translation tag within
-          // the surrounding figure/article (common testimonial wrapper) or
-          // the immediate next-sibling chain.
           const wrapper = bq.closest('figure, article, .testimonial, [class*="testimonial"]') || bq.parentElement;
-          const wrapperText = (wrapper?.innerText || '').toLowerCase();
-          if (!wrapperText.includes('traducido del ingl')) {
-            // Trim quote for the diagnostic
+          const wrapperText = (wrapper?.innerText || '');
+          if (!expectedPattern.test(wrapperText)) {
             const qText = (bq.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 60);
             report.issues.push({
               severity: 'fail',
               check: 'testimonial-translation-tag',
-              msg: `Translated testimonial "${qText}…" on ${currentPath} is missing the "(traducido del inglés)" tag. Per BILINGUAL SUPPORT rule, every translated testimonial in /es/ pages must include this tag near the attribution so the reader knows the original was English. Add a <small>(traducido del inglés)</small> next to the <cite>.`,
+              msg: `Translated testimonial "${qText}…" on ${currentPath} is missing the "${expectedTagDescription}" tag. Per MULTILINGUAL SUPPORT rule, every translated testimonial in /<lang>/ pages must include the per-language translation tag near the attribution so the reader knows the original was English. Add a <small>${expectedTagDescription}</small> next to the <cite>.`,
             });
           }
         }
       }
+      // ---- end MULTILINGUAL SUPPORT per-page checks ----
       // ---- end bilingual per-page checks ----
 
       // ---- Image diversity audit (added 2026-04-25 after naples-pressure-washing-a) ----
@@ -1926,7 +2066,7 @@ function rgbToHexFromComputed(rgb) {
     // Pass the page path so the EN/ES split (BILINGUAL SUPPORT) selects the
     // right reference set: /es/* pages compare against B's /es/, others
     // against A's English.
-    if ((referenceTestimonialSet.size > 0 || referenceTestimonialSetEs.size > 0) && Array.isArray(out.liveTestimonials)) {
+    if ((referenceTestimonialSet.size > 0 || referenceTestimonialSetsByLang.size > 0) && Array.isArray(out.liveTestimonials)) {
       // Only run at desktop viewport — testimonials should be identical at both,
       // running once is enough (and avoids duplicate report entries).
       if (viewport.name === 'desktop') {
@@ -2048,42 +2188,57 @@ function rgbToHexFromComputed(rgb) {
     }
   }
 
-  // bilingual-page-parity (site-wide): every English page in the URL list
-  // must have a matching /es/<path> page in the URL list, and vice versa.
-  // Walks the unique paths actually visited (`paths` from argv) and groups
-  // them by EN-or-ES bucket.
-  let bilingualParityIssue = null;
+  // multilingual-page-parity (site-wide, generalized 2026-04-30 from
+  // bilingual-page-parity): for every English page in the URL list, every
+  // active language must have a matching /<lang-code>/<path> page in the URL
+  // list (and vice versa).  Active languages = the set of distinct lang-code
+  // prefixes detected across the URL list.
+  let multilingualParityIssue = null;
   if (isBilingualOption) {
-    const enPaths = new Set();
-    const esPaths = new Set();
+    // Bucket each input path by language: "/es/about" → lang="es", path="/about".
+    // "/about" → lang="en", path="/about".
+    const pathsByLang = new Map();   // lang → Set<base-path>
     for (const p of paths) {
       const norm = p.replace(/\/+$/, '') || '/';
-      if (norm.startsWith('/es/') || norm === '/es') {
-        esPaths.add(norm.replace(/^\/es/, '') || '/');
-      } else {
-        enPaths.add(norm);
+      const m = norm.match(/^\/([a-z]{2,3})(?:\/|$)(.*)/);
+      const lang = (m && /^[a-z]{2,3}$/.test(m[1])) ? m[1] : 'en';
+      const basePath = lang === 'en' ? norm : ('/' + (m[2] || ''));
+      const normalized = (basePath.replace(/\/+$/, '') || '/');
+      if (!pathsByLang.has(lang)) pathsByLang.set(lang, new Set());
+      pathsByLang.get(lang).add(normalized);
+    }
+    const allLangs = [...pathsByLang.keys()];
+    const enSet = pathsByLang.get('en') || new Set();
+    const orphans = [];
+    for (const [lang, langSet] of pathsByLang) {
+      if (lang === 'en') continue;
+      // Find paths in EN that are missing in this lang
+      const missingFromLang = [...enSet].filter(p => !langSet.has(p));
+      // Find paths in this lang that are missing in EN
+      const missingFromEn = [...langSet].filter(p => !enSet.has(p));
+      if (missingFromLang.length > 0) {
+        orphans.push(`EN-without-${lang.toUpperCase()}: ${missingFromLang.slice(0,5).join(', ')}`);
+      }
+      if (missingFromEn.length > 0) {
+        orphans.push(`${lang.toUpperCase()}-without-EN: ${missingFromEn.slice(0,5).join(', ')}`);
       }
     }
-    const enWithoutEs = [...enPaths].filter(p => !esPaths.has(p));
-    const esWithoutEn = [...esPaths].filter(p => !enPaths.has(p));
-    if (enWithoutEs.length > 0 || esWithoutEn.length > 0) {
-      const samples = [];
-      if (enWithoutEs.length) samples.push(`English without Spanish: ${enWithoutEs.slice(0,5).join(', ')}`);
-      if (esWithoutEn.length) samples.push(`Spanish without English: ${esWithoutEn.slice(0,5).join(', ')}`);
-      bilingualParityIssue = {
+    if (orphans.length > 0) {
+      multilingualParityIssue = {
         severity: 'fail',
-        check: 'bilingual-page-parity',
-        msg: `Option ${optionName.toUpperCase()} has bilingual page-parity gaps: ${samples.join(' | ')}. Per BILINGUAL SUPPORT rule, every English page must have a parallel /es/ page (and vice versa). Stage 5h completeness check should have caught this — fix in option-${optionName}/src/pages/es/ and rebuild.`,
+        check: 'multilingual-page-parity',
+        msg: `Option ${optionName.toUpperCase()} has multilingual page-parity gaps across ${allLangs.length} active language(s) [${allLangs.join(', ')}]: ${orphans.join(' | ')}. Per MULTILINGUAL SUPPORT rule, every English page must have a parallel /<lang>/ page in every active language (and vice versa). Stage 5h completeness check should have caught this — fix in option-${optionName}/src/pages/<lang>/ and rebuild.`,
       };
     } else {
-      bilingualParityIssue = {
+      const summary = allLangs.map(l => `${l}=${pathsByLang.get(l).size}`).join(', ');
+      multilingualParityIssue = {
         severity: 'pass',
-        check: 'bilingual-page-parity',
-        msg: `Option ${optionName.toUpperCase()} bilingual page-parity OK (${enPaths.size} EN ↔ ${esPaths.size} ES pages).`,
+        check: 'multilingual-page-parity',
+        msg: `Option ${optionName.toUpperCase()} multilingual page-parity OK across ${allLangs.length} active language(s) [${summary}].`,
       };
     }
   }
-  // ---- end BILINGUAL SUPPORT scope filter + parity ----
+  // ---- end MULTILINGUAL SUPPORT scope filter + parity ----
 
   // ---- Static source lints (run once site-wide, not per-page) ----
   // These checks read SOURCE FILES (not rendered HTML) so they run independently
@@ -2170,13 +2325,13 @@ function rgbToHexFromComputed(rgb) {
     }
   }
 
-  // Site-wide bilingual page-parity (BILINGUAL SUPPORT, B/C only)
-  if (bilingualParityIssue) {
-    if (bilingualParityIssue.severity === 'fail') {
-      console.log(`\n[site-wide]\n  ✗ [${bilingualParityIssue.check}] ${bilingualParityIssue.msg}`);
+  // Site-wide multilingual page-parity (MULTILINGUAL SUPPORT, B/C only)
+  if (multilingualParityIssue) {
+    if (multilingualParityIssue.severity === 'fail') {
+      console.log(`\n[site-wide]\n  ✗ [${multilingualParityIssue.check}] ${multilingualParityIssue.msg}`);
       failCount++;
     } else {
-      console.log(`\n[site-wide]\n  ✓ [${bilingualParityIssue.check}] ${bilingualParityIssue.msg}`);
+      console.log(`\n[site-wide]\n  ✓ [${multilingualParityIssue.check}] ${multilingualParityIssue.msg}`);
     }
   }
 

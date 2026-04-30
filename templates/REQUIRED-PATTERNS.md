@@ -435,76 +435,121 @@ This semantic discipline matters because the `testimonial-tampering` check treat
 
 ---
 
-## 12. Bilingual support (BILINGUAL SUPPORT — Options B and C, Spanish)
+## 12. Multilingual support (MULTILINGUAL SUPPORT — Options B and C)
 
-Added 2026-04-30 per user clarification: *"Options B and C now need to include Spanish, also, make sure we do the translation once, as Option B and C should have the same copy or VERY close."*
+Added 2026-04-30 per two user clarifications:
 
-**Structural rule (Options B and C)**: ship `/es/` pages alongside English. Translation produced ONCE in Stage 5 by the same Sonnet sub-agents doing the English rewrite, written to `option-b/src/pages/es/*.astro`. Option C reads B's `/es/` files at Stage 7 — single source of truth across B and C. Option A stays English-only.
+- *"Options B and C now need to include Spanish, also, make sure we do the translation once, as Option B and C should have the same copy or VERY close."* (initial bilingual baseline)
+- *"We need the ability to add a language version … 'add German to option B' or 'option C' or both. Of course not option A. The languages we need to support are German, Russian, Italian. It should be flexible: just type in a language and it builds it."* (incremental add-language)
 
-### 12.1 File layout
+**Structural rule (Options B and C)**: ship `/es/` pages alongside English by default in every initial build (Spanish is the bilingual baseline), and accept additional languages on demand via `/webfactory <domain> --add-language <name|iso> --to <b|c|both>`. Translation produced ONCE in Stage 5 (or in Stage AL2 for the add-language flow) by Sonnet sub-agents, written to `option-b/src/pages/<lang-code>/*.astro` (canonical translation source). Option C reads B's `/<lang-code>/` files — single source of truth across B and C, across all languages. Option A stays English-only.
+
+### 12.1 File layout (generalized to N languages)
 
 ```
-option-a/src/pages/<page>.astro                   ← English only (A is monolingual)
-option-b/src/pages/<page>.astro                   ← English (B's design + B's English rewrite)
-option-b/src/pages/es/<page>.astro                ← Spanish (B's design + B's Spanish translation, CANONICAL ES)
-option-c/src/pages/<page>.astro                   ← English (C's design + B's English text)
-option-c/src/pages/es/<page>.astro                ← Spanish (C's design + B's Spanish text from option-b/src/pages/es/)
+option-a/src/pages/<page>.astro                  ← English only (A is monolingual, NEVER /es/, /de/, etc.)
+option-b/src/pages/<page>.astro                  ← English (B's design + B's English rewrite)
+option-b/src/pages/es/<page>.astro               ← Spanish (default — initial-build bilingual baseline)
+option-b/src/pages/de/<page>.astro               ← German (added via --add-language)
+option-b/src/pages/ru/<page>.astro               ← Russian
+option-b/src/pages/it/<page>.astro               ← Italian
+…
+option-c/src/pages/<page>.astro                  ← English (C's design + B's English text)
+option-c/src/pages/<lang>/<page>.astro           ← <lang> (C's design + B's <lang> text from option-b/src/pages/<lang>/)
 ```
 
-### 12.2 What gets translated
+### 12.2 Supported language codes + per-language translation tags
+
+| Input (English name OR ISO code) | ISO code | Translation tag |
+|---|---|---|
+| Spanish / es | `es` | `(traducido del inglés)` |
+| German / de | `de` | `(aus dem Englischen übersetzt)` |
+| Russian / ru | `ru` | `(переведено с английского)` |
+| Italian / it | `it` | `(tradotto dall'inglese)` |
+| French / fr | `fr` | `(traduit de l'anglais)` |
+| Portuguese / pt | `pt` | `(traduzido do inglês)` |
+| Polish / pl | `pl` | `(przetłumaczone z angielskiego)` |
+| Chinese / zh | `zh` | `(从英语翻译)` |
+| Japanese / ja | `ja` | `(英語からの翻訳)` |
+| Korean / ko | `ko` | `(영어에서 번역됨)` |
+| Dutch / nl | `nl` | `(vertaald uit het Engels)` |
+| Swedish / sv | `sv` | `(översatt från engelska)` |
+| any other valid ISO 639-1 | (the code) | `(translated from English)` (fallback) |
+
+### 12.3 What gets translated
 
 **Translate**: page text, headlines, subheads, body, CTAs, image `alt`, `<title>`, `<meta description>`, nav labels, button text, form labels, footer copy.
 
 **Do NOT translate** (single source of truth across languages):
 
 - Phone numbers, email addresses, license numbers
-- Place names (Tampa, Lancaster, Ohio — keep original even when wrapped in Spanish prose)
+- Place names (Tampa, Lancaster, Ohio — keep original even when wrapped in target-language prose)
 - Business names, founder names, customer review attribution names, brand names
 - All `<img src>` paths (same images; only `alt` is translated)
 - All structural markup, components, grid configs, section ordering
 
-### 12.3 Testimonials in `/es/` — special handling
+### 12.4 Testimonials in `/<lang>/` — special handling
 
-Translate the testimonial body. Append `<small>(traducido del inglés)</small>` below the `<cite>` element. Attribution name stays original.
+Translate the testimonial body. Append `<small>{translation-tag}</small>` below the `<cite>` element where `{translation-tag}` is the per-language tag from the table. Attribution name stays original.
+
+Example — German `option-b/src/pages/de/index.astro`:
 
 ```astro
-<blockquote>"¡Excelentes precios, trabajo de primera!"</blockquote>
-<cite>— Mark S. <small>(traducido del inglés)</small></cite>
+<blockquote>"Beste Preise, ausgezeichnete Arbeit! Drei Bäume zu einem unglaublichen Preis entfernt."</blockquote>
+<cite>— Mark S. <small>(aus dem Englischen übersetzt)</small></cite>
 ```
 
-This is mandatory on every translated testimonial — qa-check enforces presence near each `<cite>`.
+Mandatory on every translated testimonial in every non-English language — qa-check enforces presence per-language near each `<cite>`.
 
-### 12.4 `<html lang>` attribute
+### 12.5 `<html lang>` attribute
 
-Every `/es/*` page renders `<html lang="es">`. Every English page renders `<html lang="en">`. Implementation: BaseLayout accepts a `lang` prop (default `"en"`); `/es/*.astro` pages pass `lang="es"`.
+Every `/<lang-code>/*` page renders `<html lang="<lang-code>">`. Every English page renders `<html lang="en">`. Implementation: BaseLayout accepts a `lang` prop (default `"en"`); `/<lang-code>/*.astro` pages pass the right code.
 
-### 12.5 Language switcher (mandatory in nav, Options B and C)
+### 12.6 Language switcher (mandatory in nav, Options B and C, generalized to N languages)
 
-Every page in B and C has a visible EN/ES toggle in the nav that:
+Every page in B and C has a visible language switcher in the nav that:
 
-- Links the current page to its parallel translation
-- Shows the language being switched TO (`ES` on EN pages, `EN` on ES pages)
-- Has `aria-label` referencing the target language ("Cambiar a Español" / "Switch to English")
-- Tap target ≥ 44×44px, visible in the main nav (not just a footer link)
+- Renders ALL currently-active languages (detected from `option-{b|c}/src/pages/<lang>/` directories)
+- Currently-active language is rendered non-clickable (use `<span>`, not `<a>`)
+- Each entry's `aria-label` references the target language
+- Tap target ≥ 44×44px per item
 
-Option A does NOT include a language switcher.
+**Style variants**:
 
-### 12.6 qa-check enforcement
+- **≤ 3 active languages**: simple toggle row (`EN | ES | DE`)
+- **≥ 4 active languages**: dropdown (use `<details>/<summary>` for no-JS toggle)
+
+Option A NEVER includes a language switcher.
+
+### 12.7 Add-language flow (incremental)
+
+Triggered by `/webfactory <domain> --add-language <name|iso> --to <b|c|both>`. Mini-pipeline (~5 min wallclock for a 6-page site):
+
+- AL1 — parse + validate (resolve language → ISO; validate target build exists)
+- AL2 — per-page translation workers (parallel Sonnet sub-agents translate from English to the target language; output to `option-b/src/pages/<lang>/`)
+- AL3 — update Nav language switcher in B
+- AL4 — if `--to` includes c: build C's `/<lang>/` pages (Sonnet workers render B's translated text in C's design)
+- AL5 — build + qa-check + redeploy affected option(s) (same Vercel project, new deployment hash)
+- AL6 — report (new URL + active languages summary)
+
+### 12.8 qa-check enforcement (generalized)
 
 Four rules, gated on `--option <b|c>`:
 
-- `bilingual-page-parity` — every English page must have a parallel `/es/` page (and vice versa)
-- `language-switcher-presence` — nav must contain a working EN/ES toggle with the right `aria-label`
-- `html-lang-attribute` — `/es/*` pages must have `<html lang="es">`; English pages must have `<html lang="en">` (or unspecified, which defaults to the BaseLayout default)
-- `testimonial-tampering` (extended) — when checking C's `/es/` pages, compare against B's `/es/` (passed via `--reference-dist-es`); verify each translated testimonial has `(traducido del inglés)` near attribution
+- `multilingual-page-parity` (renamed from `bilingual-page-parity`) — every English page must have a parallel `/<lang>/` page in EVERY active language (and vice versa). Active languages detected from URL path prefixes. Reports orphans per-language.
+- `language-switcher-presence` — nav must contain at least one anchor for a parallel-language version of the current page. Each switcher anchor's `aria-label` should reference the target language (warn if missing).
+- `html-lang-attribute` — `/<lang-code>/*` pages must have `<html lang="<lang-code>">`; English pages must have `<html lang="en">`.
+- `testimonial-tampering` (extended) — for `/<lang>/` pages, compare against B's `/<lang>/` (passed via `--reference-dist-i18n` — pointed at `option-b/dist`, qa-check walks all `/<lang-code>/` subdirs to build per-language reference Sets). Each translated testimonial verified to have the per-language tag near its attribution.
 
-### 12.7 Visual freedom
+CLI flag: `--reference-dist-i18n <path>` (canonical) — points at `option-b/dist`. Legacy `--reference-dist-es` is a back-compat alias.
 
-ANY layout, ANY component, ANY visual treatment. The rule is about COVERAGE (`/es/` exists with translated copy) and the testimonial-tag convention. Everything else stays at the option's design discretion.
+### 12.9 Visual freedom
 
-### 12.8 Real story (added 2026-04-30)
+ANY layout, ANY component, ANY visual treatment. The rule is about COVERAGE (every active language has a `/<lang>/` directory with translated copy) and the per-language testimonial-tag convention. Everything else stays at the option's design discretion.
 
-Spanish was previously implemented in the SKILL.md design but PAUSED while the English pipeline stabilized. Re-enabled with the architecture above. Single-source-of-truth design (translate ONCE in Stage 5, both B and C consume) is what keeps the cost from doubling — without it, B and C would each translate independently and diverge.
+### 12.10 Real story
+
+Spanish was previously implemented in the SKILL.md design but PAUSED while the English pipeline stabilized. Re-enabled 2026-04-30 as the bilingual baseline. Same day, the user requested the system extend to arbitrary languages on demand — German / Russian / Italian / French / etc. The architecture is generalized: per-language reference Sets, per-language translation tags, per-language testimonial-translation-tag check, multilingual page-parity walks any number of `/<lang-code>/` subdirs. Single-source-of-truth design (translate ONCE in B's `/<lang>/`, C reads from there) keeps the cost from doubling on every language addition.
 
 ---
 
