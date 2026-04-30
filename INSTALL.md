@@ -31,7 +31,7 @@ If your username is NOT `tomasz`, see "Step 4 — different username" below befo
 
 ## What you need before running setup.sh
 
-| Required | How to get it |
+| Required for `webfactory` | How to get it |
 |---|---|
 | **macOS** (MacMini, MacBook, etc.) | This script doesn't support Linux/Windows — fork + adapt if needed |
 | **Claude Code CLI** (`claude`) | Download from <https://claude.com/claude-code> |
@@ -40,6 +40,14 @@ If your username is NOT `tomasz`, see "Step 4 — different username" below befo
 | **GitHub access** to `1MORLAP/ClaudeWebFactory` | Currently a private repo — `git clone` will fail without auth (`gh auth login` or HTTPS token) |
 
 Everything else (Homebrew, Node, ffmpeg, Playwright, the Frontend Design plugin) is auto-installed by `setup.sh`.
+
+| Required *additionally* for `find-leads` (lead-funnel skill) | How to get it |
+|---|---|
+| **Google Places API key** | <https://console.cloud.google.com> → Credentials → "Create credentials" → API key. Enable Places API (New). Free tier covers ~200 lookups/day. |
+| **Venice.ai API key** (vision-LLM scoring) | <https://venice.ai/settings/api>. ~$0.17 per 100-lead batch on the default `google-gemma-3-27b-it` model. The lead-funnel scorer is OpenAI-compatible — alternatives (GPT-4o-mini, Claude, Grok, Mistral, Qwen) are listed in `lead-funnel/.env.example`. |
+| **AgentMail account** (for outreach + reply ingestion) | Required only if you'll use `lead-funnel/scripts/send-outreach.js` + `webhook-agentmail.js`. Skip if you only want discover→filter→score, not outreach. |
+
+Add the keys to `lead-funnel/.env` (copy from `lead-funnel/.env.example`). The `webfactory` skill itself does NOT need any of these — they're for `find-leads` only.
 
 ---
 
@@ -205,21 +213,48 @@ The `.gitignore` excludes `jobs/` (9GB+ of customer data, regeneratable) and per
 
 ```
 /Users/tomasz/WebFactory/
-├── SKILL.md                  ← THE pipeline definition (canonical)
+├── README.md                 ← high-level entry point (start here on a fresh clone)
+├── SKILL.md                  ← THE pipeline definition (canonical, ~95 sections)
 ├── CLAUDE.md                 ← project memory (auto-loaded by Claude Code)
 ├── ROADMAP.md                ← architecture history + planned work
 ├── FEEDBACK.md               ← every shipped fix with verbatim user feedback
 ├── INSTALL.md                ← THIS FILE
-├── setup.sh                  ← bootstrap script (re-runnable)
-├── package.json              ← Playwright + Astro deps
-├── .gitignore                ← excludes jobs/, node_modules/, settings.local.json, orphans
+├── setup.sh                  ← bootstrap script (re-runnable, idempotent)
+├── package.json              ← Playwright + Astro deps for the orchestrator
+├── webfactory-logo.svg       ← brand mark (used in marketplace + outreach)
+├── skills-lock.json          ← lockfile for harness-installed external skills
+│                                (agentmail, stripe-*) — restored from this on
+│                                fresh machines
+├── .gitignore                ← excludes jobs/, node_modules/, settings.local.json,
+│                                .agents/, .claude/skills/, stray QA dirs
 ├── .claude/
-│   └── settings.json         ← Claude Code permissions (committed); enabledPlugins
-├── scripts/                  ← helper scripts (qa-check.js, scrape.js, etc.)
+│   ├── settings.json         ← Claude Code permissions + enabledPlugins (committed)
+│   └── commands/
+│       └── find-leads.md     ← slash-command def for lead-funnel
+├── scripts/                  ← orchestrator helpers
+│   ├── scrape.js                Stage 1 scraper
+│   ├── fix-logo.js              post-scrape: hunt for SVG/transparent logos
+│   ├── detect-placeholders.cjs  post-scrape: flag CMS placeholder content
+│   ├── qa-check.js              blocking pre-deploy QA gate (~30 rules)
+│   ├── qa.cjs                   headless screenshot QA (Stage 4 / 6)
+│   ├── audit-image-reuse.cjs    static fleet-wide image-reuse regression detector
+│   └── validate-specs.cjs       Stage 2.5b pre-dispatch fact-grounding lint
 ├── templates/
-│   ├── scaffold/             ← copied per-build (pure scaffold, ZERO visual opinions)
 │   ├── REQUIRED-PATTERNS.md  ← structural contract every build must satisfy
-│   └── inspiration/          ← read-only design references (saas-default, industrial-trades)
+│   ├── scaffold/             ← copied per-build (pure scaffold, ZERO visual opinions)
+│   └── inspiration/
+│       ├── README.md            inspiration library index + A-vs-C compatibility column
+│       ├── saas-default/        SaaS / consumer / tech-forward
+│       ├── industrial-trades/   workwear / file-tab / bracket-numbered  (Option C only for trades)
+│       └── industrial-trades-photo-led/   editorial-restrained craftsman portfolio  (Option A for trades)
+├── lead-funnel/              ← lead-discovery skill (separate from WebFactory pipeline)
+│   ├── README.md                pipeline + setup
+│   ├── HYPOTHESES.md            conversion-likelihood hypotheses + hard-exclusion policy
+│   ├── .env.example             GOOGLE_PLACES_API_KEY, VENICE_API_KEY, etc.
+│   ├── package.json
+│   ├── index.js + discover.js + filter.js + screenshot.js + score.js + report.js + db.js
+│   └── scripts/                 marketplace-adjacent helpers (queue-rebuilds.js,
+│                                send-outreach.js, webhook-agentmail.js, slug.js, etc.)
 ├── jobs/                     ← per-job working dirs (gitignored — regeneratable)
 └── docs/
     └── option-a-process.md   ← detailed Option A walkthrough (defer to SKILL.md if conflict)
