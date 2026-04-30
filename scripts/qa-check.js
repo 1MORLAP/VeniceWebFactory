@@ -38,10 +38,20 @@ import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 // ---- argv parsing (supports --manifest <path> + --reference-dist <path> + --reference-dist-i18n <path> + --option <a|b|c> mixed with positional paths) ----
-// MULTILINGUAL SUPPORT (2026-04-30 extended for any language): --reference-dist-es
-// is now an alias for --reference-dist-i18n.  The i18n flag points at a dist/ tree
-// that has /<lang-code>/ subdirs for every active language; qa-check walks each
-// of those to build per-language testimonial reference sets.
+// MULTILINGUAL SUPPORT (2026-04-30 extended for any language; default flipped to
+// English-only same day): --reference-dist-es is now an alias for
+// --reference-dist-i18n. The i18n flag points at a dist/ tree that has
+// /<lang-code>/ subdirs for every active language; qa-check walks each of those
+// to build per-language testimonial reference sets.
+//
+// IMPORTANT: All multilingual rules in this file are DETECTION-DRIVEN and
+// silently no-op on English-only invocations. The orchestrator simply omits the
+// --reference-dist-i18n flag and any /<lang>/ page paths from the input list
+// when the build is English-only (the new default). qa-check then never touches
+// the multilingual code paths — no fail, no warn, no work. To enable
+// multilingual checks, the orchestrator passes --reference-dist-i18n
+// <option-b/dist> AND prepends /<lang>/ paths to the page list, once per active
+// language directory found in option-b/src/pages/<lang>/.
 const rawArgs = process.argv.slice(2);
 let baseUrl = 'http://localhost:4321';
 let manifestPath = null;
@@ -339,14 +349,17 @@ if (referenceDistPath) {
 }
 
 // ---- Build PER-LANGUAGE reference testimonial corpora (MULTILINGUAL SUPPORT) ----
-// When QA-checking Option B or C, the worker passes --reference-dist-i18n pointing at
-// option-b/dist (B is the canonical translation source for ALL languages — ES is the
-// default-included language; DE/RU/IT/FR/etc. are added incrementally via
-// `--add-language`).  Walk every /<lang-code>/ subdirectory in that dist and build
-// per-language reference Sets.  C's translated testimonials must appear in the
-// corresponding language Set verbatim — same byte-identical contract as EN, just
-// applied per-language.  Strip the per-language translation tag wrapper during
-// normalization (the tag's PRESENCE is checked separately by
+// When QA-checking Option B or C with active translations, the worker passes
+// --reference-dist-i18n pointing at option-b/dist (B is the canonical translation
+// source for ALL languages). Languages are added either at initial build via
+// `--languages es,de,...` OR post-build via `--add-language <code> --to <b|c|both>`.
+// On English-only builds (the default since 2026-04-30), --reference-dist-i18n
+// is omitted entirely and this map stays empty — per-language testimonial checks
+// silently no-op. When the flag IS passed, walk every /<lang-code>/ subdirectory
+// in that dist and build per-language reference Sets. C's translated testimonials
+// must appear in the corresponding language Set verbatim — same byte-identical
+// contract as EN, just applied per-language. Strip the per-language translation
+// tag wrapper during normalization (the tag's PRESENCE is checked separately by
 // `testimonial-translation-tag`).
 const referenceTestimonialSetsByLang = new Map();   // lang-code → Set<normalized>
 let referenceFileCountI18n = 0;
@@ -2170,13 +2183,37 @@ function rgbToHexFromComputed(rgb) {
   }
   // ---- end numbered-section-labels scope filter ----
 
-  // ---- BILINGUAL SUPPORT scope filter + site-wide page-parity check ----
-  // The bilingual checks (html-lang-attribute, language-switcher-presence,
+  // ---- MULTILINGUAL SUPPORT scope filter + site-wide page-parity check ----
+  // The multilingual checks (html-lang-attribute, language-switcher-presence,
   // testimonial-translation-tag) fire inside page.evaluate on every page.
   // For Option A (English-only by design) and for invocations without
-  // --option, strip those issues — A is monolingual.  For B and C, keep them.
+  // --option, strip those issues — A is monolingual.  For B and C, keep them
+  // — BUT only when the build actually has ≥1 non-English language active.
+  //
+  // 2026-04-30 default flip: English-only became the default for B/C as well.
+  // On English-only B/C invocations, the orchestrator passes only English
+  // paths in the input list (no /<lang>/ paths). language-switcher-presence
+  // would fail every page because there's no switcher to find — but there
+  // shouldn't be one on a single-language site. Strip the check in that case.
   const isBilingualOption = optionName === 'b' || optionName === 'c';
+
+  // Bucket all input paths by language prefix so we can detect "only English"
+  // before the parity check runs. /es/about → lang="es"; /about → lang="en".
+  const pathsByLang = new Map();   // lang → Set<base-path>
+  for (const p of paths) {
+    const norm = p.replace(/\/+$/, '') || '/';
+    const m = norm.match(/^\/([a-z]{2,3})(?:\/|$)(.*)/);
+    const lang = (m && /^[a-z]{2,3}$/.test(m[1])) ? m[1] : 'en';
+    const basePath = lang === 'en' ? norm : ('/' + (m[2] || ''));
+    const normalized = (basePath.replace(/\/+$/, '') || '/');
+    if (!pathsByLang.has(lang)) pathsByLang.set(lang, new Set());
+    pathsByLang.get(lang).add(normalized);
+  }
+  const allLangs = [...pathsByLang.keys()];
+  const hasAnyTranslation = allLangs.some(l => l !== 'en');
+
   if (!isBilingualOption) {
+    // Option A or no --option flag: strip all multilingual check issues entirely.
     for (const r of results) {
       if (r.issues) {
         r.issues = r.issues.filter(i =>
@@ -2186,28 +2223,27 @@ function rgbToHexFromComputed(rgb) {
         );
       }
     }
+  } else if (!hasAnyTranslation) {
+    // Option B or C, but English-only build: keep html-lang-attribute (still
+    // useful — English pages should have lang="en") and testimonial-translation-tag
+    // (only fires on /<lang>/ pages anyway, of which there are none, so it's
+    // already a no-op). STRIP language-switcher-presence — single-language
+    // sites have no switcher and the failing check would be noise.
+    for (const r of results) {
+      if (r.issues) {
+        r.issues = r.issues.filter(i => i.check !== 'language-switcher-presence');
+      }
+    }
   }
 
   // multilingual-page-parity (site-wide, generalized 2026-04-30 from
   // bilingual-page-parity): for every English page in the URL list, every
   // active language must have a matching /<lang-code>/<path> page in the URL
   // list (and vice versa).  Active languages = the set of distinct lang-code
-  // prefixes detected across the URL list.
+  // prefixes detected across the URL list. On English-only builds (allLangs
+  // === ['en']), the rule has nothing to check and silently no-ops below.
   let multilingualParityIssue = null;
   if (isBilingualOption) {
-    // Bucket each input path by language: "/es/about" → lang="es", path="/about".
-    // "/about" → lang="en", path="/about".
-    const pathsByLang = new Map();   // lang → Set<base-path>
-    for (const p of paths) {
-      const norm = p.replace(/\/+$/, '') || '/';
-      const m = norm.match(/^\/([a-z]{2,3})(?:\/|$)(.*)/);
-      const lang = (m && /^[a-z]{2,3}$/.test(m[1])) ? m[1] : 'en';
-      const basePath = lang === 'en' ? norm : ('/' + (m[2] || ''));
-      const normalized = (basePath.replace(/\/+$/, '') || '/');
-      if (!pathsByLang.has(lang)) pathsByLang.set(lang, new Set());
-      pathsByLang.get(lang).add(normalized);
-    }
-    const allLangs = [...pathsByLang.keys()];
     const enSet = pathsByLang.get('en') || new Set();
     const orphans = [];
     for (const [lang, langSet] of pathsByLang) {
@@ -2229,7 +2265,10 @@ function rgbToHexFromComputed(rgb) {
         check: 'multilingual-page-parity',
         msg: `Option ${optionName.toUpperCase()} has multilingual page-parity gaps across ${allLangs.length} active language(s) [${allLangs.join(', ')}]: ${orphans.join(' | ')}. Per MULTILINGUAL SUPPORT rule, every English page must have a parallel /<lang>/ page in every active language (and vice versa). Stage 5h completeness check should have caught this — fix in option-${optionName}/src/pages/<lang>/ and rebuild.`,
       };
-    } else {
+    } else if (allLangs.length > 1) {
+      // Only emit a pass message when there's something multilingual to report.
+      // On English-only builds (allLangs === ['en']), the rule has nothing to
+      // say — it should silently no-op (per "default English-only" 2026-04-30).
       const summary = allLangs.map(l => `${l}=${pathsByLang.get(l).size}`).join(', ');
       multilingualParityIssue = {
         severity: 'pass',
@@ -2237,6 +2276,7 @@ function rgbToHexFromComputed(rgb) {
         msg: `Option ${optionName.toUpperCase()} multilingual page-parity OK across ${allLangs.length} active language(s) [${summary}].`,
       };
     }
+    // else: English-only build → multilingualParityIssue stays null → not reported.
   }
   // ---- end MULTILINGUAL SUPPORT scope filter + parity ----
 

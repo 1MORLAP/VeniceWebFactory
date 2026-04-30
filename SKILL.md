@@ -319,21 +319,25 @@ Worker uses the `Edit` tool (NOT `Write`) to make targeted text-only changes. **
 - Stage 4c-tris Dramatic Improvement Audit (vision capability + critical comparison).
 - Stage 10 final report.
 
-### Cost projection (rough, 6-page small-business site, **default bilingual EN+ES per MULTILINGUAL SUPPORT rule Part 1**; add-language is incremental — see MULTILINGUAL SUPPORT Part 2 for per-add cost)
+### Cost projection (rough, 6-page small-business site, **English-only baseline since 2026-04-30**; per-language additions itemized separately)
 
 | Stage | Single-orchestrator | Decomposed |
 |---|---|---|
 | 1 — Scrape | deterministic | deterministic |
 | 2 — Brief | Opus | Opus |
 | 2.5 — Specs + scaffold + lint | (was implicit in Stage 3) | Opus (~50K tokens) |
-| 3 — Build A (English-only) | Opus × 6 ≈ 250K Opus | 6× Sonnet @25-30K ≈ 165K Sonnet |
+| 3 — Build A (English-only — always) | Opus × 6 ≈ 250K Opus | 6× Sonnet @25-30K ≈ 165K Sonnet |
 | 4 — QA fix A | Opus | mostly Opus (shared) + occasional Sonnet (per-page) |
-| 5 — Build B (EN rewrite + ES translation, single dispatch per page) | Opus × 6 ≈ 450K Opus | 6× Sonnet @45-55K ≈ 300K Sonnet |
-| 6 — QA B (now checking EN + ES) | Opus | mostly Opus + occasional Sonnet |
-| 7 — Build C (12 pages: EN + ES) | Opus ~120-180K | Opus invocation + 6× Sonnet workers @45-55K (each writes EN + ES per page) ≈ 80K Opus + 300K Sonnet |
+| 5 — Build B (EN rewrite only) | Opus × 6 ≈ 350K Opus | 6× Sonnet @25-30K ≈ 175K Sonnet |
+| 6 — QA B (English) | Opus | mostly Opus + occasional Sonnet |
+| 7 — Build C (6 EN pages, plugin-driven) | Opus ~80-120K | Opus invocation + 6× Sonnet workers @25-30K ≈ 60K Opus + 175K Sonnet |
 | 8-10 — Deploy/verify/report | Opus | Opus |
 
-At Opus:Sonnet ≈ 5:1 rate ratio: per-build cost drops ~50-65% overall via decomposition. Bilingual adds ~25-40% on top of single-language baseline (translation work in Stage 5 + 2× pages to QA in Stage 6/7h/8a). The smaller the site, the less the savings from decomposition; the larger the site, the more the savings.
+At Opus:Sonnet ≈ 5:1 rate ratio: per-build cost drops ~50-65% overall via decomposition. The smaller the site, the less the savings from decomposition; the larger the site, the more the savings.
+
+**With `--languages <list>` (per added language code)**: Stage 5 grows ~+25-35K Sonnet per page per language; Stage 7 grows similarly. Per-build cost: roughly +20-30% per language code. So `--languages es` ≈ +25%; `--languages es,de` ≈ +50%; `--languages es,de,fr` ≈ +75%. (Baseline `/webfactory <url>` with no `--languages` is the table above.)
+
+**With `--add-language <code> --to <b|c|both>` (post-build, per invocation)**: ~150-250K Sonnet + ~40K Opus per affected option, regardless of original baseline. Runs the AL1-AL6 mini-pipeline and redeploys.
 
 ### Decomposed mode is the DEFAULT (since 2026-04-29)
 
@@ -1455,14 +1459,25 @@ User clarifications:
 
 - 2026-04-30 (initial): *"Options B and C now need to include Spanish, also, make sure we do the translation once, as Option B and C should have the same copy or VERY close."*
 - 2026-04-30 (extension): *"We need the ability to add a language version. Once we build a website … I want to be able to say 'add French' or 'add German' and then specify the option … 'add German to option B' or 'option C' or both. Of course not option A. The languages we need to support are German, Russian, Italian. It should be flexible: just type in a language and it builds it."*
+- 2026-04-30 (default flip): *"When we run webfactory skill with no language options, do English only. Do not automatically build Spanish unless we run the skill with language options. Spanish will be added later. So the marketing — the initial run is English only. Spanish, French, or other languages will be added later."*
 
-The rule supports both: **Spanish ships by default in every initial `/webfactory <url>` build of B and C** (the bilingual baseline), AND **any additional language can be added incrementally** to an existing B / C / both via a focused add-language flow. Option A is always English-only — its faithful-rebuild contract is non-negotiable.
+**THE DEFAULT IS ENGLISH-ONLY.** Initial `/webfactory <url>` invocations build B and C as English-only — no `/es/`, `/de/`, or any other `/<lang>/` directories are created, no language switcher in the nav, qa-check's multilingual rules silently no-op. The customer / marketing-facing run is always English first; translations are added later, only when explicitly requested. Option A is ALWAYS English-only regardless of flags — its faithful-rebuild contract is non-negotiable.
 
-##### The rule (two parts)
+##### The rule (two opt-in paths, no default-on)
 
-**Part 1 — Bilingual baseline (default in every initial build)**: Options B and C ship a Spanish translation alongside their English version. Translation produced ONCE during Stage 5 (Build B) by the same Sonnet sub-agents that do the English rewrite, written to `option-b/src/pages/es/*.astro`. Option C reads B's `/es/` files at Stage 7 to get its Spanish text — guaranteeing single-source-of-truth across B and C.
+**Path 1 — `--languages` flag (initial-build, opt-in)**: pass `--languages <comma-separated-iso-codes>` to build N additional languages alongside English in B and C from the start.
 
-**Part 2 — Add-language flow (incremental, on demand)**: any additional language (German, Russian, Italian, French, Portuguese, Polish, Chinese, Japanese, Korean, or any ISO 639-1 code) can be added to an existing build via:
+```
+/webfactory <domain> --languages es                    # English + Spanish
+/webfactory <domain> --languages es,de                 # English + Spanish + German
+/webfactory <domain> --languages es,de,fr,it,ru        # 5 non-English + English
+/webfactory <domain> --languages Spanish,French        # English-name accepted (resolved via the table below)
+/webfactory <domain> --skip-c --languages es           # combine freely (English + Spanish for B only; C is skipped)
+```
+
+Each requested language runs through Stage 5f/5g/5h conditionally during the initial build (parallel Sonnet sub-agents translate per page; output to `option-b/src/pages/<lang>/*.astro`). Option C reads from B's `/<lang>/` files at Stage 7 — single source of truth. The Nav switcher renders ALL active languages including English. qa-check's multilingual rules fire automatically when `/<lang>/` paths exist.
+
+**Path 2 — `--add-language` flag (post-build, incremental)**: any language (or set of languages) can be added to an EXISTING build via:
 
 ```
 /webfactory <domain> --add-language <name|iso> --to <b|c|both>
@@ -1477,7 +1492,9 @@ Examples:
 /webfactory giffins.net --add-language fr --to B,C    # ISO code accepted
 ```
 
-The flow runs a focused mini-pipeline (~5 min wallclock for a 6-page site): per-page Sonnet sub-agents in parallel translate from English to the target language, write to `option-b/src/pages/<lang-code>/*.astro` (and to `option-c/src/pages/<lang-code>/*.astro` if `--to` includes c), update each affected option's Nav language switcher, build, qa-check, redeploy. Same Vercel project + new deployment hash.
+The flow runs a focused mini-pipeline (~5 min wallclock for a 6-page site): per-page Sonnet sub-agents in parallel translate from English to the target language, write to `option-b/src/pages/<lang-code>/*.astro` (and to `option-c/src/pages/<lang-code>/*.astro` if `--to` includes c), update each affected option's Nav language switcher (or insert one if previously English-only), build, qa-check, redeploy. Same Vercel project + new deployment hash. See `Stage AL` below for the full mini-pipeline.
+
+**Combinable**: Path 1 + Path 2 work together. A site initially built with `--languages es` can later receive `--add-language de --to both` to extend to German. The orchestrator detects the union of `option-b/src/pages/<lang>/` directories at any moment to compute "active languages."
 
 ##### Supported language codes + translation tags
 
@@ -1508,10 +1525,10 @@ option-a/src/pages/index.astro            ← English (faithful rebuild) — A i
 …
 
 option-b/src/pages/index.astro            ← English (B's design + B's English text)
-option-b/src/pages/es/index.astro         ← Spanish — default included, canonical ES source
-option-b/src/pages/de/index.astro         ← German — added via --add-language=de --to=b (or both)
-option-b/src/pages/ru/index.astro         ← Russian — added incrementally
-option-b/src/pages/it/index.astro         ← Italian — added incrementally
+option-b/src/pages/es/index.astro         ← Spanish — present only if --languages=es passed at build OR --add-language es --to b post-build
+option-b/src/pages/de/index.astro         ← German — present only if --languages includes de OR --add-language de
+option-b/src/pages/ru/index.astro         ← Russian — present only if --languages includes ru OR --add-language ru
+option-b/src/pages/it/index.astro         ← Italian — present only if --languages includes it OR --add-language it
 …
 
 option-c/src/pages/index.astro            ← English (C's design + B's English text)
@@ -1596,17 +1613,19 @@ Option A NEVER includes a language switcher.
 
 Each translated version is **the same site in another language**, not a different site.
 
-##### Initial-build stage allocation (default ES, included)
+##### Initial-build stage allocation (English-only by default; conditional translation stages when `--languages` is passed)
 
 - **Stage 1 (scrape)**: unchanged.
 - **Stage 2 (design brief)**: unchanged.
-- **Stage 2.5 (per-page specs)**: each spec includes a *translation* section listing strings to translate and strings to leave alone. For initial builds, only Spanish is in scope.
-- **Stage 3 (Build A)**: unchanged. A is English-only, NEVER ships translations.
+- **Stage 2.5 (per-page specs)**: if `--languages` is passed, each spec includes a *translation* section listing strings to translate and strings to leave alone for each requested language. Without `--languages`, the translation section is omitted (English-only specs).
+- **Stage 3 (Build A)**: unchanged. A is ALWAYS English-only, NEVER ships translations regardless of flags.
 - **Stage 4 (QA A)**: unchanged.
-- **Stage 5 (Build B)**: each Sonnet sub-agent produces two outputs per page — `option-b/src/pages/<page>.astro` (English rewrite) AND `option-b/src/pages/es/<page>.astro` (Spanish translation). See Stage 5f/5g/5h substages.
-- **Stage 6 (QA B)**: QA-checks both `/` and `/es/` pages.
-- **Stage 7 (Build C)**: plugin reads both EN and ES from B; produces both EN and ES in C. Spanish text in C must match B's Spanish byte-identical.
-- **Stage 8a (deploy gate)**: checks multilingual parity on B and C across all detected languages.
+- **Stage 5 (Build B)**: each Sonnet sub-agent produces `option-b/src/pages/<page>.astro` (English rewrite) UNCONDITIONALLY. Substages 5f/5g/5h are CONDITIONAL on `--languages`:
+  - If `--languages` is omitted → skip 5f, 5f, 5g, 5h entirely. B is English-only.
+  - If `--languages es,de` → for each requested language, the same sub-agent ALSO produces `option-b/src/pages/<lang>/<page>.astro`. 5g (language switcher) renders all active languages. 5h verifies parity across all active languages.
+- **Stage 6 (QA B)**: QA-checks `/` always; QA-checks `/<lang>/` pages only for languages active in B's `src/pages/`. Multilingual qa-check rules silently no-op on English-only builds.
+- **Stage 7 (Build C)**: plugin reads English from B unconditionally. For every active language in B (detected at Stage 7d-spec time), plugin ALSO reads B's `/<lang>/` files. C produces 1 English + N translated `.astro` files per page where N = active languages. With no active languages, C is English-only.
+- **Stage 8a (deploy gate)**: multilingual parity check fires only when ≥1 non-English language is active in B's dist. English-only builds skip the multilingual rules entirely (no fail, no warn — silently no-op).
 - **Stage 8b (deploy)**: unchanged.
 
 ##### Add-language flow (Stage AL — incremental)
@@ -1621,7 +1640,7 @@ Triggered by `/webfactory <domain> --add-language <name|iso> --to <b|c|both>`. M
   - `C`, `c` → target Option C only
   - `both`, `b,c`, `B,C` → target both
   - Invalid input → fail fast
-- Validate the build exists: `jobs/{domain}/option-b/dist/` (and `option-c/dist/` if --to includes c). If missing → fail fast with: `Cannot add language to <option> — no existing build at jobs/{domain}/option-{x}/dist/. Run /webfactory <url> first to produce the initial English+Spanish build.`
+- Validate the build exists: `jobs/{domain}/option-b/dist/` (and `option-c/dist/` if --to includes c). If missing → fail fast with: `Cannot add language to <option> — no existing build at jobs/{domain}/option-{x}/dist/. Run /webfactory <url> first to produce the initial (English) build.`
 - Check whether the language already exists: if `option-b/src/pages/<lang>/` exists with all expected pages → warn + ask to overwrite, OR if `--force` flag passed, overwrite without prompt.
 
 **AL2. Per-page translation workers (parallel)**
@@ -1674,21 +1693,23 @@ Emit a focused report with:
 - Total active languages now on each affected option (e.g., `B: EN, ES, DE` after adding German to B)
 - Per-language URL examples (e.g., `https://giffins-net-option-b-X.vercel.app/de/services`)
 
-##### Cost impact (initial build vs add-language)
+##### Cost impact (English-only baseline; per-language additions itemized)
 
-**Initial build** (default EN + ES per BILINGUAL Part 1):
+**Default initial build (English-only — no `--languages` flag)**: NO multilingual cost. Stage 5/6/7 run exactly as they did before any multilingual rule existed. This is the new baseline; previous "+25-40%" overhead is gone unless the user opts in.
 
-- Stage 5: ~50K Sonnet tokens per page (rewrite + ES translation) — total ~300K Sonnet
-- Stage 7: 12 pages (EN + ES) — total ~80K Opus + ~300K Sonnet
-- Per-build total: +25–40% vs English-only baseline
+**Initial build with `--languages <list>`** (per language code added):
 
-**Each `--add-language` invocation** (~5 min wallclock for a 6-page site, --to=b only):
+- Stage 5: ~25-35K Sonnet per page per added language — total ~150-210K Sonnet × N codes
+- Stage 7: 6 + 6N pages built (EN + N translations) — total ~50K + ~50K × N Sonnet on top of English-only Stage 7
+- Per-build total: +20-30% per added language vs English-only baseline (so `--languages es,de` ≈ +40-60%; `--languages es,de,fr` ≈ +60-90%)
 
-- AL2: ~25–35K Sonnet per page × N pages = ~150–210K Sonnet for the translation
-- AL3: Opus ~10K to update Nav switcher in B
-- (if --to=both): AL4 also runs Sonnet workers for C's render = another ~150–210K Sonnet
+**Each `--add-language` invocation** (~5 min wallclock for a 6-page site, `--to=b` only):
+
+- AL2: ~25-35K Sonnet per page × N pages = ~150-210K Sonnet for the translation
+- AL3: Opus ~10K to update Nav switcher in B (if Nav previously had no switcher because the build was English-only, AL3 INSERTS one)
+- (if `--to=both`): AL4 also runs Sonnet workers for C's render = another ~150-210K Sonnet
 - AL5: build + qa-check + deploy = ~30K Opus
-- Per-language-add total: ~150–250K Sonnet + ~40K Opus per affected option
+- Per-language-add total: ~150-250K Sonnet + ~40K Opus per affected option
 
 ##### QA gate enforcement (`qa-check.js`)
 
@@ -1707,9 +1728,10 @@ CLI flag changes:
 ##### What this rule does NOT do
 
 - It does NOT translate Option A. Ever.
+- It does NOT build any non-English language by default. The default `/webfactory <url>` invocation produces English-only B and C. Translations are explicit opt-in via `--languages` (build-time) or `--add-language` (post-build).
 - It does NOT support all languages everywhere — only the ISO 639-1 codes in the table above (and any other valid ISO 639-1 code with English-fallback translation tag). Hindi, Arabic, Hebrew (RTL languages) need additional rendering work — flagged but not yet supported. If a customer needs RTL, that's a separate skill extension.
 - It does NOT auto-translate via external services (Google Translate, DeepL). Translation is produced by the Stage 5 (or AL2) Sonnet workers themselves, which have the manifest context + brand voice.
-- It does NOT apply to existing builds before a given language was added. Bilingual was on by default after 2026-04-30; subsequent --add-language invocations are explicit per-build operations.
+- It does NOT apply to existing builds before a given language was added. Each `--languages` or `--add-language` invocation is explicit per-build.
 
 ---
 
@@ -2198,9 +2220,9 @@ node scripts/qa-check.js http://localhost:$PORT_A --manifest jobs/$DOMAIN/manife
 
 **Why `--option a`?** It activates the `image-reuse-A` rule (IMAGE REUSE RULE in this doc): at least 90% of must-reuse manifest photos must appear in Option A's build. If this fails, the design has drifted into magazine / typographic-only layout — restructure to add a portfolio / gallery section, photo-per-service-card, and about-the-crew block to absorb the photo budget. **Always pass `--option a` (or `b` or `c`) when running qa-check on a built option.** Omitting it is a silent back-compat fallback that disables option-specific gates.
 
-**Why `--reference-dist-i18n` on B and C?** The MULTILINGUAL SUPPORT rule made B the canonical translation source for ALL languages. When checking C's `/<lang>/` testimonials, qa-check needs to compare against B's `/<lang>/` (not A's, since A is English-only). The `--reference-dist-i18n` flag points the testimonial-tampering rule at B's dist root, and qa-check walks every `/<lang-code>/` subdirectory there to build per-language reference sets. The legacy `--reference-dist-es` flag still parses as an alias.
+**Why `--reference-dist-i18n` on B and C?** The MULTILINGUAL SUPPORT rule made B the canonical translation source for ALL languages. When checking C's `/<lang>/` testimonials, qa-check needs to compare against B's `/<lang>/` (not A's, since A is English-only). The `--reference-dist-i18n` flag points the testimonial-tampering rule at B's dist root, and qa-check walks every `/<lang-code>/` subdirectory there to build per-language reference sets. The legacy `--reference-dist-es` flag still parses as an alias. **The flag should be omitted entirely on English-only builds** (the default since 2026-04-30) — qa-check's per-language testimonial check then silently no-ops.
 
-**Why `/es/` (and `/de/`, `/ru/`, `/it/`, etc.) paths in the page list?** The qa-check checks the URLs it's given. To run the full multilingual gate, every active language's page set must be passed. Missing `/<lang>/` paths in the invocation = multilingual rules don't fire on those pages. The Stage 4b invocation above uses Option A's path list (English-only — A is monolingual); Stage 6 (Option B) and Stage 7h (Option C) extend to include every active language's paths. After `--add-language German --to B`, the next Stage 6 / Stage 8a invocation on B must include `/de/ /de/about /de/contact ...` in addition to the existing EN + ES paths.
+**Why `/es/` (and `/de/`, `/ru/`, `/it/`, etc.) paths in the page list?** The qa-check checks the URLs it's given. To run the full multilingual gate, every active language's page set must be passed. Missing `/<lang>/` paths in the invocation = multilingual rules don't fire on those pages. **On English-only builds (the default since 2026-04-30), the orchestrator passes ONLY English paths** — qa-check then no-ops the multilingual rules. Stage 4b for Option A always uses Option A's English-only path list (A is monolingual). Stage 6 (Option B) and Stage 7h (Option C) extend the path list to include every active language's paths IF any language is active in `option-b/src/pages/<lang>/`. After `--languages es,de` at initial build OR `--add-language German --to B` post-build, the next Stage 6 / Stage 8a invocation on B includes `/es/, /es/about, …, /de/, /de/about, …` in addition to the English paths.
 
 **THEN** — run the screenshot QA script for visual inspection:
 
@@ -2527,9 +2549,9 @@ Same as Option A:
 
 These are non-negotiable for B. The wordmark fallback rule for B/C does NOT apply to B.
 
-#### 5e. Add `lang` prop to BaseLayout (one-time scaffold edit)
+#### 5e. Add `lang` prop to BaseLayout (one-time scaffold edit — runs unconditionally)
 
-Before producing `/es/` pages, BaseLayout must accept a `lang` prop so Spanish pages can override the default `en`. Edit `option-b/src/layouts/BaseLayout.astro`:
+BaseLayout always accepts a `lang` prop, even on English-only builds. This is a future-proofing edit — keeping the prop wired in costs ~5 lines of code and ensures any later `--add-language` invocation can pass `lang="de"` etc. without rewriting the layout. Edit `option-b/src/layouts/BaseLayout.astro`:
 
 ```astro
 ---
@@ -2537,7 +2559,7 @@ interface Props {
   title: string;
   description?: string;
   active?: string;
-  lang?: 'en' | 'es';   // ← new
+  lang?: string;        // ISO 639-1 code; defaults to 'en'. Generalized from the original 'en' | 'es' literal type.
 }
 const { title, description, active = 'home', lang = 'en' } = Astro.props;
 ---
@@ -2552,11 +2574,31 @@ const { title, description, active = 'home', lang = 'en' } = Astro.props;
 </html>
 ```
 
-The default `'en'` keeps existing English pages working without per-page edits.
+The default `'en'` keeps English pages working without per-page edits. On English-only builds, the prop is never explicitly passed — `lang="en"` is implied everywhere.
 
-#### 5f. Spanish version — produce `/es/<page>.astro` per page
+#### 5e-bis. Was `--languages <list>` passed? (CONDITIONAL gate for 5f / 5g / 5h)
 
-Per the MULTILINGUAL SUPPORT rule (top-level — Part 1, the bilingual baseline), every Stage 5 Sonnet sub-agent that rewrites an English page ALSO produces the Spanish translation of that page in this initial-build pass. The translation lives at `option-b/src/pages/es/<same-filename>.astro`. Additional languages (German, Russian, Italian, French, etc.) are added incrementally via the separate `--add-language` flow (see MULTILINGUAL SUPPORT Part 2).
+Substages 5f, 5g, and 5h run ONLY if the user passed `--languages` to `/webfactory`. Read the flag's parsed value:
+
+```bash
+LANGUAGES_FLAG="${LANGUAGES_FLAG:-}"   # comma-separated ISO 639-1 codes; empty if --languages not passed
+if [ -z "$LANGUAGES_FLAG" ]; then
+  echo "ℹ️  --languages flag not passed; skipping 5f/5g/5h (English-only build)."
+  echo "   To add languages later: /webfactory <domain> --add-language <name|iso> --to <b|c|both>"
+else
+  echo "→ --languages=$LANGUAGES_FLAG; proceeding with 5f/5g/5h for each requested language."
+fi
+```
+
+If empty: skip directly to **5i (Build check)**. The B build is English-only.
+
+If non-empty: parse the comma-separated list into ISO codes (resolving English names via the language table — `Spanish`/`es` both resolve to `es`), then run 5f/5g/5h once per code.
+
+#### 5f. Per-language translations — produce `/<lang>/<page>.astro` per page (CONDITIONAL on `--languages`)
+
+**This substage runs only if `--languages` was passed (per 5e-bis gate). On English-only builds, skip directly to 5i.**
+
+Per the MULTILINGUAL SUPPORT rule, every requested language gets a parallel page set under `option-b/src/pages/<lang-code>/`. With `--languages es,de,fr`, each Stage 5 Sonnet sub-agent that rewrites an English page ALSO produces 3 translations (Spanish, German, French) of that page. With `--languages es` only, 1 translation per page. With no `--languages` flag, 0 translations — substage skipped.
 
 **Sub-agent contract (extended from Stage 5b)**:
 
@@ -2564,29 +2606,32 @@ Each sub-agent receives:
 - The page being rewritten (`option-b/src/pages/<page>.astro`) — produced by step 5b
 - B's design tokens + components from `_shared.md`
 - The translation directives below (what to translate, what to keep)
+- The list of active languages from `--languages` (e.g., `[es, de, fr]`)
 
-Sub-agent output is TWO files (atomic):
+Sub-agent output is N+1 files (atomic):
 - `option-b/src/pages/<page>.astro` (English rewrite — already produced in 5b; this step is the rewrite verifying it landed)
-- `option-b/src/pages/es/<page>.astro` (Spanish version — new in this step)
+- For each lang in the active list: `option-b/src/pages/<lang>/<page>.astro` (translated version — new in this step)
 
-**Translation directives**:
+**Translation directives** (apply per language; identical structure for each):
 
 - Translate every customer-facing string (headlines, body, CTAs, image `alt`, `<title>`, `<meta description>`, nav labels, button text, form labels, footer copy)
 - KEEP UNCHANGED (single source of truth across languages):
   - Phone numbers, email addresses, license numbers
-  - Place names (Tampa, Lancaster, Ohio, etc. — use as-is in Spanish prose)
+  - Place names (Tampa, Lancaster, Ohio, etc. — use as-is in target-language prose)
   - Business names, founder names, customer review attribution names, brand names
-  - All `<img src="…">` paths (same images in EN and ES; only the `alt` is translated)
+  - All `<img src="…">` paths (same images in EN and every translation; only the `alt` is translated)
   - All structural markup, components, grid configs, section ordering
-- For testimonials: translate the testimonial body, append `<small>(traducido del inglés)</small>` below the `<cite>` element (or wherever the attribution renders), keep the attribution name original. Example:
+- For testimonials: translate the testimonial body, append `<small>{translation-tag}</small>` below the `<cite>` element where `{translation-tag}` is the per-language tag from the language table (e.g., `(traducido del inglés)` for ES, `(aus dem Englischen übersetzt)` for DE, `(traduit de l'anglais)` for FR — see full table above). Keep the attribution name original. Example for Spanish:
   ```astro
   <blockquote>"¡Excelente trabajo!"</blockquote>
   <cite>— Mark S. <small>(traducido del inglés)</small></cite>
   ```
-- Pass `lang="es"` when rendering BaseLayout in `/es/*.astro` pages
-- Voice match: read 2–3 paragraphs of B's English first; the Spanish should be idiomatic, match B's tone (folksy stays folksy, professional stays professional), and read like a native Spanish speaker wrote it — not like a literal translation
+- Pass `lang="<lang-code>"` when rendering BaseLayout in `/<lang>/*.astro` pages
+- Voice match: read 2–3 paragraphs of B's English first; each translation should be idiomatic, match B's tone (folksy stays folksy, professional stays professional), and read like a native speaker of that language wrote it — not like a literal translation
 
-**Spanish nav labels** (use as the canonical mapping unless customer manifest already has Spanish):
+**Per-language nav label mappings** (use as canonical defaults unless customer manifest already provides translations):
+
+Spanish (`es`):
 
 | English | Spanish |
 |---|---|
@@ -2603,62 +2648,103 @@ Sub-agent output is TWO files (atomic):
 | Learn More | Más Información |
 | See the Job | Ver el Trabajo |
 
-#### 5g. Language switcher — add to Nav component
+For other active languages (de, ru, it, fr, pt, pl, zh, ja, ko, nl, sv), the sub-agent translates these labels via standard target-language conventions. Workers may consult the source manifest first for any customer-provided translations before falling back to default labels.
 
-Edit `option-b/src/components/Nav.astro` to add a language toggle that:
+#### 5g. Language switcher — add to Nav component (CONDITIONAL on `--languages`)
 
-1. Receives the current page's `lang` from the page (passed through props or determined from URL)
-2. Computes the parallel-language URL:
-   - On English pages (`/`, `/services`, `/blog/post-x`): toggle href = `/es/` + same path
-   - On Spanish pages (`/es/`, `/es/services`, `/es/blog/post-x`): toggle href = same path with `/es/` prefix removed
-3. Displays the language being SWITCHED TO ("ES" / "Español" on EN pages; "EN" / "English" on ES pages)
-4. Has `aria-label="Cambiar a Español"` on EN pages or `aria-label="Switch to English"` on ES pages
-5. Tap target ≥ 44×44px
+**This substage runs only if `--languages` was passed. On English-only builds, no switcher is rendered (single-language nav has nothing to switch to).**
+
+Edit `option-b/src/components/Nav.astro` to add a multi-language switcher that lists ALL active languages including English. The switcher:
+
+1. Detects active languages by inspecting `option-b/src/pages/` subdirectories at build time (each subdirectory named with an ISO 639-1 code = an active language; English is always implicitly active)
+2. Renders one entry per active language, each linking to the parallel page in that language. The currently-active language renders as a non-clickable `<span>` (not `<a>`).
+3. Computes parallel-language URLs:
+   - From an English page (`/services`): switching to `de` → `/de/services`; switching to `es` → `/es/services`
+   - From a `/de/` page (`/de/services`): switching to English → `/services`; switching to `fr` → `/fr/services`
+4. Each entry has `aria-label` referencing the target language ("Switch to English", "Cambiar a Español", "Auf Deutsch wechseln", "Перейти на русский", "Passa all'italiano", "Passer au français", etc.)
+5. Tap target ≥ 44×44px per item
 6. Sits in the visible nav, not buried in the footer
 
-Example pattern:
+**Style variants (worker picks based on active-language count)**:
+
+- **2 languages active** (e.g., EN + ES): simple toggle row (`EN | ES`). Each item is a separate `<a>` (or `<span>` if it's the current page's language). Active language is bold + non-clickable.
+- **3 languages active** (e.g., EN + ES + DE): same toggle row pattern (`EN | ES | DE`).
+- **≥ 4 active languages** (e.g., EN + ES + DE + FR + IT): dropdown menu. The dropdown trigger shows the current language (e.g., `ES ▾`); the menu lists the others. Use `<details>/<summary>` for no-JS toggle compatibility.
+
+Both variants must work on mobile (44px tap targets, dropdown opens on tap not hover).
+
+Example pattern (2-language toggle, EN + ES):
 
 ```astro
 ---
-const isSpanish = Astro.url.pathname.startsWith('/es/');
-const switchHref = isSpanish
-  ? Astro.url.pathname.replace(/^\/es\//, '/')
-  : '/es' + (Astro.url.pathname === '/' ? '/' : Astro.url.pathname);
-const switchLabel = isSpanish ? 'EN' : 'ES';
-const switchAria  = isSpanish ? 'Switch to English' : 'Cambiar a Español';
+// Detect active languages from src/pages/<lang>/ subdirs (passed via build-time const or computed via Astro.glob)
+const activeLanguages = ['en', 'es'];   // 'en' always first; rest from src/pages/<lang>/ subdir names
+const currentLang = Astro.url.pathname.match(/^\/([a-z]{2})\//)?.[1] ?? 'en';
+
+function pathFor(targetLang: string): string {
+  const stripped = Astro.url.pathname.replace(/^\/[a-z]{2}\//, '/');
+  return targetLang === 'en' ? stripped : `/${targetLang}${stripped === '/' ? '/' : stripped}`;
+}
+
+const labels: Record<string, string> = { en: 'EN', es: 'ES', de: 'DE', fr: 'FR', it: 'IT', ru: 'RU', pt: 'PT', pl: 'PL', zh: 'ZH', ja: 'JA', ko: 'KO', nl: 'NL', sv: 'SV' };
+const ariaLabels: Record<string, string> = {
+  en: 'Switch to English',
+  es: 'Cambiar a Español',
+  de: 'Auf Deutsch wechseln',
+  fr: 'Passer au français',
+  it: 'Passa all\'italiano',
+  ru: 'Перейти на русский',
+  // … extend as more languages are added
+};
 ---
-<a href={switchHref} aria-label={switchAria} class="nav-lang-toggle min-h-[44px]">
-  {switchLabel}
-</a>
+<div class="nav-lang-switcher" role="group" aria-label="Language">
+  {activeLanguages.map(lang => lang === currentLang
+    ? <span class="nav-lang-current min-h-[44px]" aria-current="true">{labels[lang]}</span>
+    : <a href={pathFor(lang)} aria-label={ariaLabels[lang]} class="nav-lang-link min-h-[44px]">{labels[lang]}</a>
+  )}
+</div>
 ```
 
-#### 5h. Bilingual completeness check
+#### 5h. Multilingual completeness check (CONDITIONAL on `--languages`)
 
-Before declaring Stage 5 done, verify parity:
+**This substage runs only if `--languages` was passed. On English-only builds, skip directly to 5i.**
+
+Before declaring Stage 5 done, verify parity across every active language:
 
 ```bash
 cd jobs/{domain}/option-b
-EN_COUNT=$(find src/pages -name '*.astro' -not -path '*/es/*' | wc -l)
-ES_COUNT=$(find src/pages/es -name '*.astro' 2>/dev/null | wc -l)
+EN_COUNT=$(find src/pages -maxdepth 2 -name '*.astro' -not -path '*/[a-z][a-z]/*' | wc -l)
 echo "English pages: $EN_COUNT"
-echo "Spanish pages: $ES_COUNT"
-[ "$EN_COUNT" = "$ES_COUNT" ] && echo "✓ parity" || echo "✗ MISMATCH — fix before proceeding"
+PARITY_OK=1
+for LANG_DIR in src/pages/*/; do
+  LANG=$(basename "$LANG_DIR")
+  # Skip non-language subdirs (e.g., src/pages/blog/ when blog is not a lang code)
+  if [ ! ${#LANG} -eq 2 ]; then continue; fi
+  LANG_COUNT=$(find "$LANG_DIR" -name '*.astro' | wc -l)
+  echo "$LANG pages: $LANG_COUNT"
+  if [ "$EN_COUNT" != "$LANG_COUNT" ]; then
+    echo "✗ MISMATCH for $LANG — expected $EN_COUNT pages, got $LANG_COUNT"
+    PARITY_OK=0
+  fi
+done
+[ "$PARITY_OK" = "1" ] && echo "✓ parity across all active languages" || echo "✗ FIX BEFORE PROCEEDING"
 ```
 
-Every English page must have a Spanish counterpart in this initial build (and in any subsequent `--add-language` invocation, every English page must have a counterpart in the newly-added language). Catch missing translations BEFORE running build + QA — the multilingual-page-parity qa-check rule will block deploy if you miss one, but catching it here is cheaper than fixing at deploy gate.
+Every English page must have a counterpart in EVERY active language. Catch missing translations BEFORE running build + QA — the `multilingual-page-parity` qa-check rule will block deploy if you miss one, but catching it here is cheaper than fixing at deploy gate.
 
-#### 5i. Build check
+#### 5i. Build check (runs unconditionally)
 
 ```bash
 cd jobs/{domain}/option-b/
 npm run build
 ```
 
-Fix any build errors before proceeding to Stage 6 QA. Common bilingual-specific errors at this stage:
+Fix any build errors before proceeding to Stage 6 QA. Common errors at this stage:
 
-- `BaseLayout` doesn't accept `lang` prop → add it (step 5e)
-- `/es/` pages reference Spanish-only assets that don't exist → check image paths (should match English)
-- Hardcoded English strings in components leak into `/es/` rendering → audit Nav, Footer, CtaBanner for hardcoded strings; either accept `lang` prop or use a string-table
+- (English-only build) Standard Astro/Tailwind compile errors only — no multilingual-specific errors possible.
+- (Multilingual build) `BaseLayout` doesn't accept `lang` prop → add it (step 5e — should already be done).
+- (Multilingual build) `/<lang>/` pages reference language-specific assets that don't exist → check image paths (should match English unchanged; only `alt` translates).
+- (Multilingual build) Hardcoded English strings in components leak into `/<lang>/` rendering → audit Nav, Footer, CtaBanner for hardcoded strings; either accept `lang` prop or use a string-table.
 
 ---
 ---
@@ -2858,12 +2944,12 @@ cp jobs/{domain}/assets/img/* jobs/{domain}/option-c/public/images/
 
 > **DECOMPOSED-MODE NOTE (since 2026-04-29 + validated experiment 2026-04-29 on libertylandscapefl):** in decomposed mode (which is now the default), Stage 7d still BEGINS with the explicit plugin invocation below — the plugin produces the C design system (palette, typography, components, ornament, CSS classes, BaseLayout/SiteLayout) for the WHOLE site. **THEN** Opus splits the per-page work the same way it does for A and B:
 >
-> 1. Plugin invocation (Opus) → produces shared scaffold: `src/components/`, `src/layouts/`, `src/styles/global.css`, `industry-tokens.json` consumed and wired in. **The plugin's BaseLayout/SiteLayout MUST accept a `lang` prop** (same pattern as Stage 5e for Option B) — required for `/es/` rendering.
+> 1. Plugin invocation (Opus) → produces shared scaffold: `src/components/`, `src/layouts/`, `src/styles/global.css`, `industry-tokens.json` consumed and wired in. **The plugin's BaseLayout/SiteLayout MUST accept a `lang` prop** (same pattern as Stage 5e for Option B) — required for any future `/<lang>/` rendering even on English-only builds (future-proofing for `--add-language`).
 > 2. Stage 2.7 contrast lint on the plugin's scaffold (re-use the smoke-test pattern). The plugin's output isn't immune to contrast bugs.
-> 3. Stage 2.5 spec generation (Opus) — write per-page specs for C that reference: (a) B's verbatim text from `option-b/src/pages/*.astro` (English), (b) **B's verbatim translated text from each active language directory `option-b/src/pages/<lang>/<page>.astro` (single source of truth from MULTILINGUAL SUPPORT rule — at minimum `/es/` since Spanish is default-included; plus `/de/`, `/ru/`, etc. if previous `--add-language` invocations added them)**, (c) the plugin-output components, (d) the industry-tokens.json palette/typography/ornament. Save to `jobs/{domain}/specs-c/` (separate from the A/B specs in `specs/`). **Each spec must explicitly reference both the EN source file AND every translated source file**, since each Stage 7d worker produces 1 English + N translated `.astro` files per page.
+> 3. Stage 2.5 spec generation (Opus) — write per-page specs for C that reference: (a) B's verbatim text from `option-b/src/pages/*.astro` (English), (b) **B's verbatim translated text from each active language directory `option-b/src/pages/<lang>/<page>.astro` IF ANY (single source of truth from MULTILINGUAL SUPPORT rule — only present when the user passed `--languages` at build OR `--add-language` post-build)**, (c) the plugin-output components, (d) the industry-tokens.json palette/typography/ornament. Save to `jobs/{domain}/specs-c/` (separate from the A/B specs in `specs/`). **Each spec references the EN source file unconditionally; only references translated source files for languages currently active in B's `src/pages/`** — on English-only builds, the spec mentions zero translation source files.
 > 4. Stage 2.5b validate-specs (mandatory — same script as A/B).
-> 5. Stage 7d-build: spawn N Sonnet sub-agents in parallel, one per page. Each consumes its spec + the plugin-output scaffold and writes 1 English + N translated `.astro` files: `option-c/src/pages/<page>.astro` (English) AND `option-c/src/pages/<lang>/<page>.astro` for every active language. The translated copy MUST match B's translated copy byte-identical (per MULTILINGUAL SUPPORT rule + extended testimonial-tampering check on every `/<lang>/`). The plugin-output Nav component must include the multi-language switcher (Stage 5g convention generalized to N languages).
-> 6. Stages 7e/7f/7g run on the worker output, same as before — but now operating across BOTH `/` and `/es/` page sets.
+> 5. Stage 7d-build: spawn N Sonnet sub-agents in parallel, one per page. Each consumes its spec + the plugin-output scaffold and writes 1 English `.astro` file UNCONDITIONALLY at `option-c/src/pages/<page>.astro`. If languages are active in B, the worker ALSO writes one translated `.astro` per active language at `option-c/src/pages/<lang>/<page>.astro` — matching B's translated copy byte-identical (per MULTILINGUAL SUPPORT rule + extended testimonial-tampering check on every `/<lang>/`). On English-only builds, no `/<lang>/` files are produced. The plugin-output Nav component includes the multi-language switcher only when ≥1 non-English language is active.
+> 6. Stages 7e/7f/7g run on the worker output, same as before — operating across `/` always; across `/<lang>/` page sets only if those languages exist.
 >
 > **Validated 2026-04-29** on libertylandscapefl.com: 4 Sonnet sub-agents in parallel produced C pages from plugin-output components. 0 first-run QA fails. Headlines + facts byte-identical to Opus C baseline. Line-count Δ +2 to +99 (some Sonnet verbosity on the contact page). Plugin's design coherence preserved BECAUSE workers consume plugin-output components — they don't re-design. The plugin is invoked once for the design system; per-page work decomposes safely. Token cost on per-page work drops same ~70-80% as A/B. **Decomposed-C is now default in `--decomposed` mode** (which itself is the default).
 >
@@ -3018,50 +3104,57 @@ npm run build
 
 Fix any build errors before continuing.
 
-#### 7f. Content parity audit (English AND Spanish)
+#### 7f. Content parity audit (English always; per-language only when active)
 
-Content parity audit for Option C (same structure as Option B's audit, but now extended over BOTH languages):
+Content parity audit for Option C (same structure as Option B's audit; multilingual checks fire only when ≥1 non-English language is active):
 
 1. Read each manifest entry for a page, confirm every product / service / testimonial / stat / certification appears in the corresponding `.astro` file (English version)
-2. **Verify Spanish parity**: for every English page, confirm a `/es/` counterpart exists with the same content sections rendered in Spanish
-3. **Verify translated copy = B's translated copy** for every active language: spot-check 2–3 pages per language — the body text in `option-c/src/pages/<lang>/<page>.astro` should be byte-identical to `option-b/src/pages/<lang>/<page>.astro` (with only design wrapper differences). Single source of truth from MULTILINGUAL SUPPORT rule, applies across ES, DE, RU, IT, FR, and any other added language.
-4. **Verify testimonial translation tags**: every translated testimonial in `/es/` pages has `(traducido del inglés)` near the attribution. Attribution names stay original.
-5. Run the content-density check (word count, image count per page) for both EN and ES
+2. **For each active language in B's `src/pages/`** (none on English-only builds, otherwise one or more): for every English page, confirm a `/<lang>/` counterpart exists with the same content sections rendered in that language
+3. **Verify translated copy = B's translated copy** for every active language: spot-check 2–3 pages per language — the body text in `option-c/src/pages/<lang>/<page>.astro` should be byte-identical to `option-b/src/pages/<lang>/<page>.astro` (with only design wrapper differences). Single source of truth from MULTILINGUAL SUPPORT rule, applies across every active language.
+4. **Verify testimonial translation tags**: every translated testimonial in `/<lang>/` pages has the appropriate per-language tag near the attribution (e.g., `(traducido del inglés)` for ES, `(aus dem Englischen übersetzt)` for DE — see language table). Attribution names stay original.
+5. Run the content-density check (word count, image count per page) for English; extend across each active language's pages
 6. Flag and fix any gaps before proceeding to QA
 
 ```bash
 echo "── English pages ──"
-for page in $(find jobs/{domain}/option-c/dist -maxdepth 2 -name "*.html" -not -path '*/es/*'); do
+for page in $(find jobs/{domain}/option-c/dist -maxdepth 2 -name "*.html" -not -path '*/[a-z][a-z]/*'); do
   FILENAME=$(echo "$page" | sed "s|jobs/{domain}/option-c/dist/||")
   WORD_COUNT=$(cat "$page" | sed 's/<[^>]*>//g' | wc -w | tr -d ' ')
   IMG_COUNT=$(grep -co 'src="/images/' "$page" | tr -d ' ')
   echo "$FILENAME: $WORD_COUNT words, $IMG_COUNT images"
 done
 
-echo "── Spanish pages ──"
-for page in $(find jobs/{domain}/option-c/dist/es -maxdepth 2 -name "*.html" 2>/dev/null); do
-  FILENAME=$(echo "$page" | sed "s|jobs/{domain}/option-c/dist/||")
-  WORD_COUNT=$(cat "$page" | sed 's/<[^>]*>//g' | wc -w | tr -d ' ')
-  IMG_COUNT=$(grep -co 'src="/images/' "$page" | tr -d ' ')
-  echo "$FILENAME: $WORD_COUNT words, $IMG_COUNT images"
+# Per-language audit — runs once per active language (no-op if none)
+for LANG_DIR in jobs/{domain}/option-c/dist/*/; do
+  LANG=$(basename "$LANG_DIR")
+  if [ ${#LANG} -ne 2 ]; then continue; fi   # skip non-language dirs
+  echo "── $LANG pages ──"
+  for page in $(find "$LANG_DIR" -maxdepth 2 -name "*.html" 2>/dev/null); do
+    FILENAME=$(echo "$page" | sed "s|jobs/{domain}/option-c/dist/||")
+    WORD_COUNT=$(cat "$page" | sed 's/<[^>]*>//g' | wc -w | tr -d ' ')
+    IMG_COUNT=$(grep -co 'src="/images/' "$page" | tr -d ' ')
+    echo "$FILENAME: $WORD_COUNT words, $IMG_COUNT images"
+  done
 done
 ```
 
-**Hard fail**: any homepage or inner page with 0 images (EN or ES). Any English page with no `/es/` counterpart. Any `/es/` page that doesn't render `<html lang="es">`. The plugin's bias toward typographic design is an image-dropping bug; flag and fix.
+**Hard fail (English always)**: any homepage or inner page with 0 images. The plugin's bias toward typographic design is an image-dropping bug; flag and fix.
+
+**Hard fail (only when language is active)**: any English page with no `/<lang>/` counterpart for any active `<lang>`. Any `/<lang>/` page that doesn't render `<html lang="<lang>">`. (No fail if the build is English-only — there's nothing to compare against.)
 
 #### 7g. Pre-Deploy Completeness Check (BLOCKING)
 
 Pre-deploy completeness check for Option C against `jobs/$DOMAIN/option-c/dist/`. Verify:
 - EN page count ≥ manifest page count
-- **Every active language's page count = EN page count** (MULTILINGUAL SUPPORT — Stage 5h parity check generalized; applies to ES + every language added via `--add-language`)
+- **(Only when ≥1 non-English language is active)** Every active language's page count = EN page count (MULTILINGUAL SUPPORT — Stage 5h parity check generalized)
 - Homepage nav links to every manifest page (in every active language's nav)
-- **Language switcher present on every page in every active language's nav** (MULTILINGUAL SUPPORT — switcher must list ALL active languages, not just EN/ES)
-- **Every `/<lang>/` page has `<html lang="<lang-code>">`** (MULTILINGUAL SUPPORT)
-- Phone number on every page (EN + ES)
-- Logo reference on every page (EN + ES)
-- Mobile menu on every page (EN + ES) — including the EN/ES toggle in mobile drawer
+- **(Only when ≥1 non-English language is active)** Language switcher present on every page (MULTILINGUAL SUPPORT — switcher must list ALL active languages including English; on English-only builds, no switcher is rendered, no failure)
+- **(Only when ≥1 non-English language is active)** Every `/<lang>/` page has `<html lang="<lang-code>">` (MULTILINGUAL SUPPORT). English pages always have `<html lang="en">`.
+- Phone number on every page (English always; every active language's pages too)
+- Logo reference on every page (English always; every active language's pages too)
+- Mobile menu on every page (English always; every active language's pages too) — including the language switcher in mobile drawer when ≥1 language is active
 - No broken Material Symbols
-- **Option-C-specific**: every page has at least one image reference (Rule 1 enforcement) — EN AND ES
+- **Option-C-specific**: every page has at least one image reference (Rule 1 enforcement) — English always; every active language's pages too
 
 #### 7h. Visual QA — Headless screenshots + design critique
 
@@ -3306,7 +3399,34 @@ sleep 3
 ```bash
 PORT_A_PLUS=$(node scripts/get-port.cjs "$DOMAIN" a-plus)
 cd /Users/tomasz/WebFactory
-node scripts/qa-check.js http://localhost:$PORT_A_PLUS --manifest jobs/$DOMAIN/manifest.json --reference-dist jobs/$DOMAIN/option-a/dist --reference-dist-es jobs/$DOMAIN/option-b/dist --option b / /about /contact /es/ /es/about /es/contact
+
+# Build the page list for qa-check.
+# English pages always: / /about /contact (and any other English pages)
+# Per active language in option-b/src/pages/<lang>/: prepend /<lang>/
+ACTIVE_LANGS=""
+for LANG_DIR in jobs/$DOMAIN/option-b/src/pages/*/; do
+  LANG=$(basename "$LANG_DIR")
+  if [ ${#LANG} -eq 2 ]; then
+    ACTIVE_LANGS="$ACTIVE_LANGS $LANG"
+  fi
+done
+
+EN_PAGES="/ /about /contact"
+LANG_PAGES=""
+for LANG in $ACTIVE_LANGS; do
+  for P in $EN_PAGES; do
+    LANG_PAGES="$LANG_PAGES /$LANG${P}"
+  done
+done
+
+# Pass --reference-dist-i18n only if at least one language is active
+if [ -n "$ACTIVE_LANGS" ]; then
+  REF_I18N_FLAG="--reference-dist-i18n jobs/$DOMAIN/option-b/dist"
+else
+  REF_I18N_FLAG=""
+fi
+
+node scripts/qa-check.js http://localhost:$PORT_A_PLUS --manifest jobs/$DOMAIN/manifest.json --reference-dist jobs/$DOMAIN/option-a/dist $REF_I18N_FLAG --option b $EN_PAGES $LANG_PAGES
 pkill -f "serve dist"
 ```
 
@@ -3336,7 +3456,32 @@ sleep 3
 ```bash
 PORT_C=$(node scripts/get-port.cjs "$DOMAIN" c)
 cd /Users/tomasz/WebFactory
-node scripts/qa-check.js http://localhost:$PORT_C --manifest jobs/$DOMAIN/manifest.json --reference-dist jobs/$DOMAIN/option-a/dist --reference-dist-es jobs/$DOMAIN/option-b/dist --option c / /about /contact /es/ /es/about /es/contact
+
+# Same conditional language detection as the B gate above. Active languages on
+# C should mirror B (single source of truth — B owns translations, C reads from B).
+ACTIVE_LANGS=""
+for LANG_DIR in jobs/$DOMAIN/option-c/src/pages/*/; do
+  LANG=$(basename "$LANG_DIR")
+  if [ ${#LANG} -eq 2 ]; then
+    ACTIVE_LANGS="$ACTIVE_LANGS $LANG"
+  fi
+done
+
+EN_PAGES="/ /about /contact"
+LANG_PAGES=""
+for LANG in $ACTIVE_LANGS; do
+  for P in $EN_PAGES; do
+    LANG_PAGES="$LANG_PAGES /$LANG${P}"
+  done
+done
+
+if [ -n "$ACTIVE_LANGS" ]; then
+  REF_I18N_FLAG="--reference-dist-i18n jobs/$DOMAIN/option-b/dist"
+else
+  REF_I18N_FLAG=""
+fi
+
+node scripts/qa-check.js http://localhost:$PORT_C --manifest jobs/$DOMAIN/manifest.json --reference-dist jobs/$DOMAIN/option-a/dist $REF_I18N_FLAG --option c $EN_PAGES $LANG_PAGES
 pkill -f "serve dist"
 ```
 
@@ -3522,7 +3667,7 @@ Here are your {3 or 4} final links:
 | Option C output | {optionC.htmlFiles} pages, {optionC.totalBytes} bytes (or "skipped" if --skip-c) |
 | Metrics file | `jobs/{domain}/metrics.json` |
 
-Languages: Options B and C ship `/es/` pages by default (bilingual baseline since 2026-04-30 per MULTILINGUAL SUPPORT rule Part 1). Additional languages — German, Russian, Italian, French, etc. — can be added incrementally via `/webfactory <domain> --add-language <name|iso> --to <b|c|both>` (see MULTILINGUAL SUPPORT rule Part 2). Active languages on this build: {detect from option-b/src/pages/ subdirs and report}. A stays English-only.
+Languages: English-only by default (since 2026-04-30 per MULTILINGUAL SUPPORT rule). Translations are explicit opt-in via `--languages <list>` (initial-build flag) OR `/webfactory <domain> --add-language <name|iso> --to <b|c|both>` (post-build incremental flag). Active languages on this build: {detect from option-b/src/pages/ subdirs and report — "English only" if none}. A always stays English-only.
 
 ---
 
@@ -3568,7 +3713,7 @@ Multiple WebFactory runs can execute simultaneously (different domains). Each ru
 - **DEPLOY**: Always `cd` to the correct project directory before running `npx vercel deploy`. Deploying from the wrong directory will deploy the wrong project
 - **SSO**: After deploying, disable Vercel SSO protection so URLs are publicly accessible
 - **OPTION B RETIRED (2026-04-24)**: The Stitch-driven Option B track has been removed from the pipeline. Existing `option-b/` directories and `stitch-output/` from prior runs are orphaned — Smart Resume ignores them. Scripts `stitch-generate.js` and `stitch.sh` are kept on disk for reference but unused. Safe to delete if you want a clean tree.
-- **MULTILINGUAL (Spanish default since 2026-04-30; any other language addable on demand)**: Options B and C ship `/es/` routes for every English page in initial builds (Spanish is the bilingual baseline). Translation is produced ONCE in Stage 5 by the same Sonnet sub-agents that do the English rewrite, written to `option-b/src/pages/es/*.astro`. Option C reads B's translated files at Stage 7 — single source of truth across all languages. Additional languages (German, Russian, Italian, French, Portuguese, Polish, Chinese, Japanese, Korean, etc. — any ISO 639-1 code) can be added incrementally to an existing build via `/webfactory <domain> --add-language <name|iso> --to <b|c|both>`. Nav switcher pattern: toggle row when ≤3 active languages, dropdown when ≥4. Each translated testimonial gets a per-language tag (`(traducido del inglés)` for ES, `(aus dem Englischen übersetzt)` for DE, `(переведено с английского)` for RU, etc. — see language table in `MULTILINGUAL SUPPORT` rule). A NEVER ships translations.
+- **MULTILINGUAL (English-only default since 2026-04-30; languages opt-in via flags)**: Default `/webfactory <url>` builds B and C as English-only — NO `/es/`, `/de/`, etc. routes are created. Translations are explicit opt-in via two paths: (1) `--languages es,de,fr` at initial build → those languages build alongside English in B and C from Stage 5 onward; (2) `/webfactory <domain> --add-language <name|iso> --to <b|c|both>` post-build → adds a single language incrementally to an existing build (mini-pipeline AL1-AL6). When languages are active: translation produced ONCE in Stage 5 by the same Sonnet sub-agents that do the English rewrite, written to `option-b/src/pages/<lang>/*.astro`; Option C reads B's translated files at Stage 7 — single source of truth across all active languages. Supported codes: es, de, ru, it, fr, pt, pl, zh, ja, ko, nl, sv (full list in language table — any ISO 639-1 code accepted with English-fallback tag). Nav switcher rendered only when ≥1 non-English language is active: toggle row when ≤3 active languages, dropdown when ≥4. Each translated testimonial gets a per-language tag (`(traducido del inglés)` for ES, `(aus dem Englischen übersetzt)` for DE, `(переведено с английского)` for RU, etc.). A NEVER ships translations regardless of flags.
 - **DYNAMIC PORTS**: Ports are allocated per domain via hash at startup and stored in `jobs/{domain}/metrics.json`. NEVER hardcode port numbers — always read from metrics.json. This ensures parallel builds of different domains don't collide
 - **PROTECT FINISHED BUILDS**: Never modify files inside `jobs/{domain}/option-a/` when working on B or C (and vice versa across all option directories). Worktrees and agents can accidentally overwrite files in the wrong directory. If a finished build gets corrupted, the Vercel deployment is the source of truth — the local `jobs/` directory can be re-generated
 - **TEMPLATE ARCHITECTURE (pivoted 2026-04-25)**: `templates/scaffold/` is the ONLY thing copied per-build (Astro config, BaseLayout, animation primitives, empty `@theme` block — zero visual opinions). `templates/inspiration/{aesthetic}/` directories are READ-ONLY references — read them for design ideas, NEVER `cp -r` from them. `templates/REQUIRED-PATTERNS.md` is the typed scaffold mapping qa-check rules to structural requirements. The old `templates/astro-base/` no longer exists; its contents moved to `templates/inspiration/saas-default/` as historical reference.

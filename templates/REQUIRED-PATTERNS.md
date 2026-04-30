@@ -437,25 +437,26 @@ This semantic discipline matters because the `testimonial-tampering` check treat
 
 ## 12. Multilingual support (MULTILINGUAL SUPPORT — Options B and C)
 
-Added 2026-04-30 per two user clarifications:
+Added 2026-04-30 per three user clarifications:
 
-- *"Options B and C now need to include Spanish, also, make sure we do the translation once, as Option B and C should have the same copy or VERY close."* (initial bilingual baseline)
+- *"Options B and C now need to include Spanish, also, make sure we do the translation once, as Option B and C should have the same copy or VERY close."* (initial proposal)
 - *"We need the ability to add a language version … 'add German to option B' or 'option C' or both. Of course not option A. The languages we need to support are German, Russian, Italian. It should be flexible: just type in a language and it builds it."* (incremental add-language)
+- *"When we run webfactory skill with no language options, do English only. Do not automatically build Spanish unless we run the skill with language options. Spanish will be added later. So the marketing — the initial run is English only. Spanish, French, or other languages will be added later."* (default flipped to English-only)
 
-**Structural rule (Options B and C)**: ship `/es/` pages alongside English by default in every initial build (Spanish is the bilingual baseline), and accept additional languages on demand via `/webfactory <domain> --add-language <name|iso> --to <b|c|both>`. Translation produced ONCE in Stage 5 (or in Stage AL2 for the add-language flow) by Sonnet sub-agents, written to `option-b/src/pages/<lang-code>/*.astro` (canonical translation source). Option C reads B's `/<lang-code>/` files — single source of truth across B and C, across all languages. Option A stays English-only.
+**Structural rule (Options B and C)**: English-only by default. Initial `/webfactory <url>` builds B and C as English-only (no `/es/`, `/de/`, etc. directories created, no language switcher in nav). Translations are explicit opt-in via two paths: (1) `--languages <comma-separated-iso-codes>` at initial build → those languages build alongside English in B and C from Stage 5; (2) `/webfactory <domain> --add-language <name|iso> --to <b|c|both>` post-build → adds a single language incrementally to an existing build via the AL1-AL6 mini-pipeline. When languages are active, translation is produced ONCE by Sonnet sub-agents, written to `option-b/src/pages/<lang-code>/*.astro` (canonical translation source). Option C reads B's `/<lang-code>/` files — single source of truth across B and C, across all active languages. Option A stays English-only regardless of flags.
 
-### 12.1 File layout (generalized to N languages)
+### 12.1 File layout (generalized to N languages — only the languages explicitly requested are present)
 
 ```
 option-a/src/pages/<page>.astro                  ← English only (A is monolingual, NEVER /es/, /de/, etc.)
-option-b/src/pages/<page>.astro                  ← English (B's design + B's English rewrite)
-option-b/src/pages/es/<page>.astro               ← Spanish (default — initial-build bilingual baseline)
-option-b/src/pages/de/<page>.astro               ← German (added via --add-language)
-option-b/src/pages/ru/<page>.astro               ← Russian
-option-b/src/pages/it/<page>.astro               ← Italian
+option-b/src/pages/<page>.astro                  ← English (B's design + B's English rewrite — always present)
+option-b/src/pages/es/<page>.astro               ← Spanish (only if --languages=es OR --add-language es --to b)
+option-b/src/pages/de/<page>.astro               ← German (only if --languages includes de OR --add-language de)
+option-b/src/pages/ru/<page>.astro               ← Russian (only if explicitly requested)
+option-b/src/pages/it/<page>.astro               ← Italian (only if explicitly requested)
 …
-option-c/src/pages/<page>.astro                  ← English (C's design + B's English text)
-option-c/src/pages/<lang>/<page>.astro           ← <lang> (C's design + B's <lang> text from option-b/src/pages/<lang>/)
+option-c/src/pages/<page>.astro                  ← English (C's design + B's English text — always present)
+option-c/src/pages/<lang>/<page>.astro           ← <lang> (only if <lang> is active in B; mirrors B's active languages)
 ```
 
 ### 12.2 Supported language codes + per-language translation tags
@@ -549,7 +550,7 @@ ANY layout, ANY component, ANY visual treatment. The rule is about COVERAGE (eve
 
 ### 12.10 Real story
 
-Spanish was previously implemented in the SKILL.md design but PAUSED while the English pipeline stabilized. Re-enabled 2026-04-30 as the bilingual baseline. Same day, the user requested the system extend to arbitrary languages on demand — German / Russian / Italian / French / etc. The architecture is generalized: per-language reference Sets, per-language translation tags, per-language testimonial-translation-tag check, multilingual page-parity walks any number of `/<lang-code>/` subdirs. Single-source-of-truth design (translate ONCE in B's `/<lang>/`, C reads from there) keeps the cost from doubling on every language addition.
+Spanish was originally proposed as the default for B and C — every initial build would ship a Spanish translation alongside English. Implementation landed 2026-04-30 in three iterations: (1) bilingual baseline (Spanish default-on); (2) generalized to arbitrary languages on demand (German, Russian, Italian, French, etc. via `--add-language`); (3) **default flipped to English-only same day** per user clarification: *"the marketing — the initial run is English only."* The architecture is unchanged from iteration (2) — per-language reference Sets, per-language translation tags, per-language testimonial-translation-tag check, multilingual page-parity walks any number of `/<lang-code>/` subdirs. The flip is just how the orchestrator invokes the multilingual stages: gated on `--languages` at build time (instead of unconditionally including `es`). Single-source-of-truth design (translate ONCE in B's `/<lang>/`, C reads from there) keeps the cost from doubling on every language addition. qa-check rules are unchanged — they're detection-driven and silently no-op on English-only builds (no `/<lang>/` paths in input → no rules fire).
 
 ---
 
