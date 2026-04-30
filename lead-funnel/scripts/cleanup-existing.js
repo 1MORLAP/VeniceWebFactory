@@ -34,6 +34,13 @@ const LAW_NAME_PATTERNS = [
   /\battorney\b.*\b(pllc|pllp|pc|p\.c\.|llp|lc)\b/i,
 ];
 
+const ASSOCIATION_NAME_PATTERNS = [
+  /\bassociation\b/i, /\bchamber of commerce\b/i, /\bfoundation\b/i,
+  /\bsociety of\b/i, /\bsociety for\b/i, /\bcoalition\b/i, /\bguild\b/i,
+  /\bcouncil of\b/i, /\bnonprofit\b/i, /\bnon[\s-]profit\b/i,
+  /\btrade group\b/i, /\bunion local\b/i,
+];
+
 const GOV_DOMAIN_PATTERNS = [
   /\.gov(\/|$|\?)/i, /\.gov\./i,
   /\bsos\..*\.us\//i, /\.state\.[a-z]{2}\.us\//i, /\.k12\.[a-z]{2}\.us\//i,
@@ -72,6 +79,10 @@ const COMPLEX_TECH_TOKENS = [
 const isLegalRisk = lead => {
   const n = (lead.business_name || '').toLowerCase();
   return LAW_NAME_PATTERNS.some(re => re.test(n));
+};
+const isAssociation = lead => {
+  const n = (lead.business_name || '').toLowerCase();
+  return ASSOCIATION_NAME_PATTERNS.some(re => re.test(n));
 };
 const isGov = lead => {
   const u = (lead.website || '').toLowerCase();
@@ -161,6 +172,17 @@ for (const lead of all) {
     updateLead(lead.id, { filter_status: 'rejected', filter_reason: 'blocklist_legal_risk' });
     legalCount++;
     console.log(`  · legal_risk: ${lead.business_name}`);
+  }
+}
+
+// Pass 1.5: associations / non-profits / trade bodies
+let assocCount = 0;
+for (const lead of listAllLeads()) {
+  if (lead.filter_status === 'rejected') continue;
+  if (isAssociation(lead)) {
+    updateLead(lead.id, { filter_status: 'rejected', filter_reason: 'blocklist_association' });
+    assocCount++;
+    console.log(`  · association: ${lead.business_name}`);
   }
 }
 
@@ -263,4 +285,4 @@ for (const lead of stillPassed) {
 
 if (sharedBrowser) await sharedBrowser.close().catch(() => {});
 
-console.log(`\n[cleanup] legal_risk=${legalCount} blocklist_law=${lawIndustry} gov=${govCount} duplicate_domain=${dupCount} complex_integration=${complexCount} site_too_big=${sizeCount} too_many_videos=${videoCount} html_miss=${htmlMiss}`);
+console.log(`\n[cleanup] legal_risk=${legalCount} association=${assocCount} blocklist_law=${lawIndustry} gov=${govCount} duplicate_domain=${dupCount} complex_integration=${complexCount} site_too_big=${sizeCount} too_many_videos=${videoCount} html_miss=${htmlMiss}`);

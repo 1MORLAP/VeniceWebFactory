@@ -157,6 +157,35 @@ function isLegalRisk(lead) {
   return false;
 }
 
+// Industry associations / trade bodies / non-profits — not single-business
+// targets for our marketplace. Examples: "Trade Association", "Foundation",
+// "Society of X", "Council of Y", "Chamber of Commerce".
+//
+// Carefully exclude: "& Associates" (business naming convention; matches
+// "associates" plural which is distinct from "association").
+const ASSOCIATION_NAME_PATTERNS = [
+  /\bassociation\b/i,                    // singular — "associates" plural is unmatched
+  /\bchamber of commerce\b/i,
+  /\bfoundation\b/i,
+  /\bsociety of\b/i,
+  /\bsociety for\b/i,
+  /\bcoalition\b/i,
+  /\bguild\b/i,
+  /\bcouncil of\b/i,
+  /\bnonprofit\b/i,
+  /\bnon[\s-]profit\b/i,
+  /\btrade group\b/i,
+  /\bunion local\b/i,
+];
+
+function isAssociation(lead) {
+  const name = (lead.business_name || '').toLowerCase();
+  for (const re of ASSOCIATION_NAME_PATTERNS) {
+    if (re.test(name)) return true;
+  }
+  return false;
+}
+
 // Government / regulatory-body domains. We reject these before the HTTP
 // probe — state boards, .gov sites, agency domains aren't WebFactory targets.
 const GOV_DOMAIN_PATTERNS = [
@@ -685,6 +714,8 @@ export async function filterAll({ batchId = null, includeNonUS = false, minTechA
       status = 'rejected'; reason = 'government_entity';
     } else if (isLegalRisk(lead)) {
       status = 'rejected'; reason = 'blocklist_legal_risk';
+    } else if (isAssociation(lead)) {
+      status = 'rejected'; reason = 'blocklist_association';
     } else if (duplicateLeadIds.has(lead.id)) {
       status = 'rejected'; reason = 'duplicate_domain';
     } else {
