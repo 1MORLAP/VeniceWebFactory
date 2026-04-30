@@ -61,11 +61,9 @@ const {
 
     {/* Body */}
     <div class="p-6 md:p-7 flex flex-col gap-3 grow">
-      {(num || category) && (
+      {category && (
         <p class="mono-caption" style="font-size: 11px;">
-          {num && <span class="num">{num}</span>}
-          {num && category && <span> &nbsp;/&nbsp; </span>}
-          {category && <span>{category}</span>}
+          {category}
         </p>
       )}
 

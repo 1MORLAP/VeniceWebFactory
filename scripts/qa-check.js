@@ -513,6 +513,35 @@ async function main() {
     console.log(`\n→ Checking ${url} @ ${viewport.name} (${viewport.width}×${viewport.height})`);
     await page.goto(url, { waitUntil: 'networkidle' });
 
+    // Force-reveal every progressive-enhancement reveal target so contrast
+    // checks see the FINAL visible state, not the pre-IntersectionObserver
+    // opacity-0 state.  Without this, the alpha-aware text-contrast rule
+    // (added 2026-04-29) flags every below-fold heading inside a `.fade-up`
+    // wrapper because the ancestor opacity is still 0 at networkidle time —
+    // the IntersectionObserver hasn't fired for off-viewport elements yet.
+    // Real users scroll and see fully-revealed content; the QA check should
+    // measure that same end-state.
+    //
+    // Belt-and-suspenders approach: (1) explicitly add `.has-animations` +
+    // `.visible` classes so any CSS that gates on them resolves to the
+    // revealed state; (2) scroll the entire page top-to-bottom so the real
+    // IntersectionObserver fires for below-fold elements; (3) scroll back to
+    // top and wait one frame for any final layout to settle.
+    await page.evaluate(async () => {
+      document.documentElement.classList.add('has-animations');
+      for (const el of document.querySelectorAll('.fade-up, .stagger')) {
+        el.classList.add('visible');
+      }
+      const distance = 240;
+      const total = document.body.scrollHeight;
+      for (let y = 0; y <= total; y += distance) {
+        window.scrollTo(0, y);
+        await new Promise(r => setTimeout(r, 30));
+      }
+      window.scrollTo(0, 0);
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    });
+
     const out = await page.evaluate(() => {
       const report = { issues: [] };
 
@@ -701,6 +730,17 @@ function rgbToHexFromComputed(rgb) {
   const okm = rgb && rgb.match(/^oklab\(([\d.]+)\s+([\d.-]+)\s+([\d.-]+)(?:\s*\/\s*([\d.]+))?\)$/);
   if (okm) {
     return oklabToSrgb(+okm[1], +okm[2], +okm[3], okm[4] !== undefined ? +okm[4] : 1);
+  }
+  // oklch() support — Tailwind v4 emits oklch for many palette utilities
+  // (slate-, zinc-, stone-, gray-, neutral-).  Convert chroma+hue to oklab a/b
+  // then route through oklabToSrgb.
+  const okch = rgb && rgb.match(/^oklch\(([\d.]+)\s+([\d.-]+)\s+([\d.-]+)(?:\s*\/\s*([\d.]+))?\)$/);
+  if (okch) {
+    const L = +okch[1];
+    const C = +okch[2];
+    const hRad = +okch[3] * Math.PI / 180;
+    const a_alpha = okch[4] !== undefined ? +okch[4] : 1;
+    return oklabToSrgb(L, C * Math.cos(hRad), C * Math.sin(hRad), a_alpha);
   }
   return null;
 }
@@ -1234,6 +1274,25 @@ function rgbToHexFromComputed(rgb) {
         if (okm) {
           return oklabToSrgb(+okm[1], +okm[2], +okm[3], okm[4] !== undefined ? +okm[4] : 1);
         }
+        // oklch() — increasingly common in Tailwind v4 default palettes
+        // (slate-900, zinc-100, etc. are emitted as oklch).  Convert by
+        // unrolling chroma+hue into the oklab a/b channels:
+        //   a = C * cos(h_radians); b = C * sin(h_radians)
+        // Then route through the same oklabToSrgb that the oklab branch uses.
+        // Real bug shipped 2026-04-29 (tomekgroup-website): qa-check silently
+        // skipped every text element because cs.color came back as oklch and
+        // the parser returned null.
+        const okch = str.match(/^oklch\(([\d.]+)\s+([\d.-]+)\s+([\d.-]+)(?:\s*\/\s*([\d.]+))?\)$/);
+        if (okch) {
+          const L = +okch[1];
+          const C = +okch[2];
+          const hDeg = +okch[3];
+          const a_alpha = okch[4] !== undefined ? +okch[4] : 1;
+          const hRad = hDeg * Math.PI / 180;
+          const a = C * Math.cos(hRad);
+          const b = C * Math.sin(hRad);
+          return oklabToSrgb(L, a, b, a_alpha);
+        }
         return null;
       }
       function relativeLuminance(rgb) {
@@ -1278,6 +1337,40 @@ function rgbToHexFromComputed(rgb) {
         return direct.trim().length > 0;
       }
 
+      // Alpha-composite a translucent foreground onto an opaque background.
+      // Returns the on-screen rgb that the rendering pipeline actually paints —
+      // which is what WCAG contrast must be measured against.  If we skip this
+      // step, `color: rgba(150, 150, 150, 0.30)` over near-black reads as a
+      // nominal grey-150 → fake "decent contrast" — when the rendered pixel is
+      // really ~rgb(45, 45, 45), and the text is functionally unreadable.
+      // Real bug shipped 2026-04-29 (tomekgroup-website hero body copy).
+      function compositeFgOntoBg(fgRgba, bgRgb) {
+        const a = Math.max(0, Math.min(1, fgRgba.a == null ? 1 : fgRgba.a));
+        return {
+          r: Math.round(fgRgba.r * a + bgRgb.r * (1 - a)),
+          g: Math.round(fgRgba.g * a + bgRgb.g * (1 - a)),
+          b: Math.round(fgRgba.b * a + bgRgb.b * (1 - a)),
+        };
+      }
+
+      // Walk the ancestor chain and multiply opacity values.  CSS `opacity` on
+      // any ancestor cascades to descendants in the rendering pipeline (it
+      // creates a stacking context and applies to the whole subtree).  Combining
+      // ancestor opacities with the element's own foreground alpha is what
+      // determines the actually-rendered color.  Real bug class: a parent
+      // wrapper with `opacity: 0.4` that fades the whole subtree without
+      // changing any individual element's `cs.color`.
+      function effectiveOpacityChain(el) {
+        let opacity = 1;
+        let cur = el;
+        while (cur && cur !== document.documentElement) {
+          const o = parseFloat(getComputedStyle(cur).opacity);
+          if (!Number.isNaN(o)) opacity *= o;
+          cur = cur.parentElement;
+        }
+        return opacity;
+      }
+
       const contrastSeen = new Set();
       const textEls = Array.from(document.querySelectorAll(TEXT_TAGS));
       for (const el of textEls) {
@@ -1285,10 +1378,19 @@ function rgbToHexFromComputed(rgb) {
         // Skip nodes inside nav/header/footer photos with overlay (HERO CONTRAST handles those).
         // Actually keep them — false-positives here are rare and an overlay is a real solid bg.
         const cs = getComputedStyle(el);
-        const fg = rgbStringToRgb(cs.color);
-        if (!fg) continue;
+        const fgRaw = rgbStringToRgb(cs.color);
+        if (!fgRaw) continue;
         const bg = effectiveBgRgb(el);
         if (!bg) continue; // hit a background-image — HERO CONTRAST handles it
+
+        // Compute the actually-rendered foreground color by combining the
+        // color-channel alpha with the cascaded opacity of every ancestor,
+        // then alpha-blending the result onto the effective background.
+        // This is what the user sees on screen — and what WCAG must measure.
+        const elOpacity = effectiveOpacityChain(el);
+        const totalAlpha = (fgRaw.a == null ? 1 : fgRaw.a) * elOpacity;
+        const fg = compositeFgOntoBg({ r: fgRaw.r, g: fgRaw.g, b: fgRaw.b, a: totalAlpha }, bg);
+
         const ratio = contrastRatio(fg, bg);
         const fontSizePx = parseFloat(cs.fontSize) || 16;
         const fontWeight = parseInt(cs.fontWeight, 10) || 400;
@@ -1299,17 +1401,67 @@ function rgbToHexFromComputed(rgb) {
           const text = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 60);
           if (!text) continue;
           // Dedupe: same text + same fg/bg combo only reported once per page
-          const key = `${text}::${cs.color}::rgb(${bg.r},${bg.g},${bg.b})`;
+          const key = `${text}::${cs.color}::rgb(${bg.r},${bg.g},${bg.b})::${totalAlpha.toFixed(2)}`;
           if (contrastSeen.has(key)) continue;
           contrastSeen.add(key);
+          // Build a diagnostic that shows the cascade.  When alpha was the
+          // culprit, the message must surface that — otherwise the worker sees
+          // "color: white; bg: black" and is confused why it's flagged.
+          const alphaNote = totalAlpha < 0.99
+            ? ` Effective alpha on this text is ${totalAlpha.toFixed(2)} (color-alpha ${(fgRaw.a == null ? 1 : fgRaw.a).toFixed(2)} × ancestor-opacity ${(elOpacity / (fgRaw.a == null ? 1 : 1)).toFixed(2)}); after compositing onto the background, the rendered pixel is rgb(${fg.r},${fg.g},${fg.b}). Faded text over a similar-colored background is the bug class — increase the alpha, drop the parent opacity, or pick a foreground color far enough from the background that the composited pixel still hits the WCAG threshold.`
+            : ` This is the active-nav-black-on-black bug class — pick a foreground color that actually contrasts with the rendered background, OR fix the underlying theme variable so the named utility resolves correctly.`;
           report.issues.push({
             severity: 'fail',
             check: 'text-contrast',
-            msg: `Text "${text}" (<${el.tagName.toLowerCase()}>, ${Math.round(fontSizePx)}px) renders with WCAG contrast ${ratio.toFixed(2)}:1 — below the ${minRatio}:1 minimum for ${isLarge ? 'large' : 'body'} text. Foreground ${cs.color} on effective background rgb(${bg.r},${bg.g},${bg.b}). This is the active-nav-black-on-black bug class — pick a foreground color that actually contrasts with the rendered background, OR fix the underlying theme variable so the named utility resolves correctly.`,
+            msg: `Text "${text}" (<${el.tagName.toLowerCase()}>, ${Math.round(fontSizePx)}px) renders with WCAG contrast ${ratio.toFixed(2)}:1 — below the ${minRatio}:1 minimum for ${isLarge ? 'large' : 'body'} text. Foreground ${cs.color} on effective background rgb(${bg.r},${bg.g},${bg.b}).${alphaNote}`,
           });
         }
       }
       // ---- end generic text-contrast audit ----
+
+      // ---- Numbered section labels audit (added 2026-04-29) ----
+      // Bracket-numbered or slash-prefixed numeric eyebrows (`01 — WHAT WE DO`,
+      // `[ 02 ] · CATEGORY`, `01 / SERVICES`, `§ 01 · DIY RISK`, `SVC · 01`)
+      // are FORBIDDEN on Option A and B non-blog pages — they're an editorial
+      // / magazine affectation that doesn't belong on a small-business
+      // contractor's website. Apply to the same eyebrow utility classes that
+      // designers reach for: .eyebrow, .mono-caption, .label-mono.
+      // See SKILL.md NUMBERED SECTION LABELS RULE.
+      const numberedLabelPatterns = [
+        // Leading bracket-numbered with editorial separator: "[ 01 ] ·", "01 — ", "01 / ", "§ 01 · "
+        /^\s*(?:§\s*)?(?:\[\s*)?\d{1,2}(?:\s*\])?\s*[\/—·│\|]\s+\S/,
+        // Slash-eyebrow with leading number: "01 / SERVICES" (digits + space + slash)
+        /^\s*\d{1,2}\s+\/\s+\S/,
+        // SVC-style decorative numbering: "SVC · 01", "FILE · 02", "SHEET 01 / 06"
+        /\b(?:SVC|FILE|JOB|SHEET|REVIEW|CARD|FIELD|POST|SECTION)\s*[·\.\#]\s*\d{1,2}\b/i,
+        // Standalone digit eyebrow ("01" with no other words)
+        /^\s*\d{1,2}\s*$/,
+      ];
+      const eyebrowSelectors = '.eyebrow, .mono-caption, .label-mono, .label-mono-lg, .bracket-label';
+      const seenNumberedLabels = new Set();
+      for (const el of document.querySelectorAll(eyebrowSelectors)) {
+        const text = (el.innerText || el.textContent || '').trim();
+        if (!text || text.length > 80) continue;
+        // Skip if any ancestor link points to a blog page (the eyebrow IS in
+        // an article context — allowed under the rule).
+        const inBlogContext = window.location.pathname.includes('/blog');
+        if (inBlogContext) continue;
+        // Match against patterns
+        let matched = null;
+        for (const pat of numberedLabelPatterns) {
+          if (pat.test(text)) { matched = pat; break; }
+        }
+        if (!matched) continue;
+        const key = `numlabel::${text}`;
+        if (seenNumberedLabels.has(key)) continue;
+        seenNumberedLabels.add(key);
+        report.issues.push({
+          severity: 'fail',
+          check: 'numbered-section-labels',
+          msg: `Numbered section eyebrow "${text}" on ${window.location.pathname} (${el.tagName.toLowerCase()}.${(el.className||'').split(/\s+/)[0]}). Numbered section labels (01 — / [ 02 ] / 01 /) are FORBIDDEN on non-blog pages — they're an editorial affectation that doesn't belong on a small-business contractor's website. Drop the number; keep the category label only. See NUMBERED SECTION LABELS RULE in SKILL.md.`,
+        });
+      }
+      // ---- end numbered section labels audit ----
 
       // ---- Image diversity audit (added 2026-04-25 after naples-pressure-washing-a) ----
       // Catches the "same image used N times in a service card grid" bug.
@@ -1703,6 +1855,94 @@ function rgbToHexFromComputed(rgb) {
   }
   // ---- end IMAGE REUSE RULE check ----
 
+  // ---- NUMBERED SECTION LABELS rule scope filter ----
+  // The numbered-section-labels check fires inside page.evaluate on every
+  // page. For Option C (which may legitimately use bracket numerals when
+  // industry-tokens.json calls for them — workwear-document for trades),
+  // strip those issues from results before final reporting. Apply only to
+  // A and B (where numbered labels are forbidden on non-blog pages).
+  if (optionName === 'c') {
+    for (const r of results) {
+      if (r.issues) {
+        r.issues = r.issues.filter(i => i.check !== 'numbered-section-labels');
+      }
+    }
+  } else if (!optionName) {
+    // No --option flag — back-compat: also strip the check (don't fail
+    // legacy invocations that don't know about the rule)
+    for (const r of results) {
+      if (r.issues) {
+        r.issues = r.issues.filter(i => i.check !== 'numbered-section-labels');
+      }
+    }
+  }
+  // ---- end numbered-section-labels scope filter ----
+
+  // ---- Static source lints (run once site-wide, not per-page) ----
+  // These checks read SOURCE FILES (not rendered HTML) so they run independently
+  // of Playwright. They look for code-level patterns the runtime QA can't see.
+  const staticIssues = [];
+  // Try to derive the source dir from the dist URL convention. If we have
+  // --reference-dist, the option-a/dist sibling has a src/. We can also infer
+  // from CWD. For robustness, scan a few likely paths.
+  const candidateRoots = [];
+  if (referenceDistPath) {
+    // referenceDistPath = jobs/{domain}/option-a/dist  → sibling src/ + components/Footer.astro
+    const optionDir = referenceDistPath.replace(/\/dist\/?$/, '');
+    candidateRoots.push(optionDir);
+  }
+  // Heuristic: probe based on baseUrl port mapping if we know the job dir
+  // (no good signal here without --source-dir flag — defer to caller).
+  // For now, only run if referenceDistPath is provided.
+  for (const root of candidateRoots) {
+    const cssPath = `${root}/src/styles/global.css`;
+    const footerPath = `${root}/src/components/Footer.astro`;
+    // ---- TAILWIND V4 CASCADE TRAP ----
+    // Bare element selectors (h1/h2/h3/p/a/etc.) at module top-level in
+    // global.css that set color/background/font-family — must be in @layer
+    // base { } so utility classes can override them. See SKILL.md.
+    if (existsSync(cssPath)) {
+      try {
+        const css = readFileSync(cssPath, 'utf8');
+        // Strip @layer { ... } blocks and @media { ... } blocks (rough — does not handle nested
+        // braces, but good enough for the common case where @layer base wraps all base styles)
+        const stripped = css.replace(/@layer\s+\w+\s*\{[\s\S]*?\n\}/g, '').replace(/@media[^\{]+\{[\s\S]*?\n\}/g, '');
+        // Look for bare-element selectors with color/bg/font properties
+        const bareRule = /(?:^|\n)\s*((?:[a-z][a-z0-9]*\s*,\s*)*[a-z][a-z0-9]*)\s*\{[^}]*?(?:color|background(?:-color)?|font-family)\s*:/g;
+        let m;
+        while ((m = bareRule.exec(stripped)) !== null) {
+          const selector = m[1].trim();
+          // Skip pseudo-classes / descendants / common safe selectors
+          if (/[\.\#:>\+~\[\*]/.test(selector)) continue;
+          if (selector.toLowerCase() === 'html' || selector.toLowerCase() === 'body') continue;
+          staticIssues.push({
+            severity: 'fail',
+            check: 'tailwind-cascade-trap',
+            msg: `Bare element selector '${selector}' in global.css sets color/font outside @layer base. Tailwind v4 unlayered base styles silently beat utility classes regardless of specificity. Wrap bare-element selectors in @layer base { ... } so utilities can override them. See TAILWIND V4 CASCADE TRAP in SKILL.md.`,
+          });
+        }
+      } catch { /* swallow */ }
+    }
+    // ---- FOOTER-AFTER-DARK-CTABANNER ----
+    // Footer.astro must rely on internal py-* for spacing. mt-{n} on the
+    // outer Footer wrapper exposes a cream stripe between two dark sections.
+    if (existsSync(footerPath)) {
+      try {
+        const footerSrc = readFileSync(footerPath, 'utf8');
+        // Look at the FIRST <footer ...> tag and its class attribute
+        const m = footerSrc.match(/<footer[^>]*class=["']([^"']+)["']/);
+        if (m && /\bmt-(?!\[)\S+/.test(m[1])) {
+          staticIssues.push({
+            severity: 'fail',
+            check: 'footer-margin-top',
+            msg: `Footer.astro outer <footer> has 'mt-*' margin-top class ('${m[1].match(/\bmt-\S+/)[0]}'). When the section above the footer is also dark (e.g. dark CtaBanner), mt-* exposes a cream stripe between the two sections. Use internal py-* on the Footer instead. See FOOTER-AFTER-DARK-CTABANNER in SKILL.md.`,
+          });
+        }
+      } catch { /* swallow */ }
+    }
+  }
+  // ---- end static source lints ----
+
   // Report — grouped by viewport, with dedupe for issues that fire at both.
   // An issue that fires at desktop+mobile gets counted ONCE but tagged "[both]".
   // An issue that only fires at one viewport gets counted once and tagged with that viewport.
@@ -1721,6 +1961,12 @@ function rgbToHexFromComputed(rgb) {
     } else {
       console.log(`\n[site-wide]\n  ✓ [${imageReuseSiteIssue.check}] ${imageReuseSiteIssue.msg}`);
     }
+  }
+
+  // Static source lints (cascade-trap + footer-mt-* + future static checks)
+  for (const issue of staticIssues) {
+    console.log(`\n[static-source]\n  ✗ [${issue.check}] ${issue.msg}`);
+    failCount++;
   }
 
   // Build a per-path, cross-viewport view: map path -> { desktop: result, mobile: result }

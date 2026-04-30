@@ -1067,7 +1067,17 @@ The previous skill enumerated bug classes (placeholder content, fact grounding, 
 
 7. **The "$80k smell test" (in Visual Sanity Pass).** After QA passes, look at the homepage screenshot and ask honestly: "Could I imagine charging $80k for this?" If no, what specifically is missing — a font that looks bespoke, a hero treatment that earns the photo, a moment of design ambition? List the gap and fix it. The build is not done until this answer is yes.
 
-**Stage 2 design brief must explicitly hit each bar item** — typography pairing with rationale, palette with justified roles, hero treatment direction, distinctive-element catalog, micro-interaction list. A weak brief produces a weak A. Brief quality is the upstream cause of "merely better than original" output.
+8. **Ornament budget — max 2-3 distinctive devices per option.** A "distinctive device" is any design move repeated across the page that announces itself: section indices, hatched borders, file-tab nav, status pills, terminal cursors, grid overlays, mono captions, bracket numerals, hover-accents, custom dividers, etc. Each option (A and C separately) gets a budget of **2-3** distinctive devices. More than that = ornament-heavy = template tell. Real bug shipped 2026-04-29 (Option C for tomekgroup): 9 distinctive devices stacked together (bracket numerals + status dots + status pills + grid overlays + terminal cursor + bracket buttons + spec callouts + dark CTA + dark footer + file-tab nav) — the page read as "internal admin dashboard," not "sophisticated brand site."
+
+   **The discipline**: in Stage 2 (Option A) and Stage 7b (Option C), explicitly enumerate the distinctive devices in the brief / `aesthetic-brief.md` BEFORE building. List them: "Device 1: section eyebrow with hairline rule. Device 2: photo annotation in mono caption. Device 3: italic-rust emphasis on display headlines." Stop at 3. If you find yourself adding a 4th in component code, it's a pattern violation — drop one of the existing 3 first, OR reconsider whether the new one earns its slot.
+
+   **Examples**:
+   - Photo-led trades (Option A): (1) italic-rust display emphasis, (2) photo annotations in mono caption, (3) "A craftsman's portfolio" gallery with mono captions. Three devices. Done.
+   - Workwear-document trades (Option C): (1) bracket-numbered eyebrows, (2) hatched caution-tape dividers, (3) JOB # corner stamps on photos. Three devices. Done. NOT also file-tab nav + condensed display + ALL-CAPS H2 + chevron list-markers + status pills + terminal cursor — that's a budget overrun.
+
+   **What this rule rules out**: stacking every cool design move into one page. Each device should be intentional and serve the brand. If a device doesn't reinforce the customer's industry / personality / story, drop it. The discipline of removing your second-favorite move is what separates "considered" from "decoration-heavy."
+
+**Stage 2 design brief must explicitly hit each bar item** — typography pairing with rationale, palette with justified roles, hero treatment direction, distinctive-element catalog (2-3 devices, named), micro-interaction list. A weak brief produces a weak A. Brief quality is the upstream cause of "merely better than original" output.
 
 **Per-stage application:**
 - **Stage 2** generates the brief that codifies the bar choices.
@@ -1383,6 +1393,194 @@ The check runs once per QA invocation (not once per page) since reuse is a site-
 - Worker arguing "the photos weren't great" as justification for dropping more than 10% of the pool. If a photo is genuinely unusable (1×1 px, broken file), it falls in the skip-list. Otherwise it appears.
 
 The customer's original site is the input. Option A's job is to render that input dramatically better — same kind of site, same content, sharper craft. Not to reframe the customer as an editorial brand.
+
+---
+
+#### NUMBERED SECTION LABELS RULE (architectural — applies to Option A; rare in B; OK in blog/article only)
+
+Real bug shipped 2026-04-29 (giffins.net Option A rebuild): every section sprouted a numbered eyebrow — `01 — WHAT WE DO`, `02 ── RECENT WORK`, `[ 03 ] · NEW: PROPERTY MANAGEMENT`, the Hero `01 │ SE OHIO · 30+ YRS`. The pattern was inherited from `templates/inspiration/industrial-trades/`'s editorial vocabulary AND from the new `industrial-trades-photo-led/` inspiration's `01 / SECTION` mono caption. Customer feedback verbatim: *"what are these numbers, NO!!! I do not want that ever unless a blog or an article section. So VERY rarely."*
+
+##### The rule
+
+For Option A and Option B: **bracket-numbered or slash-prefixed numeric eyebrows are FORBIDDEN on non-blog/non-article pages.** That includes ALL of:
+
+- `01 — SECTION NAME` (slash-eyebrow with numeric prefix)
+- `[ 02 ] · CATEGORY` (bracket-numbered eyebrow)
+- `01 / SERVICES` (mono-prefix-then-slash)
+- `§ 01 · DIY RISK` (section-symbol + number)
+- `SVC · 01` (any decorative numbering of section eyebrows)
+
+Numbered section labels are an editorial / magazine affectation. Small-business contractor websites don't number their sections. Customers don't read websites the way they read magazine spreads. The numbering doesn't aid wayfinding — section headings already do that. It just signals "this was designed by someone who reads NYT Magazine."
+
+##### Where it IS acceptable (rarely)
+
+- **Blog index pages** with a numbered article list: "01. Top 5 signs..." — IF the source content actually has a numbered list, not as decorative chrome
+- **Long-form blog articles** with explicit ordered-list content (e.g., "Top 5 Signs You Need a Pro" → `01 Branches over your roof / 02 Dead limbs / 03 ...`) where the numbering REPLACES `<ol>` semantics with visual prominence
+- **Industry-tokens-driven Option C** when the industry direction explicitly calls for it (industrial / trades C uses bracket numerals as workwear-document signal)
+
+That's it. Not for service sections, not for testimonial sections, not for "Recent Work", not for hero eyebrows, not for footer ornament.
+
+##### What replaces it
+
+- For Option A eyebrow: **the category label alone**, optionally with a hairline rule to its left. `WHAT WE DO`, `RECENT WORK`, `WHERE WE WORK` — no number prefix.
+- For Hero eyebrow: drop the leading number. `SE OHIO · 30+ YRS · FREE ESTIMATES · 24/7 EMERGENCY` is plenty without `01 │`.
+- For Service tile category: just the category. `EXTERIOR · ROOFING` — no `01`.
+- For Portfolio caption: location + date. `OAK ST · OCT '25` — no `04 / RECENT WORK`.
+
+##### QA gate enforcement (NEW in `qa-check.js`)
+
+`scripts/qa-check.js` adds a `numbered-section-labels` check (Option A/B only):
+
+1. For each page, find every element matching `eyebrow`, `mono-caption`, or `label-mono` class — these are the visual eyebrow utility classes
+2. Check the rendered text for the patterns:
+   - `^\s*(\[\s*)?\d{1,2}(\s*\])?\s*[/—·│|§]` — leading 1-2 digit number with editorial separator (`01 — WHAT WE DO`, `[ 02 ] · CATEGORY`, `§ 03 · DIY RISK`)
+   - Standalone digit-only eyebrow `^\s*\d{1,2}\s*$` (decorative number with no following label)
+3. If matched AND the page is NOT a blog/article (i.e., URL doesn't contain `/blog`), **FAIL** with: `"Numbered section eyebrow '01 — WHAT WE DO' on {page}. Numbered section labels are FORBIDDEN on non-blog pages — they're an editorial affectation that doesn't belong on a small-business contractor's website. Drop the number; keep the category label only. See NUMBERED SECTION LABELS RULE in SKILL.md."`
+
+Apply to Options A and B. Option C may legitimately use numbering when its industry-tokens direction calls for it; check `--option c` skips this rule.
+
+---
+
+#### ALPHA-AWARE TEXT CONTRAST (extends TEXT CONTRAST — applies to all options)
+
+Real bug shipped 2026-04-29 (tomekgroup-website hero copy): body text rendered as `oklch(0.871 0.006 286.286)` over `rgb(9, 9, 11)` near-black bg, BUT the previous `text-contrast` rule used the raw color value and computed contrast against the parent bg without accounting for ancestor opacity. The text was effectively semi-transparent due to a wrapper with low opacity, AND the `oklch()` color notation wasn't parsed at all (`rgbStringToRgb` returned `null` and silently skipped the element). Result: unreadable body copy passed QA cleanly.
+
+##### The two gaps that combined to produce the bug
+
+1. **Foreground alpha was ignored.** When `cs.color` is `rgba(150, 150, 150, 0.30)`, the rendered pixel is alpha-blended onto the background — not the raw rgb. WCAG contrast must measure the on-screen pixel, not the nominal color.
+2. **Ancestor `opacity` was ignored.** A wrapper with `style="opacity: 0.3"` makes its entire subtree semi-transparent. The leaf element's `cs.color` doesn't reflect that — but the rendered pixel does.
+3. **`oklch()` color notation was unparsed.** Tailwind v4 default palettes (`slate-`, `zinc-`, `stone-`, `gray-`, `neutral-`) emit `oklch()`. The previous parser handled `rgb`/`rgba`/`oklab` but not `oklch`, and silently returned `null` for any element whose color was oklch.
+
+##### The fix (now active in qa-check.js)
+
+The `text-contrast` rule now:
+
+1. Parses `rgb`, `rgba`, `oklab`, **and `oklch`** color notations. `oklch(L C h)` converts to oklab via `a = C·cos(h_radians); b = C·sin(h_radians)` then routes through the canonical Ottosson sRGB conversion.
+2. Walks the ancestor chain and multiplies every element's `opacity` to compute total effective opacity.
+3. Combines color-channel alpha × ancestor-opacity-chain into a total alpha.
+4. **Alpha-composites** the foreground onto the effective background using `out = fg * α + bg * (1 - α)`. This is the actually-rendered pixel.
+5. Computes WCAG contrast against THAT composited pixel.
+6. Diagnostic message surfaces both the raw color AND the composited pixel + total alpha so the worker knows which mechanism caused the failure.
+
+Additionally, before the contrast walk, qa-check now force-reveals every `.fade-up` and `.stagger` element AND scrolls the page top-to-bottom so the IntersectionObserver fires for below-fold content. Without that, every below-fold heading would false-fail because the `.fade-up` opacity:0 hadn't transitioned to opacity:1 yet at networkidle.
+
+##### What this rule rules out
+
+- Body text at `text-white/30` over a dark photo (composites to ~3:1 against the photo's dark zone — fails)
+- Footer copy at `opacity: 0.5` on a wrapper containing dark-grey text on grey bg
+- Any `oklch()` color that previously skated past the gate because the parser returned null
+- Tailwind opacity utilities like `text-bone-300/40` that previously read as full-alpha
+
+---
+
+#### PER-CONTEXT CONTRAST VARIABLES (architectural — applies to color-token design)
+
+Real bug pattern (caught 2026-04-29 across multiple builds): a single accent color is defined once (`--color-rust: #A8412A`) and used as both the on-light label color (e.g. mono-caption on bone) AND the on-dark label color (e.g. mono-caption on forest). On bone it passes 4.6:1; on forest it composites differently and fails. The worker `sed`s the variable globally to fix one context, breaking the other. After 4 cycles of "fix one, break the other", the build still has WCAG fails in some context.
+
+##### The rule
+
+When designing `global.css` `@theme` palette variables, **whenever an accent color will appear on BOTH light and dark backgrounds, define explicit per-context variants from the start**:
+
+```css
+@theme {
+  /* WRONG — single variable, two contexts, WCAG-loses in one of them */
+  --color-rust: #A8412A;
+
+  /* RIGHT — per-context variants chosen to pass 4.5:1 in their own context */
+  --color-rust-onlight: #A8412A;   /* used on bone/cream/white bg — 4.6:1 ✓ */
+  --color-rust-ondark:  #E08574;   /* used on forest/shadow bg — 6.15:1 ✓ */
+}
+```
+
+Apply to ALL semantic-named accents (rust, amber, crew-red, hi-vis, brand-accent, success, danger, warning, info). The naming convention `{name}-onlight` / `{name}-ondark` is mandatory — it makes the intent explicit at the use site (`color: var(--color-rust-ondark)` reads "rust, on-dark context").
+
+##### What this rule rules out
+
+- Reusing a single `--color-X` variable across two contexts and discovering at QA time that one context fails 4.5:1
+- Worker spending fix-loop cycles `sed`-replacing variable values to chase WCAG passes in different contexts
+- The "fix one, break the other" oscillation that produces a partial-pass build
+
+##### QA gate guidance (judgment call, not programmable)
+
+There's no automated check for this rule — it's a design discipline. But the existing `text-contrast` rule (now alpha-aware) catches the failures at build time. The structural rule here is preventative: **define the pair from the start**, don't try to retrofit when QA fails.
+
+---
+
+#### TAILWIND V4 CASCADE TRAP (architectural — applies to global.css authoring)
+
+Real bug shipped 2026-04-29 (giffins.net build, twice on the same build): a bare element selector like `h2 { color: var(--color-forest); }` in `src/styles/global.css` SILENTLY beats utility classes (`text-cream`, `style="color: var(--color-cream);"`) regardless of CSS specificity. Cause: in Tailwind v4, unlayered base styles in `global.css` are computed AFTER the utility layer in the cascade, so they win. The fix is to wrap base element selectors in `@layer base { ... }` so they get put in the correct cascade slot below utilities.
+
+##### The rule
+
+In any `src/styles/global.css` (across A, B, C, and all template inspirations), **bare element selectors that set color/background properties MUST be wrapped in `@layer base { ... }`**.
+
+```css
+/* WRONG — unlayered base styles silently beat utility classes */
+h1, h2, h3, h4 {
+  font-family: var(--brand-display);
+  color: var(--color-ink);
+}
+p {
+  color: var(--color-ink);
+}
+
+/* RIGHT — base layer so utility classes can override */
+@layer base {
+  h1, h2, h3, h4 {
+    font-family: var(--brand-display);
+    color: var(--color-ink);
+  }
+  p {
+    color: var(--color-ink);
+  }
+}
+```
+
+##### Why this matters
+
+Without `@layer base`, you get bugs like:
+
+- `<h2 class="text-cream">Headline</h2>` renders ink-dark instead of cream — utility class loses to unlayered base
+- `<p style="color: var(--color-cream);">Body</p>` renders ink-dark — inline style WINS but if there's any inline style override missing, base sneaks in
+- A worker who sees the bug tries `!important` everywhere, which works but is ugly and hard to maintain
+
+The fix is simple and structural: wrap base-element styles in `@layer base`.
+
+##### QA gate enforcement (NEW in `qa-check.js` Stage 2.7 scaffold smoke-test)
+
+The shared-component contrast lint at Stage 2.7 (and the broader text-contrast walk) catches the visible symptom. Additionally, a static lint runs at Stage 2.6 (scaffold creation) and Stage 7c (Option C scaffold):
+
+1. Read `src/styles/global.css`
+2. Search for bare-element rules: `^([a-z][a-z0-9]*\s*,?\s*)+\s*\{` at module-top-level (not inside any `@layer { }`, `@media { }`, etc.)
+3. If any match sets `color`, `background`, `background-color`, or `font-family` properties → **FAIL** with: `"Bare element selector '{selector}' in global.css sets color/font outside @layer base. Tailwind v4 unlayered base styles silently beat utility classes regardless of specificity. Wrap bare-element selectors in @layer base { ... } so utilities can override them. See TAILWIND V4 CASCADE TRAP in SKILL.md."`
+
+This is a static check (no Playwright needed) — runs in `scripts/check-cascade-trap.cjs` (TODO).
+
+---
+
+#### FOOTER-AFTER-DARK-CTABANNER (architectural — applies to all options)
+
+Real bug shipped 2026-04-29 (Option C visual review): the closing CTA banner is a dark section (forest/shadow/cordwood). The Footer is also a dark section (forest-shadow). When Footer has any `mt-{n}` (margin-top) class — even `mt-0` if there's other parent margin — a thin cream stripe appears between them as the page background bleeds through. Visually unforgivable.
+
+##### The rule
+
+**Footer components must rely entirely on internal `py-{n}` for vertical spacing. Never `mt-*` on the Footer or its parent.**
+
+```astro
+<!-- WRONG — mt-12 creates a visible gap between dark-bg sections -->
+<Footer class="mt-12 bg-shadow text-cream py-16" />
+
+<!-- RIGHT — no margin-top, internal py only -->
+<Footer class="bg-shadow text-cream py-20 md:py-24" />
+```
+
+If you need extra space above the footer in some contexts, ADD it inside the footer (top padding) or in the section ABOVE the footer (bottom padding) — never via Footer's own margin.
+
+##### QA gate enforcement (NEW in `qa-check.js`)
+
+A static lint at build time scans `src/components/Footer.astro` and any page-level uses of `<Footer>` for `class=` attributes containing `mt-` tokens. If found → **FAIL** with: `"Footer has 'mt-{n}' margin-top class in {file}. When the section above the footer is also dark, mt-* exposes a cream stripe between the two sections. Use internal py-* on the Footer instead. See FOOTER-AFTER-DARK-CTABANNER in SKILL.md."`
+
+Pattern detected: `<Footer[^>]*class="[^"]*\bmt-\d`. Pattern in component CSS: search Footer.astro for `class="...mt-..."` on the outer wrapper.
 
 ---
 
@@ -2165,10 +2363,20 @@ The plugin's default bias is editorial. Without explicit token constraints, C wi
 | Product-led        | Neutral whites/greys + product-photo color does the work       | Clean sans display + sans text             | Minimal — let photography speak                          | Heavy ornament, editorial serifs, dark themes  |
 | Clinical-warm      | Cool whites + soft sage/dusty blue + warm cream accents       | Friendly sans display + readable sans text | Soft rounded shapes, generous whitespace, gentle dividers | Hi-vis, industrial, gritty, dark themes        |
 | Architectural      | Concrete grey + ink black + 1 muted brand accent               | Architectural sans + serif text            | Thin lines, oversized photography, architectural labels  | Decorative ornament, warm pastels              |
+| **B2B tech / SaaS / fintech / holding co** (added 2026-04-29) | Refined-modern minimalism: near-white or near-black + ONE single accent + ample whitespace. Models: Stripe / Linear / Vercel / Anthropic.com. | Quiet sans (Inter Tight, GT America, Söhne, IBM Plex Sans) at modest weights. NO display serifs. Mono RARELY (only for actual code) | Hairline structure, generous whitespace, ONE accent used sparingly (≤ 5% of page area), subtle motion on hover only | **Bracket numerals (`[01]`, `01 /`), status dots/pills (●●● green-dot indicators), pseudo-filename eyebrows (SYSTEM_X.json, /docs/v2.md), terminal cursors (`> _`), control-plane ornament (admin-dashboard chrome, network-graph backgrounds, monospace SQL snippets as decoration). Bracket numbers + status pills + grid overlays + dashboard tropes are SaaS-tool aesthetics, NOT brand-site aesthetics.** |
 
 **The build (Stage 7d below) MUST consume `industry-tokens.json`** — wire each `palette.*.hex` value into `src/styles/global.css` as a CSS variable, set the `typography.display/text/mono` families as the Google Fonts loaded in BaseLayout, and apply `ornament.shapes` as the design vocabulary across components. The `ornament.avoid` list is what the build MUST NOT do.
 
 **Editorial-drift catch (in Visual Sanity Pass for C)**: after building, look at C's homepage screenshot and ask: "If a stranger saw this without knowing the customer, would they guess the industry within 3 seconds?" If the answer is "looks like a Medium article" or "could be any consultancy" — C drifted into editorial. Reject and rebuild with the industry tokens applied more aggressively.
+
+**Control-plane-reflex catch (in Visual Sanity Pass for C, especially for B2B tech / SaaS / fintech / holding-co directions)**: the OPPOSITE drift from editorial. After building, look at C's homepage screenshot and ask: **"Does this read as a sophisticated brand site, or as an internal tool / SaaS dashboard / admin console?"** If the screenshot looks like a thing you'd USE (Vercel deploy panel, Linear ticket queue, Stripe API console) rather than a thing you'd READ (sophisticated company brand site) — C drifted into control-plane reflex. Real bug shipped 2026-04-29 (Option C for a holding-co customer): the design featured bracket numerals + status dots + status pills + grid overlays + terminal cursors + spec callouts simultaneously. Each "felt right" individually for a tech brand, but stacked together they produced "admin dashboard" not "Stripe.com brand site."
+
+**The mirror question to editorial-drift**: where editorial-drift is "this could be a Medium article", control-plane-drift is "this could be an internal tool screenshot." Both are failure modes. Both reject and rebuild — but the fix is different:
+
+- **Editorial drift fix**: apply industry-tokens more aggressively (more workwear vocabulary, more hi-vis, more chevrons, more bracket numerals — the trades vocabulary).
+- **Control-plane drift fix**: STRIP the dashboardy ornaments (status dots, terminal cursors, bracket numerals, grid overlays, file-tab nav as decoration) and re-execute with refined-modern minimalism (Stripe / Linear / Vercel / Anthropic.com). Keep ONE accent. Hairline structure only. Quiet typography. The B2B tech / SaaS / fintech / holding-co row in the table above is the right reference for this fix.
+
+The two checks together catch BOTH directions of drift. Run BOTH on every C build. If either fires, reject and rebuild before proceeding to Stage 8.
 
 #### 7c. Set up Option C project structure
 

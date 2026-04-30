@@ -71,9 +71,11 @@ const {
 
   {/* Layer 4: text content */}
   <div class="relative z-10 wrap flex flex-col justify-center py-24 md:py-32 w-full">
-    {/* Mono eyebrow */}
+    {/* Mono eyebrow — section labels are LABEL-ONLY; numbered prefixes (01 /, [02])
+        are an editorial / magazine pattern that does not belong on Option A trades.
+        See SKILL.md NUMBERED SECTION LABELS RULE. */}
     <p class="mono-caption mono-caption-lg on-dark fade-up" style="margin-bottom: 1.5rem;">
-      <span class="num">{sectionNum}</span> &nbsp;/&nbsp; {sectionLabel}
+      {sectionLabel}
     </p>
 
     {/* Display headline — italic emphasis on flagged parts */}
