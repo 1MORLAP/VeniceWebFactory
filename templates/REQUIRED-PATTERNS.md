@@ -435,6 +435,79 @@ This semantic discipline matters because the `testimonial-tampering` check treat
 
 ---
 
+## 12. Bilingual support (BILINGUAL SUPPORT — Options B and C, Spanish)
+
+Added 2026-04-30 per user clarification: *"Options B and C now need to include Spanish, also, make sure we do the translation once, as Option B and C should have the same copy or VERY close."*
+
+**Structural rule (Options B and C)**: ship `/es/` pages alongside English. Translation produced ONCE in Stage 5 by the same Sonnet sub-agents doing the English rewrite, written to `option-b/src/pages/es/*.astro`. Option C reads B's `/es/` files at Stage 7 — single source of truth across B and C. Option A stays English-only.
+
+### 12.1 File layout
+
+```
+option-a/src/pages/<page>.astro                   ← English only (A is monolingual)
+option-b/src/pages/<page>.astro                   ← English (B's design + B's English rewrite)
+option-b/src/pages/es/<page>.astro                ← Spanish (B's design + B's Spanish translation, CANONICAL ES)
+option-c/src/pages/<page>.astro                   ← English (C's design + B's English text)
+option-c/src/pages/es/<page>.astro                ← Spanish (C's design + B's Spanish text from option-b/src/pages/es/)
+```
+
+### 12.2 What gets translated
+
+**Translate**: page text, headlines, subheads, body, CTAs, image `alt`, `<title>`, `<meta description>`, nav labels, button text, form labels, footer copy.
+
+**Do NOT translate** (single source of truth across languages):
+
+- Phone numbers, email addresses, license numbers
+- Place names (Tampa, Lancaster, Ohio — keep original even when wrapped in Spanish prose)
+- Business names, founder names, customer review attribution names, brand names
+- All `<img src>` paths (same images; only `alt` is translated)
+- All structural markup, components, grid configs, section ordering
+
+### 12.3 Testimonials in `/es/` — special handling
+
+Translate the testimonial body. Append `<small>(traducido del inglés)</small>` below the `<cite>` element. Attribution name stays original.
+
+```astro
+<blockquote>"¡Excelentes precios, trabajo de primera!"</blockquote>
+<cite>— Mark S. <small>(traducido del inglés)</small></cite>
+```
+
+This is mandatory on every translated testimonial — qa-check enforces presence near each `<cite>`.
+
+### 12.4 `<html lang>` attribute
+
+Every `/es/*` page renders `<html lang="es">`. Every English page renders `<html lang="en">`. Implementation: BaseLayout accepts a `lang` prop (default `"en"`); `/es/*.astro` pages pass `lang="es"`.
+
+### 12.5 Language switcher (mandatory in nav, Options B and C)
+
+Every page in B and C has a visible EN/ES toggle in the nav that:
+
+- Links the current page to its parallel translation
+- Shows the language being switched TO (`ES` on EN pages, `EN` on ES pages)
+- Has `aria-label` referencing the target language ("Cambiar a Español" / "Switch to English")
+- Tap target ≥ 44×44px, visible in the main nav (not just a footer link)
+
+Option A does NOT include a language switcher.
+
+### 12.6 qa-check enforcement
+
+Four rules, gated on `--option <b|c>`:
+
+- `bilingual-page-parity` — every English page must have a parallel `/es/` page (and vice versa)
+- `language-switcher-presence` — nav must contain a working EN/ES toggle with the right `aria-label`
+- `html-lang-attribute` — `/es/*` pages must have `<html lang="es">`; English pages must have `<html lang="en">` (or unspecified, which defaults to the BaseLayout default)
+- `testimonial-tampering` (extended) — when checking C's `/es/` pages, compare against B's `/es/` (passed via `--reference-dist-es`); verify each translated testimonial has `(traducido del inglés)` near attribution
+
+### 12.7 Visual freedom
+
+ANY layout, ANY component, ANY visual treatment. The rule is about COVERAGE (`/es/` exists with translated copy) and the testimonial-tag convention. Everything else stays at the option's design discretion.
+
+### 12.8 Real story (added 2026-04-30)
+
+Spanish was previously implemented in the SKILL.md design but PAUSED while the English pipeline stabilized. Re-enabled with the architecture above. Single-source-of-truth design (translate ONCE in Stage 5, both B and C consume) is what keeps the cost from doubling — without it, B and C would each translate independently and diverge.
+
+---
+
 ## Quick reference — qa-check rules and which patterns they enforce
 
 | qa-check rule | Enforces pattern... |
