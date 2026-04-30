@@ -1,0 +1,128 @@
+---
+/*
+ * Hero.astro — full-bleed work-photo hero
+ * ---------------------------------------
+ * The PHOTO is the hero. Headline sits over a real customer-work photo,
+ * with a 3-layer pattern (image / overlay / text) per the HERO CONTRAST
+ * RULE. NOT a workwear poster, NOT a typographic-only headline.
+ *
+ * Distinguished moves:
+ * - Display headline in Fraunces opsz 96 — hairline elegance at large size
+ * - Italic emphasis word in rust (one or two words, never the whole line)
+ * - Mono caption above headline ("01 / SECTION-NAME") in amber-on-dark
+ * - Two CTAs: rust-bg primary + bone-outline secondary
+ * - Bottom stat strip (3 cells, big Fraunces numbers + mono labels)
+ * - Photo annotation in bottom-left corner ("OAK ST · MARCH '26")
+ *
+ * Skip the bracket-numbered eyebrow and file-tab idioms — those are
+ * industrial-trades/'s vocabulary, NOT this aesthetic.
+ */
+
+interface Props {
+  sectionNum?: string;        // "01" — slim numeric prefix on mono caption
+  sectionLabel: string;       // "ESTABLISHED 2014 · PHILADELPHIA, PA"
+  headlineParts: Array<{ text: string; emphasis?: boolean }>;  // pieces of the headline; emphasis ones get italic-rust treatment
+  subhead?: string;           // longer body paragraph
+  photoSrc: string;           // FULL-BLEED work photo URL
+  photoAlt: string;
+  photoCaption?: string;      // bottom-left mono annotation (e.g. "OAK ST · MARCH '26")
+  ctaPrimary?: { text: string; href: string };
+  ctaSecondary?: { text: string; href: string };
+  stats?: Array<{ value: string; label: string }>;  // optional 2-4 stats below CTAs
+}
+
+const {
+  sectionNum = '01',
+  sectionLabel,
+  headlineParts,
+  subhead,
+  photoSrc,
+  photoAlt,
+  photoCaption,
+  ctaPrimary,
+  ctaSecondary,
+  stats = [],
+} = Astro.props;
+---
+
+<section class="relative min-h-[640px] md:min-h-[760px] flex bg-[color:var(--color-bone-dark)] overflow-hidden">
+  {/* Layer 1: full-bleed photo */}
+  <img
+    src={photoSrc}
+    alt={photoAlt}
+    class="absolute inset-0 w-full h-full object-cover"
+    style="opacity: 0.65;"
+    loading="eager"
+  />
+
+  {/* Layer 2: gradient scrim — darker at bottom for headline legibility */}
+  <div
+    class="absolute inset-0"
+    style="background: linear-gradient(180deg, rgba(31,27,20,0.55) 0%, rgba(31,27,20,0.30) 35%, rgba(31,27,20,0.85) 100%);"
+    aria-hidden="true"
+  ></div>
+
+  {/* Layer 3: photo annotation (bottom-left mono caption) */}
+  {photoCaption && (
+    <span class="photo-caption" style="background: var(--color-ink); color: var(--color-amber-on-dark); bottom: 1.25rem; left: 1.25rem;">
+      {photoCaption}
+    </span>
+  )}
+
+  {/* Layer 4: text content */}
+  <div class="relative z-10 wrap flex flex-col justify-center py-24 md:py-32 w-full">
+    {/* Mono eyebrow */}
+    <p class="mono-caption mono-caption-lg on-dark fade-up" style="margin-bottom: 1.5rem;">
+      <span class="num">{sectionNum}</span> &nbsp;/&nbsp; {sectionLabel}
+    </p>
+
+    {/* Display headline — italic emphasis on flagged parts */}
+    <h1
+      class="display-xl fade-up"
+      style="color: var(--color-bone-light); max-width: 14ch; transition-delay: 0.05s;"
+    >
+      {headlineParts.map(p => (
+        p.emphasis
+          ? <span class="display-emphasis">{p.text}</span>
+          : <span>{p.text}</span>
+      ))}
+    </h1>
+
+    {subhead && (
+      <p
+        class="fade-up mt-7"
+        style="color: rgba(244,239,230,0.88); font-size: clamp(17px, 1.5vw, 20px); line-height: 1.55; max-width: 56ch; transition-delay: 0.1s;"
+      >
+        {subhead}
+      </p>
+    )}
+
+    {(ctaPrimary || ctaSecondary) && (
+      <div class="fade-up mt-9 flex flex-wrap items-center gap-3" style="transition-delay: 0.15s;">
+        {ctaPrimary && (
+          <a href={ctaPrimary.href} class="btn-primary">
+            {ctaPrimary.text}
+            <span aria-hidden="true">→</span>
+          </a>
+        )}
+        {ctaSecondary && (
+          <a href={ctaSecondary.href} class="btn-outline on-dark">
+            {ctaSecondary.text}
+          </a>
+        )}
+      </div>
+    )}
+
+    {/* Optional stat strip at the bottom of the hero column */}
+    {stats.length > 0 && (
+      <div class="fade-up mt-12 flex flex-wrap gap-x-10 gap-y-6 on-dark" style="transition-delay: 0.2s;">
+        {stats.map(s => (
+          <div class="flex flex-col gap-1.5">
+            <span class="stat-num">{s.value}</span>
+            <span class="mono-caption on-dark">{s.label}</span>
+          </div>
+        ))}
+      </div>
+    )}
+  </div>
+</section>

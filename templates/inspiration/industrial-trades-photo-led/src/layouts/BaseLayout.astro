@@ -1,0 +1,72 @@
+---
+import '../styles/global.css';
+import Nav from '../components/Nav.astro';
+import Footer from '../components/Footer.astro';
+
+interface Props {
+  title: string;
+  description?: string;
+  active?: string;
+}
+
+const { title, description = '', active = 'home' } = Astro.props;
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>{title}</title>
+    {description && <meta name="description" content={description} />}
+    <link rel="icon" href="/favicon.ico" />
+
+    {/* Fraunces (display serif, optical-size 9..144) + Inter (body) +
+        JetBrains Mono (technical captions). The full opsz axis on Fraunces
+        is what gives the display variant its hairline elegance at 88px. */}
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..700;1,9..144,400..700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+    />
+  </head>
+
+  <body class="min-h-screen flex flex-col">
+    <a
+      href="#main"
+      class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:px-4 focus:py-2 focus:bg-[var(--color-ink)] focus:text-[var(--color-bone-light)]"
+    >
+      Skip to content
+    </a>
+
+    <Nav active={active} />
+
+    <main id="main" class="flex-1">
+      <slot />
+    </main>
+
+    <Footer />
+
+    <script>
+      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (!reduceMotion) {
+        document.documentElement.classList.add('has-animations');
+        const targets = document.querySelectorAll('.fade-up');
+        if ('IntersectionObserver' in window) {
+          const io = new IntersectionObserver(entries => {
+            for (const e of entries) {
+              if (e.isIntersecting) { e.target.classList.add('visible'); io.unobserve(e.target); }
+            }
+          }, { threshold: 0.12, rootMargin: '0px 0px -10% 0px' });
+          targets.forEach(el => io.observe(el));
+        } else {
+          targets.forEach(el => el.classList.add('visible'));
+        }
+        // Safety fallback — reveal everything after 1.5s even if observer never fires
+        setTimeout(() => targets.forEach(el => el.classList.add('visible')), 1500);
+      } else {
+        document.querySelectorAll('.fade-up').forEach(el => el.classList.add('visible'));
+      }
+    </script>
+  </body>
+</html>

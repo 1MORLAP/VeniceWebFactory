@@ -1,0 +1,248 @@
+---
+/*
+ * Sample Photo-Led Trades Homepage
+ * --------------------------------
+ * Fictional customer "Hartwell Building & Restoration" — a generic licensed
+ * general contractor demonstrating every aesthetic move available in this
+ * inspiration directory: full-bleed work-photo hero, photo-per-service-card
+ * grid, "Recent Work" portfolio gallery, contractor headshot block, dark
+ * stat strip + footer. The page deliberately renders 12+ work photos to
+ * model the photo-density Option A trade builds need.
+ *
+ * The actual customer build would replace ALL the copy with the real
+ * customer's content from the manifest, replace ALL the photos with the
+ * real customer's scraped images, and adapt the palette / fonts to the
+ * real customer's brand. This file exists ONLY to show the worker session
+ * what the aesthetic LOOKS LIKE end-to-end. NEVER copy this verbatim into
+ * a customer build.
+ *
+ * Photo sources are Unsplash CDN — no API key required, just URL with
+ * dimensions. Replace with the customer's own /images/{file} paths.
+ */
+
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Hero from '../components/Hero.astro';
+import StatStrip from '../components/StatStrip.astro';
+import ServiceCardPhoto from '../components/ServiceCardPhoto.astro';
+import PortfolioGrid from '../components/PortfolioGrid.astro';
+import AboutCrew from '../components/AboutCrew.astro';
+
+// Service tiles — every card has a REQUIRED real-work photo.
+// Text-only service cards are the failure mode this inspiration prevents.
+const services = [
+  {
+    num: '01',
+    category: 'EXTERIOR · ROOFING',
+    title: 'Roof tear-off & replacement',
+    description: 'Asphalt shingle, metal, and rubber-roof systems for residential and commercial properties. Storm damage assessments, insurance documentation, full tear-off through final cleanup.',
+    photoSrc: 'https://images.unsplash.com/photo-1632935190508-bce14ed24a73?w=900&q=85',
+    photoAlt: 'Crew installing a new asphalt-shingle roof on a residential property',
+    photoCaption: 'OAK ST · OCT \'25',
+    href: '/services/roofing',
+  },
+  {
+    num: '02',
+    category: 'INTERIOR · DRYWALL',
+    title: 'Drywall, plaster & finish carpentry',
+    description: 'Full-room drywall installation, repair, and finishing. Skim-coat plaster, crown molding, custom built-ins, trim restoration. Kitchen, bath, basement build-outs.',
+    photoSrc: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=900&q=85',
+    photoAlt: 'Drywall installation in progress in a residential interior',
+    photoCaption: 'CEDAR LN · NOV \'25',
+    href: '/services/interior',
+  },
+  {
+    num: '03',
+    category: 'RESTORATION · WATER/FIRE',
+    title: 'Restoration & damage repair',
+    description: 'Water, fire, and storm damage restoration. We coordinate directly with your insurance carrier, document scope, and rebuild to pre-loss condition or better. 24/7 emergency response.',
+    photoSrc: 'https://images.unsplash.com/photo-1581094288338-2314dddb7ece?w=900&q=85',
+    photoAlt: 'Restoration crew documenting water damage in a basement',
+    photoCaption: 'MAPLE AVE · DEC \'25',
+    href: '/services/restoration',
+  },
+  {
+    num: '04',
+    category: 'EXTERIOR · PAINT',
+    title: 'Exterior painting & siding',
+    description: 'Full exterior repaint, siding repair and replacement (cedar, fiber cement, vinyl), trim restoration, deck refinishing. Pressure-wash through final coat — written warranties.',
+    photoSrc: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=900&q=85',
+    photoAlt: 'Exterior painting in progress on a Victorian home',
+    photoCaption: 'BIRCH RD · SEP \'25',
+    href: '/services/exterior',
+  },
+];
+
+// Recent Work portfolio — 8 distinct customer photos.
+// THIS section is the photo-budget absorber. A page with this section
+// alone consumes 8-12 must-reuse photos from the manifest in one move.
+const portfolio = [
+  {
+    src: 'https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=900&q=85',
+    alt: 'Restored Victorian porch — full repaint and rail replacement',
+    category: 'EXTERIOR REPAINT',
+    caption: 'WALNUT ST · 2025',
+  },
+  {
+    src: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=900&q=85',
+    alt: 'Custom kitchen build-out — quartz counters, flat-panel cabinets',
+    category: 'KITCHEN BUILD-OUT',
+    caption: 'OAK ST · 2025',
+  },
+  {
+    src: 'https://images.unsplash.com/photo-1600566753190-17f0baa2a6c3?w=900&q=85',
+    alt: 'Modern home addition — exterior siding and entry detail',
+    category: 'ADDITION',
+    caption: 'CEDAR LN · 2024',
+  },
+  {
+    src: 'https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?w=900&q=85',
+    alt: 'Bathroom renovation — subway tile, vanity, finish carpentry',
+    category: 'BATH RENO',
+    caption: 'MAPLE AVE · 2025',
+  },
+  {
+    src: 'https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?w=900&q=85',
+    alt: 'Restored covered porch — period-correct columns and rail',
+    category: 'PORCH RESTORATION',
+    caption: 'BIRCH RD · 2024',
+  },
+  {
+    src: 'https://images.unsplash.com/photo-1600573472550-8090b5e0745e?w=900&q=85',
+    alt: 'Stone exterior detail — patio and walkway',
+    category: 'HARDSCAPE',
+    caption: 'PINE CT · 2025',
+  },
+  {
+    src: 'https://images.unsplash.com/photo-1600566753051-6057d1b0fbb6?w=900&q=85',
+    alt: 'Finished basement — egress windows, recessed lighting',
+    category: 'BASEMENT',
+    caption: 'ELM RD · 2024',
+  },
+  {
+    src: 'https://images.unsplash.com/photo-1600566752355-35792bedcfea?w=900&q=85',
+    alt: 'Custom deck and pergola — pressure-treated frame, cedar finish',
+    category: 'DECK',
+    caption: 'OAK ST · 2025',
+  },
+];
+
+// Stats for the hero strip
+const heroStats = [
+  { value: '12+', label: 'YEARS IN TRADE' },
+  { value: '380',  label: 'PROJECTS DELIVERED' },
+  { value: '24/7', label: 'EMERGENCY RESPONSE' },
+];
+
+const credentialStats = [
+  { value: '12+',  unit: 'YRS', label: 'EST. 2014' },
+  { value: '380',  label: 'PROJECTS DELIVERED' },
+  { value: 'A+',   label: 'BBB ACCREDITED' },
+  { value: '24/7', label: 'STORM RESPONSE' },
+];
+---
+
+<BaseLayout
+  title="Hartwell Building & Restoration — Lancaster PA Licensed General Contractor"
+  description="Licensed general contractor serving Lancaster County, PA. Roofing, interior, restoration, painting. 12+ years, 380+ projects, written estimates. (555) 555-0100."
+  active="home"
+>
+  {/* — Section 01 — Hero with full-bleed work photo */}
+  <Hero
+    sectionNum="01"
+    sectionLabel="HARTWELL BUILDING &amp; RESTORATION · EST. 2014"
+    headlineParts={[
+      { text: 'Honest work. ' },
+      { text: 'Written estimates.', emphasis: true },
+      { text: ' Every job, every time.' },
+    ]}
+    subhead="Licensed general contractor serving Lancaster County and surrounding areas. Roofing, interior, restoration, exterior painting — residential and commercial."
+    photoSrc="https://images.unsplash.com/photo-1503387762-592deb58ef4e?w=1800&q=85"
+    photoAlt="Hartwell crew on a residential roofing project at sunset"
+    photoCaption="OAK ST · OCT '25"
+    ctaPrimary={{ text: 'Schedule a free estimate', href: '/contact' }}
+    ctaSecondary={{ text: 'See recent projects', href: '#portfolio' }}
+    stats={heroStats}
+  />
+
+  {/* — Section 02 — Credential strip on bone */}
+  <StatStrip stats={credentialStats} variant="bone" />
+
+  {/* — Section 03 — Services grid (each card has REQUIRED photo) */}
+  <section class="bg-[color:var(--color-bone-light)] py-20 md:py-28">
+    <div class="wrap">
+      <header class="fade-up max-w-2xl mb-12 md:mb-16">
+        <p class="mono-caption mono-caption-lg" style="margin-bottom: 1.25rem;">
+          <span class="num">02</span> &nbsp;/&nbsp; SERVICES
+        </p>
+        <h2 class="display-lg">
+          <span>Four trades, one phone number,</span>
+          <span class="display-emphasis"> done by the same crew.</span>
+        </h2>
+        <p class="mt-5" style="color: var(--color-ink-muted); font-size: 17px; line-height: 1.65;">
+          Roofing, interior, restoration, exterior. Each job runs through Hartwell directly — not subbed out, not handed off.
+        </p>
+      </header>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6 lg:gap-8 fade-up">
+        {services.map(s => <ServiceCardPhoto {...s} />)}
+      </div>
+    </div>
+  </section>
+
+  {/* — Section 04 — Owner / Lead Contractor block */}
+  <AboutCrew
+    sectionNum="03"
+    sectionLabel="MEET THE LEAD"
+    headline="Schedule a private estimate."
+    emphasisLines={['Ask a question.', 'Get advice.']}
+    bio="When you call Hartwell, you talk to me — not a call center, not a junior estimator. I walk every job before we quote it, and I'm on-site for every project we run. If something goes wrong on your build, I'm the one who picks up the phone."
+    attribution="Brian Hartwell · Lead Contractor"
+    attributionMeta="EST. 2014 · LIC. #PA-128744"
+    portraitSrc="https://images.unsplash.com/photo-1560250097-0b93528c311a?w=800&q=85"
+    portraitAlt="Brian Hartwell, lead contractor and founder of Hartwell Building & Restoration"
+    ctaPrimary={{ text: 'Schedule a private estimate', href: '/contact' }}
+    ctaSecondary={{ text: '(555) 555-0100', href: 'tel:5555550100' }}
+  />
+
+  {/* — Section 05 — Recent Work portfolio (THE photo-budget absorber) */}
+  <div id="portfolio">
+    <PortfolioGrid
+      sectionNum="04"
+      sectionLabel="RECENT WORK"
+      headline="A craftsman's portfolio —"
+      emphasis="photographed honestly."
+      intro="Every photo on this page is from a Hartwell job. No stock photos, no staged sets. If you want to see more, just ask — we'll send you the full archive."
+      items={portfolio}
+      ctaText="See all projects"
+      ctaHref="/projects"
+    />
+  </div>
+
+  {/* — Section 06 — Closing CTA on dark */}
+  <section class="bg-[color:var(--color-bone-dark)] py-20 md:py-28" style="color: var(--color-bone-light);">
+    <div class="wrap grid lg:grid-cols-12 gap-10 items-center">
+      <div class="lg:col-span-7">
+        <p class="mono-caption mono-caption-lg on-dark" style="margin-bottom: 1.25rem;">
+          <span class="num">05</span> &nbsp;/&nbsp; LET'S BUILD
+        </p>
+        <h2 class="display-lg" style="color: var(--color-bone-light);">
+          <span>Every job starts with a</span>
+          <span class="display-emphasis" style="color: var(--color-amber-on-dark);"> walk-through</span>
+          <span> and a written estimate. No pressure.</span>
+        </h2>
+        <p class="mt-6 max-w-xl" style="color: rgba(244,239,230,0.85); font-size: 17px; line-height: 1.55;">
+          Tell us about your project. We'll come look, write you a real number on real letterhead, and you can take it from there.
+        </p>
+      </div>
+
+      <div class="lg:col-span-5 flex flex-col gap-3 lg:items-end">
+        <a href="tel:5555550100" class="btn-primary" style="min-width: 260px; padding: 1rem 1.5rem; font-size: 16px;">
+          <span style="font-family: var(--brand-mono); letter-spacing: 0.04em; font-weight: 700;">(555) 555-0100</span>
+        </a>
+        <a href="/contact" class="btn-outline on-dark" style="min-width: 260px; padding: 1rem 1.5rem; font-size: 14px;">
+          Schedule a free estimate
+        </a>
+      </div>
+    </div>
+  </section>
+</BaseLayout>

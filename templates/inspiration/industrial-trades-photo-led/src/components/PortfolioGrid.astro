@@ -1,0 +1,121 @@
+---
+/*
+ * PortfolioGrid.astro — "Recent Work" gallery, the photo-budget absorber
+ * ----------------------------------------------------------------------
+ * This single component is responsible for ABSORBING 4-12 customer-work
+ * photos in one move. It's the simplest fix for the "Option A drifted to
+ * magazine layout" bug — adding this section to a page recovers ~40-60% of
+ * the must-reuse pool in a single pattern.
+ *
+ * Modeled on https://elysian-gc-786s9d1zc-tomek-group.vercel.app/ section
+ * "A craftsman's portfolio — photographed honestly." 4-image masonry-ish
+ * grid, optional caption beneath each image, optional "see more →" link
+ * at the section header.
+ *
+ * Layout variants:
+ * - 4 photos → 2x2 desktop, 2x2 mobile (default)
+ * - 6 photos → 3x2 desktop, 2x3 mobile
+ * - 8 photos → 4x2 desktop, 2x4 mobile
+ *
+ * Each photo gets a mono caption underneath: location · date · job-type.
+ * That captioning is what makes the grid read "honest contractor portfolio"
+ * rather than "stock photo gallery."
+ */
+
+interface PortfolioItem {
+  src: string;
+  alt: string;
+  caption?: string;       // "OAK STREET · OCT '25"  (optional but recommended)
+  category?: string;      // "ROOF REPLACEMENT" — small mono label above caption
+}
+
+interface Props {
+  sectionNum?: string;                 // "05"
+  sectionLabel: string;                // "RECENT WORK"
+  headline: string;                    // "A craftsman's portfolio —"
+  emphasis?: string;                   // "photographed honestly." italic in rust
+  intro?: string;                      // optional 1-line context paragraph
+  items: PortfolioItem[];              // 4-12 photos
+  ctaText?: string;                    // "See all projects"
+  ctaHref?: string;
+}
+
+const {
+  sectionNum = '05',
+  sectionLabel,
+  headline,
+  emphasis,
+  intro,
+  items,
+  ctaText,
+  ctaHref,
+} = Astro.props;
+
+// Choose grid columns based on item count
+let cols = 'md:grid-cols-2 lg:grid-cols-2';
+if (items.length >= 6 && items.length <= 7) cols = 'md:grid-cols-2 lg:grid-cols-3';
+else if (items.length >= 8) cols = 'md:grid-cols-2 lg:grid-cols-4';
+---
+
+<section class="bg-[color:var(--color-bone)] py-20 md:py-28">
+  <div class="wrap">
+    <header class="fade-up flex flex-col md:flex-row md:items-end md:justify-between gap-6 mb-12 md:mb-16">
+      <div class="max-w-2xl">
+        <p class="mono-caption mono-caption-lg" style="margin-bottom: 1.25rem;">
+          <span class="num">{sectionNum}</span> &nbsp;/&nbsp; {sectionLabel}
+        </p>
+        <h2 class="display-lg">
+          <span>{headline}</span>
+          {emphasis && <span class="display-emphasis"> {emphasis}</span>}
+        </h2>
+        {intro && (
+          <p class="mt-5" style="color: var(--color-ink-muted); font-size: 17px; line-height: 1.65; max-width: 56ch;">
+            {intro}
+          </p>
+        )}
+      </div>
+
+      {ctaText && ctaHref && (
+        <a href={ctaHref} class="btn-outline self-start md:self-auto">
+          {ctaText}
+          <span aria-hidden="true">→</span>
+        </a>
+      )}
+    </header>
+
+    {/* The grid itself — distinct images, mono captions, hard 90° corners */}
+    <div class={`grid grid-cols-2 ${cols} gap-4 md:gap-6 fade-up`} style="transition-delay: 0.05s;">
+      {items.map((item, i) => (
+        <figure class="flex flex-col">
+          <div class="relative overflow-hidden bg-[color:var(--color-ink)] aspect-[4/5] group">
+            <img
+              src={item.src}
+              alt={item.alt}
+              loading="lazy"
+              class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+            />
+            {item.caption && (
+              <span class="photo-caption">
+                {item.caption}
+              </span>
+            )}
+          </div>
+          {(item.category || item.alt) && (
+            <figcaption class="mt-3 flex flex-col gap-1">
+              {item.category && (
+                <span class="mono-caption" style="font-size: 10px;">
+                  {item.category}
+                </span>
+              )}
+              {item.alt && (
+                <span style="font-family: var(--brand-text); font-size: 14px; font-weight: 500; color: var(--color-ink); line-height: 1.4;">
+                  {item.alt}
+                </span>
+              )}
+            </figcaption>
+          )}
+        </figure>
+      ))}
+    </div>
+  </div>
+</section>

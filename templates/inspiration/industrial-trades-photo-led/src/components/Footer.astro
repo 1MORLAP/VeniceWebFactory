@@ -1,0 +1,147 @@
+---
+/*
+ * Footer.astro — quiet, editorial-restrained close
+ * -------------------------------------------------
+ * 3-4 column grid: brand block (logo + tagline), navigation, contact,
+ * social. Dark background (bone-dark), bone-light text. NOT a workwear
+ * poster, NOT theatrically large. Closes the page without competing
+ * with the body.
+ */
+
+const navLinks = [
+  { label: 'Home',     href: '/' },
+  { label: 'Services', href: '/services' },
+  { label: 'Projects', href: '/projects' },
+  { label: 'About',    href: '/about' },
+  { label: 'Contact',  href: '/contact' },
+];
+
+const contact = {
+  phone: '(555) 555-0100',
+  email: 'hello@hartwell-build.example',
+  address: '128 Cedar Mill Road, Lancaster, PA 17603',
+  hours: 'Mon–Fri 7am–6pm · Sat by appointment',
+};
+
+const social = [
+  { platform: 'Facebook',  href: 'https://facebook.com/hartwell-build' },
+  { platform: 'Instagram', href: 'https://instagram.com/hartwell-build' },
+];
+---
+
+<footer class="bg-[color:var(--color-bone-dark)]" style="color: var(--color-bone-light);">
+  <div class="wrap py-16 md:py-20">
+    <div class="grid grid-cols-1 md:grid-cols-12 gap-10 md:gap-12">
+
+      {/* Brand block — col-span-4 desktop */}
+      <div class="md:col-span-4">
+        <a href="/" class="flex items-center gap-3">
+          <div class="w-12 h-12 bg-[color:var(--color-bone-light)] flex items-center justify-center" aria-hidden="true">
+            <span style="font-family: var(--brand-display); color: var(--color-ink); font-weight: 600; font-size: 20px;">H</span>
+          </div>
+          <div class="flex flex-col">
+            <span style="font-family: var(--brand-display); font-weight: 600; font-size: 22px; line-height: 1; color: var(--color-bone-light);">
+              Hartwell
+            </span>
+            <span class="mono-caption on-dark" style="font-size: 10px; margin-top: 4px;">
+              BUILDING &amp; RESTORATION
+            </span>
+          </div>
+        </a>
+
+        <p class="mt-6 max-w-sm" style="color: rgba(244,239,230,0.78); font-size: 15px; line-height: 1.65;">
+          Licensed general contractor serving Lancaster County and the surrounding areas. Residential and commercial — interior, exterior, restoration. Honest work, written estimates, no surprises.
+        </p>
+
+        <p class="mono-caption on-dark mt-6" style="font-size: 10px;">
+          EST. 2014 · LANCASTER, PA · LIC. #PA-128744
+        </p>
+      </div>
+
+      {/* Navigation */}
+      <div class="md:col-span-2">
+        <p class="mono-caption on-dark" style="font-size: 10px; margin-bottom: 1.25rem;">
+          NAVIGATION
+        </p>
+        <ul class="flex flex-col gap-3">
+          {navLinks.map(l => (
+            <li>
+              <a
+                href={l.href}
+                class="hover:text-[color:var(--color-amber-on-dark)] transition-colors"
+                style="font-family: var(--brand-text); font-size: 15px; color: var(--color-bone-light);"
+              >
+                {l.label}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      {/* Contact */}
+      <div class="md:col-span-3">
+        <p class="mono-caption on-dark" style="font-size: 10px; margin-bottom: 1.25rem;">
+          CONTACT
+        </p>
+        <ul class="flex flex-col gap-3.5" style="color: var(--color-bone-light); font-size: 15px;">
+          <li>
+            <a href={`tel:${contact.phone.replace(/\D/g, '')}`} class="hover:text-[color:var(--color-amber-on-dark)] transition-colors" style="font-family: var(--brand-mono); font-weight: 600;">
+              {contact.phone}
+            </a>
+          </li>
+          <li>
+            <a href={`mailto:${contact.email}`} class="hover:text-[color:var(--color-amber-on-dark)] transition-colors break-words">
+              {contact.email}
+            </a>
+          </li>
+          <li style="color: rgba(244,239,230,0.78); line-height: 1.55;">
+            {contact.address}
+          </li>
+          <li class="mono-caption on-dark" style="font-size: 10px;">
+            {contact.hours}
+          </li>
+        </ul>
+      </div>
+
+      {/* Social + CTA */}
+      <div class="md:col-span-3">
+        <p class="mono-caption on-dark" style="font-size: 10px; margin-bottom: 1.25rem;">
+          FOLLOW
+        </p>
+        <ul class="flex flex-col gap-3 mb-6">
+          {social.map(s => (
+            <li>
+              <a
+                href={s.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={s.platform}
+                class="inline-flex items-center gap-2 hover:text-[color:var(--color-amber-on-dark)] transition-colors"
+                style="font-family: var(--brand-text); font-size: 15px; color: var(--color-bone-light);"
+              >
+                <span aria-hidden="true" style="color: var(--color-amber-on-dark);">→</span>
+                {s.platform}
+              </a>
+            </li>
+          ))}
+        </ul>
+
+        <a href="/contact" class="btn-outline on-dark inline-flex">
+          Schedule estimate
+          <span aria-hidden="true">→</span>
+        </a>
+      </div>
+    </div>
+
+    {/* Hairline + bottom mono strip */}
+    <div class="rule-on-dark mt-12 mb-6"></div>
+    <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
+      <span class="mono-caption on-dark" style="font-size: 10px;">
+        © 2026 HARTWELL BUILDING &amp; RESTORATION · ALL RIGHTS RESERVED
+      </span>
+      <span class="mono-caption on-dark" style="font-size: 10px;">
+        BUILT WITH CARE · LANCASTER, PA
+      </span>
+    </div>
+  </div>
+</footer>

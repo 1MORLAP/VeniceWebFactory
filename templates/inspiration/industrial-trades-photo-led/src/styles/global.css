@@ -1,0 +1,255 @@
+/*
+ * Inspiration: industrial-trades-photo-led
+ * ----------------------------------------
+ * The OPTION-A-FRIENDLY counterpart to industrial-trades/. Where industrial-trades/
+ * leans editorial / workwear-document (bracket numbers, file-tab nav, hatched
+ * borders, ALL-CAPS condensed display) — that vocabulary belongs to OPTION C —
+ * THIS directory leans craftsman / photo-led / editorial-restrained:
+ *
+ *   - Photos lead. Hero is full-bleed work shot. Service cards each have a
+ *     photo. Portfolio grid is the centerpiece. Contractor headshot section.
+ *   - Display: Fraunces (serif, optical-sized) for editorial-quality headlines.
+ *     Italics on emphasis words. NOT condensed sans, NOT ALL-CAPS.
+ *   - Body: Inter for readability.
+ *   - Mono: JetBrains Mono for technical captions ("01 / SERVICES",
+ *     "EST. 2014 · LANCASTER OH"), used SPARINGLY.
+ *   - Palette: warm-black ink + warm cream bone + terracotta rust + amber-on-dark.
+ *     Ink-on-bone is the dominant rhythm; rust accents emphasis; amber
+ *     captions used only on dark sections.
+ *   - 90° corners but with generous interior padding. Hairline rules, not
+ *     hatched / not file-tab. Quiet precision, not workwear-poster.
+ *
+ * Modeled on https://elysian-gc-786s9d1zc-tomek-group.vercel.app/ — the
+ * positive reference URL the customer flagged when feedback identified the
+ * Option A drift toward magazine / editorial layout. See the IMAGE REUSE RULE
+ * in SKILL.md for the full pipeline rule, and the README in this directory
+ * for the aesthetic playbook.
+ */
+
+@import "tailwindcss";
+
+@theme {
+  /* ─── Palette ──────────────────────────────────────────────────────────
+     Warm dim contractor palette. Bone is the page wash; ink reads on bone
+     with very high contrast (warm-black, brown undertone). Rust is the
+     accent — used for italicized display emphasis + primary CTA bg. Amber
+     is RESERVED for mono captions on dark sections only (it fails 4.5:1
+     on bone). Cream-light is the card surface so cards lift off the page.
+  */
+  --color-ink:           #1A1714;   /* warm-black, body text, structural lines */
+  --color-ink-muted:     #5A4F44;   /* warm-grey for caption / secondary text */
+  --color-ink-subtle:    #8A7E70;   /* tertiary text, helpers */
+
+  --color-bone:          #EAE2D2;   /* page wash — warm cream that signals canvas, NOT cold tech-white */
+  --color-bone-light:    #F4EFE6;   /* card surface — slightly lighter so cards lift */
+  --color-bone-dark:     #1F1B14;   /* dark section bg (e.g. footer, mid-page dark band) */
+
+  --color-rust:          #A8412A;   /* terracotta — primary CTA bg + Fraunces italic emphasis word. 4.6:1 on white text. */
+  --color-rust-deep:     #7B2A1A;   /* darker rust — mono captions on bone (passes 4.5:1 on bone) */
+  --color-rust-bright:   #C4554C;   /* brighter rust — only on dark bg sections */
+
+  --color-amber-on-dark: #D9A441;   /* amber sap — JetBrains Mono captions on dark sections (4.6:1 on bone-dark) */
+
+  /* Typography variables for inline-style use. Components reference these
+     instead of hardcoding font-family strings. */
+  --brand-display: 'Fraunces', ui-serif, Georgia, 'Times New Roman', serif;
+  --brand-text:    'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --brand-mono:    'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* ─── Base typography ─────────────────────────────────────────────────── */
+html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+body {
+  font-family: var(--brand-text);
+  font-size: 17px;
+  line-height: 1.6;
+  color: var(--color-ink);
+  background-color: var(--color-bone);
+}
+
+/* Headings default to the display serif. Override per-component for
+   special cases (Fraunces opsz scaling, italic emphasis, etc.). */
+h1, h2, h3, h4 {
+  font-family: var(--brand-display);
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  color: var(--color-ink);
+}
+
+/* ─── Mono caption utility ────────────────────────────────────────────────
+   The single most-distinctive small element of this aesthetic: the JetBrains
+   Mono caption that appears as eyebrow, photo annotation, stat label,
+   technical strip. Always uppercase, generous letter-spacing, weight 600.
+   Two color variants: on bone (rust-deep) and on dark (amber-on-dark).
+*/
+.mono-caption {
+  font-family: var(--brand-mono);
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--color-rust-deep);   /* default: bone bg */
+}
+.mono-caption.on-dark { color: var(--color-amber-on-dark); }
+.mono-caption-lg { font-size: 13px; letter-spacing: 0.16em; }
+
+/* Slim numeric prefix used on mono captions: "01 / SERVICES · WHAT WE DO".
+   Slightly heavier weight on the number so the caption reads as
+   number-then-rest. */
+.mono-caption .num,
+.mono-caption-lg .num { font-weight: 700; }
+
+/* ─── Display headlines ──────────────────────────────────────────────────
+   Fraunces with optical-size variation for hairline weight at large sizes.
+   Italic emphasis word in rust — pull-quote feel, not hyperbole.
+*/
+.display-xl {
+  font-family: var(--brand-display);
+  font-weight: 500;
+  font-size: clamp(48px, 6.5vw, 88px);
+  line-height: 0.98;
+  letter-spacing: -0.02em;
+  font-variation-settings: 'opsz' 96;
+}
+.display-lg {
+  font-family: var(--brand-display);
+  font-weight: 500;
+  font-size: clamp(36px, 4.8vw, 56px);
+  line-height: 1.05;
+  letter-spacing: -0.012em;
+  font-variation-settings: 'opsz' 72;
+}
+.display-md {
+  font-family: var(--brand-display);
+  font-weight: 500;
+  font-size: clamp(26px, 3.2vw, 36px);
+  line-height: 1.15;
+  letter-spacing: -0.005em;
+}
+
+/* The italic-emphasis pattern: one or two words mid-headline rendered
+   italic in rust to add character without shouting. */
+.display-emphasis {
+  font-style: italic;
+  color: var(--color-rust);
+  font-weight: 500;
+}
+
+/* ─── CTA Buttons ───────────────────────────────────────────────────────
+   90° corners, generous padding, two variants:
+   - btn-primary: rust bg, bone-light text
+   - btn-outline: bone-light bg, ink border + ink text
+*/
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.875rem 1.5rem;
+  background: var(--color-rust);
+  color: var(--color-bone-light);
+  font-family: var(--brand-text);
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: 0.005em;
+  text-decoration: none;
+  border: 2px solid var(--color-rust);
+  transition: background-color 140ms ease, transform 140ms ease, box-shadow 140ms ease;
+  min-height: 48px;
+}
+.btn-primary:hover {
+  background: #8E2F1F;
+  border-color: #8E2F1F;
+  transform: translateY(-1px);
+  box-shadow: 4px 4px 0 0 var(--color-ink);
+}
+
+.btn-outline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.875rem 1.5rem;
+  background: transparent;
+  color: var(--color-ink);
+  font-family: var(--brand-text);
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: 0.005em;
+  text-decoration: none;
+  border: 2px solid var(--color-ink);
+  transition: background-color 140ms ease, color 140ms ease, transform 140ms ease;
+  min-height: 48px;
+}
+.btn-outline:hover {
+  background: var(--color-ink);
+  color: var(--color-bone-light);
+  transform: translateY(-1px);
+}
+
+/* On-dark variant (e.g. inside the hero or footer dark section) */
+.btn-outline.on-dark {
+  color: var(--color-bone-light);
+  border-color: var(--color-bone-light);
+}
+.btn-outline.on-dark:hover {
+  background: var(--color-bone-light);
+  color: var(--color-ink);
+}
+
+/* ─── Photo annotation (mono label overlaid bottom-left of a photo) ──────
+   Like a contact-sheet caption: location + date or job + status.
+*/
+.photo-caption {
+  position: absolute;
+  bottom: 0.75rem;
+  left: 0.75rem;
+  display: inline-block;
+  padding: 4px 8px;
+  background: var(--color-ink);
+  color: var(--color-bone-light);
+  font-family: var(--brand-mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+/* ─── Hairline rules ────────────────────────────────────────────────────
+   Quiet 1-2px ink rules, not hatched. Used between sections, between
+   list items, beneath section eyebrows. NEVER decorated with diagonals.
+*/
+.rule-thin    { height: 1px; background: rgba(26,23,20,0.18); }
+.rule-medium  { height: 2px; background: var(--color-ink); }
+.rule-on-dark { height: 1px; background: rgba(244,239,230,0.22); }
+
+/* ─── Wrap container ─────────────────────────────────────────────────── */
+.wrap { max-width: 1280px; margin: 0 auto; padding: 0 1.25rem; }
+@media (min-width: 768px) { .wrap { padding: 0 2rem; } }
+
+/* ─── Animations (progressive enhancement) ──────────────────────────────
+   Content is fully visible without JS. JS adds .has-animations to <html>;
+   .fade-up elements only get opacity:0 then animate in when observed.
+*/
+html.has-animations .fade-up {
+  opacity: 0;
+  transform: translateY(12px);
+  transition:
+    opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+}
+html.has-animations .fade-up.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ─── Stat strip — large Fraunces numbers + mono captions ─────────────── */
+.stat-num {
+  font-family: var(--brand-display);
+  font-weight: 500;
+  font-size: clamp(36px, 4.5vw, 56px);
+  line-height: 0.95;
+  letter-spacing: -0.01em;
+  color: var(--color-ink);
+}
+.on-dark .stat-num { color: var(--color-bone-light); }

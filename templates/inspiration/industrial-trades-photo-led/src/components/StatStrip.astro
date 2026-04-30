@@ -1,0 +1,54 @@
+---
+/*
+ * StatStrip.astro — 3-4 cell credential strip
+ * --------------------------------------------
+ * Big Fraunces numbers + JetBrains Mono labels. Two background variants:
+ * 'bone' (light) lives mid-page on the bone wash; 'dark' lives in the hero
+ * or above the footer.
+ *
+ * Distinguished from `industrial-trades/StatStrip.astro`:
+ * - Numbers are Fraunces serif, NOT condensed sans
+ * - Cells are separated by hairline rules (1px), NOT filled with hi-vis
+ * - Subdued, editorial tone — the stats lend gravitas, not urgency
+ */
+
+interface Stat {
+  value: string;     // "10+"
+  unit?: string;     // optional small unit ("YRS")
+  label: string;     // mono label below ("YEARS IN TRADE")
+}
+interface Props {
+  stats: Stat[];
+  variant?: 'bone' | 'dark';
+}
+const { stats, variant = 'bone' } = Astro.props;
+
+const isDark = variant === 'dark';
+const bg = isDark ? 'bg-[color:var(--color-bone-dark)]' : 'bg-[color:var(--color-bone)]';
+const ruleColor = isDark ? 'rgba(244,239,230,0.18)' : 'rgba(26,23,20,0.15)';
+---
+
+<section class={`${bg} ${isDark ? 'on-dark' : ''} border-y`} style={`border-color: ${ruleColor};`}>
+  <div class="wrap py-12 md:py-16">
+    <div
+      class={`grid gap-px`}
+      style={`grid-template-columns: repeat(${stats.length}, minmax(0, 1fr)); background: ${ruleColor};`}
+    >
+      {stats.map(s => (
+        <div class={`${bg} flex flex-col items-start gap-2 px-4 md:px-6 py-2 md:py-3`}>
+          <div class="flex items-baseline gap-2">
+            <span class="stat-num">{s.value}</span>
+            {s.unit && (
+              <span class="mono-caption" style={`font-size: 12px; color: ${isDark ? 'var(--color-amber-on-dark)' : 'var(--color-rust-deep)'};`}>
+                {s.unit}
+              </span>
+            )}
+          </div>
+          <span class={`mono-caption ${isDark ? 'on-dark' : ''}`} style="font-size: 11px;">
+            {s.label}
+          </span>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>

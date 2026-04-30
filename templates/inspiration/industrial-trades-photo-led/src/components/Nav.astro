@@ -1,0 +1,100 @@
+---
+/*
+ * Nav.astro — clean photo-led contractor nav
+ * ------------------------------------------
+ * Choose this aesthetic move when:
+ * - The nav should disappear into the page rhythm — not announce itself
+ * - The customer's site is photo-led; the nav is just a wayfinding strip
+ * - You want a visible primary CTA (phone) but no theatrics
+ *
+ * Distinguished from `industrial-trades/Nav.astro` (file-tab style with
+ * filled-rect active state) — this one uses underline-on-active and
+ * mono-caption hover indicators. Quieter, more editorial.
+ */
+
+interface Props { active?: string }
+const { active = 'home' } = Astro.props;
+
+const items = [
+  { key: 'home',     label: 'Home',     href: '/' },
+  { key: 'services', label: 'Services', href: '/services' },
+  { key: 'projects', label: 'Projects', href: '/projects' },
+  { key: 'about',    label: 'About',    href: '/about' },
+  { key: 'contact',  label: 'Contact',  href: '/contact' },
+];
+---
+
+<header class="bg-[color:var(--color-bone)] border-b border-[color:rgba(26,23,20,0.12)]">
+  <div class="wrap flex items-center justify-between py-4 md:py-5 gap-6">
+    {/* Wordmark — small, plain serif, NOT a logo image (intentional). The
+        worker session swaps in the customer's actual logo image here. */}
+    <a href="/" class="flex items-center gap-3 group" aria-label="Home">
+      <div class="w-11 h-11 bg-[color:var(--color-ink)] flex items-center justify-center" aria-hidden="true">
+        <span style="font-family: var(--brand-display); color: var(--color-bone-light); font-weight: 600; font-size: 18px;">H</span>
+      </div>
+      <div class="flex flex-col">
+        <span style="font-family: var(--brand-display); font-weight: 600; font-size: 20px; line-height: 1; color: var(--color-ink);">
+          Hartwell
+        </span>
+        <span class="mono-caption" style="font-size: 9px; margin-top: 3px;">
+          BUILDING &amp; RESTORATION
+        </span>
+      </div>
+    </a>
+
+    {/* Desktop nav — underline on active, hover lifts to ink */}
+    <nav class="hidden lg:flex items-center gap-8" aria-label="Primary">
+      {items.map(it => (
+        <a
+          href={it.href}
+          class="relative py-2 transition-colors"
+          style={`font-family: var(--brand-text); font-size: 15px; font-weight: ${active === it.key ? '600' : '500'}; color: var(--color-ink); text-decoration: ${active === it.key ? 'underline' : 'none'}; text-decoration-thickness: 2px; text-underline-offset: 6px; text-decoration-color: var(--color-rust);`}
+        >
+          {it.label}
+        </a>
+      ))}
+    </nav>
+
+    {/* Phone CTA — always visible, the most important conversion element */}
+    <a
+      href="tel:5555550100"
+      class="hidden md:inline-flex items-center gap-2 btn-primary"
+      style="padding: 0.625rem 1rem; font-size: 14px; min-height: 44px;"
+    >
+      <span style="font-family: var(--brand-mono); font-weight: 700; letter-spacing: 0.04em;">(555) 555-0100</span>
+    </a>
+
+    {/* Mobile hamburger — details/summary for no-JS toggle */}
+    <details class="lg:hidden relative">
+      <summary
+        class="inline-flex items-center justify-center w-11 h-11 cursor-pointer list-none"
+        aria-label="Open menu"
+        style="background: var(--color-ink); color: var(--color-bone-light);"
+      >
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="square">
+          <line x1="3" y1="6" x2="21" y2="6"/>
+          <line x1="3" y1="12" x2="21" y2="12"/>
+          <line x1="3" y1="18" x2="21" y2="18"/>
+        </svg>
+      </summary>
+      <div class="absolute right-0 top-full mt-2 z-40 min-w-[260px] bg-[color:var(--color-bone-light)] border border-[color:rgba(26,23,20,0.18)] shadow-[6px_6px_0_0_var(--color-ink)]">
+        <nav class="flex flex-col py-2" aria-label="Primary mobile">
+          {items.map(it => (
+            <a
+              href={it.href}
+              class="px-5 py-3 transition-colors hover:bg-[color:var(--color-bone)]"
+              style={`font-family: var(--brand-text); font-size: 16px; font-weight: ${active === it.key ? '600' : '500'}; color: var(--color-ink); border-left: 3px solid ${active === it.key ? 'var(--color-rust)' : 'transparent'};`}
+            >
+              {it.label}
+            </a>
+          ))}
+          <div class="border-t border-[color:rgba(26,23,20,0.12)] mt-2 pt-2 px-5 pb-3">
+            <a href="tel:5555550100" class="btn-primary w-full justify-center">
+              <span style="font-family: var(--brand-mono); font-weight: 700; letter-spacing: 0.04em;">(555) 555-0100</span>
+            </a>
+          </div>
+        </nav>
+      </div>
+    </details>
+  </div>
+</header>

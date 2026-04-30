@@ -1,0 +1,90 @@
+---
+/*
+ * ServiceCardPhoto.astro — service card with REQUIRED work photo
+ * --------------------------------------------------------------
+ * The photo is mandatory. Text-only service cards are the failure mode this
+ * inspiration exists to prevent. Each card shows a customer-work photo
+ * representative of the service ("Roof tear-off" → photo of a roof being
+ * torn off, NOT a stock photo of a worker).
+ *
+ * Distinguished from `industrial-trades/ServiceCard.astro`:
+ * - No bracket-numbered SVC index (that's the editorial vocabulary)
+ * - Title in Fraunces serif, NOT condensed sans
+ * - Hairline rule beneath the title, not a filled label bar
+ * - "Learn more →" link at bottom in mono, not a filled CTA button
+ *
+ * The card lifts on hover via tiny translate + ink shadow — quiet, not flashy.
+ */
+
+interface Props {
+  num?: string;            // "01" — small numeric prefix on the eyebrow
+  category?: string;       // "INTERIOR · DRYWALL" — mono eyebrow above title
+  title: string;           // service name, Fraunces serif
+  description: string;     // 1-2 sentence body
+  href?: string;           // link destination
+  photoSrc: string;        // REQUIRED work photo
+  photoAlt: string;
+  photoCaption?: string;   // optional bottom-left annotation
+}
+
+const {
+  num,
+  category,
+  title,
+  description,
+  href = '#',
+  photoSrc,
+  photoAlt,
+  photoCaption,
+} = Astro.props;
+---
+
+<article class="group bg-[color:var(--color-bone-light)] flex flex-col overflow-hidden border border-[color:rgba(26,23,20,0.10)] transition-all duration-300 hover:border-[color:var(--color-ink)] hover:translate-y-[-2px] hover:shadow-[6px_6px_0_0_var(--color-ink)]">
+  <a href={href} class="flex flex-col h-full">
+    {/* Photo with optional caption — 4:3 aspect ratio for service cards.
+        The photo MUST be present. If you don't have a photo for a service,
+        that's a content gap to flag back to the customer, not a license to
+        ship a text-only card. */}
+    <div class="relative aspect-[4/3] overflow-hidden bg-[color:var(--color-ink)]">
+      <img
+        src={photoSrc}
+        alt={photoAlt}
+        loading="lazy"
+        class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+      />
+      {photoCaption && (
+        <span class="photo-caption">
+          {photoCaption}
+        </span>
+      )}
+    </div>
+
+    {/* Body */}
+    <div class="p-6 md:p-7 flex flex-col gap-3 grow">
+      {(num || category) && (
+        <p class="mono-caption" style="font-size: 11px;">
+          {num && <span class="num">{num}</span>}
+          {num && category && <span> &nbsp;/&nbsp; </span>}
+          {category && <span>{category}</span>}
+        </p>
+      )}
+
+      <h3 class="display-md" style="color: var(--color-ink); margin-top: 0.25rem;">
+        {title}
+      </h3>
+
+      <div class="rule-thin" style="margin: 0.25rem 0;"></div>
+
+      <p style="color: var(--color-ink-muted); font-size: 15px; line-height: 1.65;">
+        {description}
+      </p>
+
+      <div class="mt-auto pt-4 flex items-center justify-between">
+        <span class="mono-caption" style="font-size: 11px; color: var(--color-rust-deep);">
+          Learn more
+        </span>
+        <span aria-hidden="true" style="color: var(--color-rust); font-size: 18px;">→</span>
+      </div>
+    </div>
+  </a>
+</article>

@@ -1,0 +1,122 @@
+---
+/*
+ * AboutCrew.astro — owner / lead-contractor headshot block
+ * ---------------------------------------------------------
+ * Two-column section: portrait photo on the left, a "schedule a private
+ * estimate / ask a question / get advice" pull-quote bio on the right.
+ * Modeled on the Anthony Shawn section of elysian-gc.
+ *
+ * Why this matters for trade customers:
+ * - Small contractors are a person, not a brand. Showing the owner's face
+ *   is the single highest-leverage trust signal on the home page.
+ * - Customers calling a contractor want to know: "who am I talking to?"
+ *   This section answers that before they pick up the phone.
+ *
+ * The portrait should be a real photo (the customer's actual headshot from
+ * the manifest, NOT a stock photo). If the customer has no headshot and no
+ * crew photo, drop this section — don't ship a generic stock contractor.
+ */
+
+interface Props {
+  sectionNum?: string;       // "04"
+  sectionLabel: string;      // "MEET THE LEAD"
+  headline: string;          // "Schedule a private estimate."
+  emphasisLines?: string[];  // ["Ask a question.", "Get advice."] — italic rust lines
+  bio: string;               // 2-4 sentence bio quote
+  attribution: string;       // "Brian Hartwell · Lead Contractor"
+  attributionMeta?: string;  // "EST. 2014 · LANCASTER, PA"
+  portraitSrc: string;       // owner/lead headshot
+  portraitAlt: string;
+  ctaPrimary?: { text: string; href: string };
+  ctaSecondary?: { text: string; href: string };
+}
+
+const {
+  sectionNum = '04',
+  sectionLabel,
+  headline,
+  emphasisLines = [],
+  bio,
+  attribution,
+  attributionMeta,
+  portraitSrc,
+  portraitAlt,
+  ctaPrimary,
+  ctaSecondary,
+} = Astro.props;
+---
+
+<section class="bg-[color:var(--color-bone-light)] py-20 md:py-28">
+  <div class="wrap grid lg:grid-cols-12 gap-10 lg:gap-16 items-center">
+    {/* Portrait — col-span-5 desktop. Generous aspect, soft drop offset
+        from the ink shadow underneath (decorative). */}
+    <figure class="lg:col-span-5 fade-up relative">
+      <div class="relative aspect-[4/5] bg-[color:var(--color-ink)] overflow-hidden border-2 border-[color:var(--color-ink)]">
+        <img
+          src={portraitSrc}
+          alt={portraitAlt}
+          loading="lazy"
+          class="w-full h-full object-cover"
+        />
+      </div>
+      {/* Decorative offset rule shadow */}
+      <div
+        aria-hidden="true"
+        class="absolute -bottom-3 -right-3 w-full h-full -z-10"
+        style="background: var(--color-rust);"
+      ></div>
+    </figure>
+
+    {/* Bio + headline + CTAs — col-span-7 */}
+    <div class="lg:col-span-7 fade-up" style="transition-delay: 0.1s;">
+      <p class="mono-caption mono-caption-lg" style="margin-bottom: 1.25rem;">
+        <span class="num">{sectionNum}</span> &nbsp;/&nbsp; {sectionLabel}
+      </p>
+
+      <h2 class="display-lg">
+        <span>{headline}</span>
+        {emphasisLines.map(line => (
+          <>
+            <br/>
+            <span class="display-emphasis">{line}</span>
+          </>
+        ))}
+      </h2>
+
+      <blockquote
+        class="mt-8 pl-6 border-l-2 border-[color:var(--color-rust)]"
+        style="font-family: var(--brand-text); font-size: 18px; line-height: 1.65; color: var(--color-ink); max-width: 56ch;"
+      >
+        &ldquo;{bio}&rdquo;
+      </blockquote>
+
+      <div class="mt-6 flex items-center gap-3">
+        <span class="w-2 h-2 bg-[color:var(--color-rust)] shrink-0" aria-hidden="true"></span>
+        <cite class="not-italic" style="font-family: var(--brand-text); font-weight: 600; font-size: 15px; color: var(--color-ink);">
+          {attribution}
+        </cite>
+      </div>
+      {attributionMeta && (
+        <p class="mono-caption mt-2 ml-5" style="font-size: 11px;">
+          {attributionMeta}
+        </p>
+      )}
+
+      {(ctaPrimary || ctaSecondary) && (
+        <div class="mt-8 flex flex-wrap gap-3">
+          {ctaPrimary && (
+            <a href={ctaPrimary.href} class="btn-primary">
+              {ctaPrimary.text}
+              <span aria-hidden="true">→</span>
+            </a>
+          )}
+          {ctaSecondary && (
+            <a href={ctaSecondary.href} class="btn-outline">
+              {ctaSecondary.text}
+            </a>
+          )}
+        </div>
+      )}
+    </div>
+  </div>
+</section>
