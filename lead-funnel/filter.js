@@ -628,6 +628,32 @@ function analyzeHtml(html, url) {
   };
 }
 
+// When the homepage has no email, try common /contact variants. We don't
+// burn the Playwright fallback here — if the contact page is bot-blocked
+// at the same hosting as the homepage, we'd already know from the main probe.
+const CONTACT_PATHS = ['/contact', '/contact-us', '/contactus', '/contact.html'];
+
+async function findContactEmailViaContactPage(siteUrl) {
+  let origin;
+  try { origin = new URL(siteUrl).origin; } catch { return null; }
+  for (const p of CONTACT_PATHS) {
+    const url = `${origin}${p}`;
+    try {
+      const res = await fetch(url, {
+        method: 'GET',
+        redirect: 'follow',
+        headers: { 'User-Agent': PROBE_USER_AGENT },
+        signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+      });
+      if (!res.ok) continue;
+      const html = await res.text();
+      const email = extractContactEmail(html, siteUrl);
+      if (email) return email;
+    } catch {}
+  }
+  return null;
+}
+
 async function probeSite(url) {
   // Phase 1: cheap fetch (works on ~85-90% of sites).
   let html;
@@ -736,6 +762,19 @@ export async function filterAll({ batchId = null, includeNonUS = false, minTechA
         } else if (MIN_TECH_AGE > 0 && (techAge?.score ?? 0) < MIN_TECH_AGE) {
           status = 'rejected';
           reason = `too_modern_${techAge.score}`;
+        }
+
+        // Email-required gate — if the lead would otherwise pass but we
+        // have no contact email, try /contact variants. If still none,
+        // reject as 'no_email' (we can't outreach to them, so they're
+        // not actionable for the marketplace pipeline).
+        if (status === 'passed' && !reachability?.contact_email) {
+          const fallback = await findContactEmailViaContactPage(lead.website);
+          if (fallback) {
+            reachability = { ...(reachability || {}), contact_email: fallback, site_has_email: 1 };
+          } else {
+            status = 'rejected'; reason = 'no_email';
+          }
         }
       }
     }

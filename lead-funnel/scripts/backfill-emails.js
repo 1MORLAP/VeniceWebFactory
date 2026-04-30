@@ -106,6 +106,9 @@ const leads = db.prepare(`
   ORDER BY conversion_likelihood DESC NULLS LAST
 `).all();
 
+// extra contact-page paths to try (filter.js tries these too)
+const EXTRA_CONTACT_PATHS = ['/contact-us', '/contactus', '/contact.html'];
+
 console.log(`[backfill-emails] processing ${leads.length} passed leads without emails`);
 
 let found = 0, miss = 0, error = 0;
@@ -119,23 +122,26 @@ for (const lead of leads) {
       found++;
       console.log(`  ✓ ${lead.business_name} → ${email}`);
     } else {
-      // Try /contact page as a fallback
+      // Try /contact + variants
+      let foundViaContact = null;
       try {
         const u = new URL(lead.website);
-        const contactUrl = `${u.origin}/contact`;
-        const ch = await fetchHtml(contactUrl);
-        if (ch) {
+        for (const p of ['/contact', ...EXTRA_CONTACT_PATHS]) {
+          const cu = `${u.origin}${p}`;
+          const ch = await fetchHtml(cu);
+          if (!ch) continue;
           const ce = extractContactEmail(ch, lead.website);
-          if (ce) {
-            updateLead(lead.id, { outreach_email: ce });
-            found++;
-            console.log(`  ✓ ${lead.business_name} → ${ce} (via /contact)`);
-            continue;
-          }
+          if (ce) { foundViaContact = { email: ce, path: p }; break; }
         }
       } catch {}
-      miss++;
-      console.log(`  · ${lead.business_name}: no email found`);
+      if (foundViaContact) {
+        updateLead(lead.id, { outreach_email: foundViaContact.email });
+        found++;
+        console.log(`  ✓ ${lead.business_name} → ${foundViaContact.email} (via ${foundViaContact.path})`);
+      } else {
+        miss++;
+        console.log(`  · ${lead.business_name}: no email found`);
+      }
     }
   } catch (err) {
     error++;
