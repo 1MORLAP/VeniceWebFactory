@@ -675,8 +675,8 @@ export async function filterAll({ batchId = null, includeNonUS = false, minTechA
 
     if (!lead.website) {
       status = 'rejected'; reason = 'no_website';
-    } else if (!includeNonUS && lead.country && !['us', 'united states'].includes(lead.country.toLowerCase())) {
-      status = 'rejected'; reason = 'non_us';
+    } else if (!includeNonUS && lead.country && !['us', 'united states', 'ca', 'canada'].includes(lead.country.toLowerCase())) {
+      status = 'rejected'; reason = 'non_us_ca';
     } else if (lead.business_status && lead.business_status !== 'OPERATIONAL') {
       status = 'rejected'; reason = `status_${lead.business_status.toLowerCase()}`;
     } else if (multiLocationChains.has(lead.business_name.toLowerCase().trim())) {
