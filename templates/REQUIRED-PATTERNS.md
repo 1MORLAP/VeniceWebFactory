@@ -291,7 +291,25 @@ This semantic discipline matters because the `testimonial-tampering` check treat
 
 **Real bug fixed 2026-04-29**: giffins.net Option A — manifest had 89 image records (~70 must-reuse photos), `index.astro` rendered 0 `<img>` tags, site-wide reuse ratio was ~15%. ifixplumbing.com had the same drift. See full rule (`IMAGE REUSE RULE`) in SKILL.md.
 
-### 7.5 Icon contrast and quality (ICON QUALITY RULE)
+### 7.5 Option C image-quality escape hatch (OPTION C IMAGE-QUALITY ESCAPE HATCH)
+
+**Structural rule (Option C only)**: if a customer photo is genuinely too poor to carry C's design slot (resolution insufficient for the use context, heavy compression artifacts, blurry subject, OR a structurally-required slot exists with no customer photo to fill it), C may substitute thematically-appropriate stock from **Unsplash / Pexels / curated AI**. The escape hatch is C-only — A and B remain bound to the customer's actual photos by the faithful-rebuild contract.
+
+**Substitution criteria (all four must hold)**:
+1. Thematically tight to the customer's actual industry (tree service → tree-work stock; plumber → plumbing stock; never generic "professional" stock).
+2. Aesthetically compatible with C's industry-tokens direction (workwear-grit for trades, refined-modern for B2B tech, editorial-warm for food-led, etc.).
+3. Genuinely high quality (≥ 1500px wide, no AI uncanny tells — extra fingers, melted textures, generic-stock-photo lighting).
+4. Documented in `jobs/{domain}/option-c/build-design-decisions.md` — one line per substitution stating the slot, the original (source URL + dimensions), the reason, the replacement (source URL or AI prompt source).
+
+**Never substitute**: owner / crew / team / actual logo. Those are brand-truth. If no headshot exists, omit the section — don't ship a stock contractor face.
+
+**Visual freedom**: ANY substitution within the four criteria above.
+
+**qa-check enforcement**: not directly. The existing `image-low-resolution` rule catches stretched photos at build time, which is the most common trigger for the escape hatch. The structural rule here is preventative + traceable: if substitution happens, it's documented; if it's not documented, the customer can't audit and the rule was violated.
+
+**Real backstory 2026-04-29**: user clarification — *"If original images are poor, Option C can use AI generated or stock images where thematically appropriate."* Until this rule, C builds were contorting around customer photos that couldn't carry the design. Now C has an explicit fallback path. A and B still don't.
+
+### 7.6 Icon contrast and quality (ICON QUALITY RULE)
 
 **Structural rule**: every icon (whether scraped, generated, library-sourced, or hand-drawn by the worker) MUST meet:
 

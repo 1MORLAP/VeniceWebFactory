@@ -1369,7 +1369,7 @@ If your home page can fit 8-12 photos using the patterns above, you're at the ri
 
 - It is NOT a license to cram unrelated photos into a page. If a service has only one good photo, use that one — don't stack three different photos on a single tile. Cohesion still matters.
 - It is NOT a quota that mandates duplicating the same photo. Each photo counts once across the site; reuse the inventory by spreading distinct photos to distinct contexts (hero / cards / portfolio / about / inline).
-- It is NOT applicable to **Option C**. Option C is plugin-driven and curates a subset for editorial impact — its `industry-tokens.json` already has its own imagery directive ("USE the customer's scraped photos AGGRESSIVELY at full-bleed" for trades, but with editorial selection). The 90% gate applies to A only.
+- It is NOT applicable to **Option C**. Option C is plugin-driven and curates a subset for editorial impact — its `industry-tokens.json` already has its own imagery directive ("USE the customer's scraped photos AGGRESSIVELY at full-bleed" for trades, but with editorial selection). The 90% gate applies to A only. **AND** (added 2026-04-29): Option C has an explicit image-quality escape hatch — see `OPTION C IMAGE-QUALITY ESCAPE HATCH` rule below.
 - It does NOT apply to **Option B**. B inherits A's design verbatim — if A satisfies the rule, B will too. (qa-check enforces this on A, not B.)
 
 ##### QA gate enforcement (NEW in qa-check.js)
@@ -1393,6 +1393,65 @@ The check runs once per QA invocation (not once per page) since reuse is a site-
 - Worker arguing "the photos weren't great" as justification for dropping more than 10% of the pool. If a photo is genuinely unusable (1×1 px, broken file), it falls in the skip-list. Otherwise it appears.
 
 The customer's original site is the input. Option A's job is to render that input dramatically better — same kind of site, same content, sharper craft. Not to reframe the customer as an editorial brand.
+
+---
+
+#### OPTION C IMAGE-QUALITY ESCAPE HATCH (architectural — applies to Option C only)
+
+User clarification 2026-04-29: *"If original images are poor, Option C can use AI generated or stock images where thematically appropriate."* This is the carve-out that lets C deliver design-quality output when the customer's actual photos can't carry the design language.
+
+##### Why this exists
+
+Option A's purpose is faithful rebuild — the customer's actual photos ARE the content; quality variance is a customer-truth signal, not a design problem to solve. Option C's purpose is plugin-driven design impact — and a 380×285px JPEG with compression artifacts cannot drive a full-bleed 1920px hero, no matter how aggressively the plugin tries. When customer photos materially undermine C's design intent, C is allowed to substitute.
+
+The escape hatch only applies to C. **Option A and Option B always use the customer's actual photos** — A's faithful-rebuild contract is non-negotiable.
+
+##### When the escape hatch is justified
+
+- **Resolution insufficient for use context**: photo natural-width < 1.5× displayed-width (e.g. 800px source on a 1440px hero). The existing `image-low-resolution` qa-check rule catches this for stretched images. Whenever C would otherwise stretch a customer photo, the escape hatch is justified.
+- **Compression artifacts visible**: heavy JPEG block-noise, banding, or low-quality scaling artifacts visible at the displayed size. Judgment call — eye it.
+- **Subject quality genuinely unusable**: blurry / off-color / oversaturated CMS-applied filter that can't be undone / framing where the subject is unrecognizable.
+- **Detected CMS placeholder content**: stock-from-the-CMS-template assets that the customer never replaced (covered separately by `CMS PLACEHOLDER PRINCIPLE` — those should be filtered out entirely from the image inventory anyway).
+- **Coverage gap for a section the design needs**: e.g. C's industry-tokens calls for a featured "owner / lead crew" portrait, but the customer has no headshot in the manifest. The right response is usually to OMIT the section (per AboutCrew docs in the photo-led inspiration). Substituting a stock portrait is allowed ONLY when the section is structural to the design and removing it breaks the layout.
+
+##### When the escape hatch is NOT justified
+
+- Worker doesn't like the customer's photos aesthetically. ("These photos look amateur" — that's the customer's actual brand. A is faithful; C uses the same photos with editorial framing where possible.)
+- Worker wants to make the page "feel premium" by replacing real work with stock. Customer recognizes their own jobs in A and not seeing them in C reads as "you replaced our work with stock photos." Failure mode.
+- The escape would substitute the **owner / crew / team / actual logo** — those are brand-truth, never substitute. If no headshot exists, omit the section.
+
+##### Substitution criteria — must be all four
+
+1. **Thematically tight**: a tree-service C uses tree-work stock; a plumber C uses plumbing-fixture stock. Generic stock photos of "happy professional" or "modern building" fail this. The substituted image must depict the customer's actual industry / service.
+2. **Aesthetically compatible with the design language**: editorial restraint on a refined-modern brand; workwear-grit on a trades brand. The substitute must match C's industry-tokens direction, not just the industry.
+3. **Quality genuinely high**: ≥ 1500px wide, no AI-uncanny tells (extra fingers, melted textures, generic stock-photo lighting). Use Unsplash, Pexels, or curated AI sources only — not raw model output.
+4. **Documented in `jobs/{domain}/option-c/build-design-decisions.md`**: every substitution gets a single line stating which slot was substituted, what the original was (source URL, dimensions), why it was substituted, what the replacement is (source URL or AI prompt). Customer can audit.
+
+##### Allowed substitution sources
+
+- **Unsplash** (`https://images.unsplash.com/...`) — free stock, commercial-license-friendly. The default fallback.
+- **Pexels** (`https://images.pexels.com/...`) — free stock, similar profile.
+- **AI-generated via curated sources** (Lummi, Civitai-curated commercial models, etc.) — only when stock doesn't have the right subject. Avoid if the result has uncanny tells.
+- **Existing customer photos from a different page** — sometimes the customer has a great photo on `/about` that would work better on the home hero. That's not "stock substitution"; it's curation. Always prefer this when possible.
+
+##### Forbidden substitution sources
+
+- ❌ Random Google Images results (license unclear)
+- ❌ Generic AI prompts that produce stock-photo aesthetic without industry specificity
+- ❌ Photos of competitors or other businesses
+- ❌ Anything that depicts a different industry from the customer's
+
+##### How to apply
+
+If during Stage 7 build you encounter a customer photo that won't carry its slot:
+
+1. First try a different customer photo from the manifest. Many customers have one "hero-grade" photo and ten "card-grade" photos — match resolution to use context.
+2. If no customer photo fits, omit the photo and adjust the layout (e.g. tighter typographic hero with overlay-only color, no photo).
+3. Only if (1) and (2) both fail, substitute. Document in `build-design-decisions.md`.
+
+##### Visual Sanity Pass check
+
+When reviewing C's screenshots, ask: "Are any of these photos NOT the customer's actual work?" If yes, are they (a) thematically tight, (b) aesthetically compatible, (c) high quality, AND (d) documented? If any of the four fails, swap back to a customer photo or omit. The bar is honest visual representation — substitutions that make the customer look bigger or more polished than they are read as deceptive.
 
 ---
 
