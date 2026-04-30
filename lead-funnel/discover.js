@@ -14,6 +14,12 @@ const FIELD_MASK = [
   'places.rating',
   'places.userRatingCount',
   'places.businessStatus',
+  // Engagement-proxy signals — owner-uploaded photos and structured hours
+  // suggest the owner actively maintains their Google Business profile
+  // (the kind of owner who'll respond to outreach). photos array can be
+  // huge so we just count it client-side.
+  'places.photos',
+  'places.regularOpeningHours',
   'nextPageToken',
 ].join(',');
 
@@ -81,6 +87,8 @@ export async function discover(query, count = 20, { industry_hint = null } = {})
 
     for (const p of places) {
       const components = p.addressComponents || [];
+      const photoCount = Array.isArray(p.photos) ? p.photos.length : 0;
+      const hasOpenHours = p.regularOpeningHours?.periods?.length > 0 ? 1 : 0;
       const lead = {
         place_id: p.id,
         business_name: p.displayName?.text || '(unknown)',
@@ -95,6 +103,9 @@ export async function discover(query, count = 20, { industry_hint = null } = {})
         google_rating: p.rating ?? null,
         google_review_count: p.userRatingCount ?? null,
         business_status: p.businessStatus || null,
+        photo_count: photoCount,
+        has_open_hours: hasOpenHours,
+        primary_type: p.primaryType || null,
       };
       const id = upsertLead(lead);
       linkLeadToBatch(batch.id, id);

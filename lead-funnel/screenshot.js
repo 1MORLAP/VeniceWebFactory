@@ -8,8 +8,63 @@ import { listLeadsForScreenshot, updateLead } from './db.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SHOTS_DIR = path.join(__dirname, 'screenshots');
 
-const NAV_TIMEOUT_MS = 20000;
-const SETTLE_MS = 1500;
+const NAV_TIMEOUT_MS = 25000;
+const SETTLE_MS = 2500;
+const CHALLENGE_RETRY_WAIT_MS = 8000;
+
+// Strings that almost certainly mean we're looking at a bot interstitial
+// (Cloudflare "Just a moment...", DDoS-Guard, Akamai, etc.) rather than the
+// real homepage. Capture order: title + first 800 chars of body innerText.
+const CHALLENGE_PATTERNS = [
+  // Bot challenges
+  'verifying you are human',
+  'just a moment',
+  'browser check',
+  'checking your browser',
+  'enable javascript and cookies to continue',
+  'attention required',
+  'please verify you are human',
+  'ddos protection by',
+  'security check by cloudflare',
+  'one more step',
+  // Rate-limit pages — the screenshot caught a 429 rather than the real site
+  'too many requests',
+  '429 too many requests',
+  'rate limit exceeded',
+  'you have been rate limited',
+  'request rate exceeded',
+  // Generic block pages
+  'access denied',
+  'request blocked',
+  'unauthorized request',
+];
+
+async function pageSignals(page) {
+  const title = (await page.title().catch(() => '')) || '';
+  const body = await page
+    .evaluate(() => (document.body?.innerText || '').slice(0, 800))
+    .catch(() => '');
+  return (title + '\n' + body).toLowerCase();
+}
+
+function looksLikeChallenge(text) {
+  return CHALLENGE_PATTERNS.some(p => text.includes(p));
+}
+
+async function gotoStable(page, url) {
+  // Try networkidle first (real-content-friendly), fall back to domcontentloaded
+  // on timeout — some sites never go fully idle (analytics polling, etc.).
+  try {
+    await page.goto(url, { waitUntil: 'networkidle', timeout: NAV_TIMEOUT_MS });
+  } catch (err) {
+    if (err.name === 'TimeoutError') {
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
+    } else {
+      throw err;
+    }
+  }
+  await page.waitForTimeout(SETTLE_MS);
+}
 
 async function shotOne(browser, lead) {
   const dir = path.join(SHOTS_DIR, lead.place_id);
@@ -19,7 +74,8 @@ async function shotOne(browser, lead) {
 
   const desktopCtx = await browser.newContext({
     viewport: { width: 1440, height: 900 },
-    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36',
+    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    extraHTTPHeaders: { 'Accept-Language': 'en-US,en;q=0.9' },
   });
   const mobileCtx = await browser.newContext({
     viewport: { width: 390, height: 844 },
@@ -27,17 +83,31 @@ async function shotOne(browser, lead) {
     isMobile: true,
     hasTouch: true,
     userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+    extraHTTPHeaders: { 'Accept-Language': 'en-US,en;q=0.9' },
   });
 
   try {
     const dPage = await desktopCtx.newPage();
-    await dPage.goto(lead.website, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
-    await dPage.waitForTimeout(SETTLE_MS);
+    await gotoStable(dPage, lead.website);
+
+    // Bot-challenge detection — if the visible page looks like a CF/DDoS
+    // interstitial, wait once more (challenges often clear in 5-8s) and
+    // re-check. If still a challenge, give up — a poisoned screenshot
+    // would mislead the scorer.
+    let signals = await pageSignals(dPage);
+    if (looksLikeChallenge(signals)) {
+      await dPage.waitForTimeout(CHALLENGE_RETRY_WAIT_MS);
+      signals = await pageSignals(dPage);
+      if (looksLikeChallenge(signals)) {
+        return { ok: false, error: 'bot_challenge' };
+      }
+    }
+
     await dPage.screenshot({ path: desktopPath, fullPage: false });
 
     const mPage = await mobileCtx.newPage();
-    await mPage.goto(lead.website, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
-    await mPage.waitForTimeout(SETTLE_MS);
+    await gotoStable(mPage, lead.website);
+    // (Re-checking on mobile is overkill — if desktop cleared, mobile usually does too.)
     await mPage.screenshot({ path: mobilePath, fullPage: false });
 
     updateLead(lead.id, {
@@ -47,7 +117,7 @@ async function shotOne(browser, lead) {
     });
     return { ok: true };
   } catch (err) {
-    return { ok: false, error: err.message };
+    return { ok: false, error: err.name === 'TimeoutError' ? 'screenshot_timeout' : `screenshot_${err.message.slice(0, 80)}` };
   } finally {
     await desktopCtx.close().catch(() => {});
     await mobileCtx.close().catch(() => {});
@@ -65,6 +135,7 @@ export async function screenshotAll() {
 
   const browser = await chromium.launch({ headless: true });
   let captured = 0, failed = 0;
+  const reasonCounts = {};
 
   try {
     for (const lead of leads) {
@@ -74,10 +145,11 @@ export async function screenshotAll() {
         console.log(`[screenshot] ✓ ${lead.business_name} (${lead.domain || lead.website})`);
       } else {
         failed++;
+        reasonCounts[result.error] = (reasonCounts[result.error] || 0) + 1;
         console.error(`[screenshot] ✗ ${lead.business_name}: ${result.error}`);
         updateLead(lead.id, {
           filter_status: 'rejected',
-          filter_reason: 'screenshot_failed',
+          filter_reason: result.error,
         });
       }
     }
@@ -86,6 +158,9 @@ export async function screenshotAll() {
   }
 
   console.log(`[screenshot] captured=${captured} failed=${failed}`);
+  for (const [r, n] of Object.entries(reasonCounts).sort((a, b) => b[1] - a[1])) {
+    console.log(`[screenshot]   ${r}: ${n}`);
+  }
   return { captured, failed };
 }
 

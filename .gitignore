@@ -21,6 +21,22 @@ dist/
 .claude/launch.json
 .claude/worktrees/
 .claude/settings.local.json
+# Harness-managed symlinks to externally-installed skills (stripe-projects,
+# upgrade-stripe, agentmail, etc.). These are restored from skills-lock.json
+# via Claude Code on a fresh machine, NOT from this repo.
+.claude/skills/
+.agents/
+
+# ─── Stray QA / temp / scratch artifacts ──────────────────────────────
+# Temp Playwright probes (convention: leading underscore + -tmp suffix
+# anywhere in scripts/).
+scripts/_*-tmp.*
+# Leftover qa.cjs report-output dirs (named after the dev-server PORT, e.g.
+# 4351/, 22724/, 47712/). Real QA output lives under jobs/{domain}/qa-*/,
+# which is gitignored already. These ones at the repo root are workers'
+# misfires — keep them out of git.
+/[0-9][0-9][0-9][0-9]/
+/[0-9][0-9][0-9][0-9][0-9]/
 
 # ─── OS / editor noise ────────────────────────────────────────────────
 .DS_Store
