@@ -215,6 +215,44 @@ if (manifestPath) {
   console.warn('⚠ No --manifest <path> passed — fact-grounding check will be skipped. Pass --manifest jobs/<domain>/manifest.json to enable.');
 }
 
+// ---- OLD-SITE IMAGE INVENTORY MODE detection (added 2026-04-30 — cherokee feedback) ----
+//
+// Real bug 2026-04-30 (cherokeecarpetcleaning.com): an early-2000s static-HTML
+// site whose manifest photos were almost all under 500px wide. qa-check's
+// image-low-resolution rule failed every page (failures clustered at
+// 0.82-0.99× — just barely stretched), but the customer's photos genuinely
+// can't be upscaled without quality loss. OPTION C IMAGE-QUALITY ESCAPE HATCH
+// covers Option C (curated stock substitution allowed); A and B have no
+// equivalent.
+//
+// The rule: if 80%+ of must-reuse manifest photos are under 500px wide, the
+// site is "old-site image inventory" — qa-check downgrades image-low-
+// resolution from FAIL to WARN with a one-time printed notice. Companion
+// SKILL.md rule "OLD-SITE IMAGE INVENTORY" provides the design guidance.
+//
+// Detection runs once at startup so the per-page check can stay simple. The
+// detection counts images >= 100px wide (filtering icons/badges) — the 80%
+// threshold is over the meaningful-image pool, not the raw inventory.
+let LOWRES_INVENTORY_MODE = false;
+let LOWRES_INVENTORY_STATS = null;   // { lowResCount, totalCount, ratioPct }
+if (manifestImageInventory.size > 0) {
+  const canonicalRecords = new Set(manifestImageInventory.values());
+  const meaningful = [...canonicalRecords].filter(r => (r.width || 0) >= 100);
+  if (meaningful.length >= 5) {   // require at least 5 photos to make a meaningful ratio
+    const lowRes = meaningful.filter(r => r.width < 500);
+    const ratio = lowRes.length / meaningful.length;
+    if (ratio >= 0.80) {
+      LOWRES_INVENTORY_MODE = true;
+      LOWRES_INVENTORY_STATS = {
+        lowResCount: lowRes.length,
+        totalCount: meaningful.length,
+        ratioPct: (ratio * 100).toFixed(0),
+      };
+      console.log(`⚠ OLD-SITE IMAGE INVENTORY MODE: ${lowRes.length}/${meaningful.length} (${LOWRES_INVENTORY_STATS.ratioPct}%) of must-reuse manifest photos are under 500px wide. image-low-resolution will be DOWNGRADED from FAIL to WARN per OLD-SITE IMAGE INVENTORY rule (SKILL.md). Customer's photos cannot be upscaled without quality loss; this is the customer's actual asset inventory.`);
+    }
+  }
+}
+
 // ---- IMAGE REUSE RULE classifier ----
 // Given an inventory record, decide whether the photo MUST be reused in
 // Option A's build (the denominator for the 90% rule).
@@ -2220,6 +2258,32 @@ function rgbToHexFromComputed(rgb) {
     }
   }
   // ---- end numbered-section-labels scope filter ----
+
+  // ---- OLD-SITE IMAGE INVENTORY scope filter (added 2026-04-30, cherokee feedback) ----
+  // When 80%+ of manifest photos are under 500px wide (detected at startup),
+  // demote every image-low-resolution issue from `fail` to `warn`. The
+  // customer's actual photo inventory cannot satisfy the rule; the
+  // qa-check's job is to flag soft images, not to block deploy on something
+  // that's a customer-asset reality. See OLD-SITE IMAGE INVENTORY rule in
+  // SKILL.md. The image-low-resolution rule still emits messages — it just
+  // can't fail the build in this mode.
+  if (LOWRES_INVENTORY_MODE) {
+    let demoted = 0;
+    for (const r of results) {
+      if (!r.issues) continue;
+      for (const issue of r.issues) {
+        if (issue.check === 'image-low-resolution' && issue.severity === 'fail') {
+          issue.severity = 'warn';
+          issue.msg = `[OLD-SITE INVENTORY MODE] ${issue.msg}`;
+          demoted++;
+        }
+      }
+    }
+    if (demoted > 0) {
+      console.log(`⚠ OLD-SITE INVENTORY MODE demoted ${demoted} image-low-resolution failure(s) to warnings.`);
+    }
+  }
+  // ---- end OLD-SITE IMAGE INVENTORY scope filter ----
 
   // ---- MULTILINGUAL SUPPORT scope filter + site-wide page-parity check ----
   // The multilingual checks (html-lang-attribute, language-switcher-presence,

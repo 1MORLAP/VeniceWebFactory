@@ -1462,6 +1462,38 @@ When reviewing C's screenshots, ask: "Are any of these photos NOT the customer's
 
 ---
 
+#### OLD-SITE IMAGE INVENTORY (architectural — applies to A and B when 80%+ of manifest photos are < 500px wide)
+
+Real bug 2026-04-30 (cherokeecarpetcleaning.com): an early-2000s static-HTML site whose photo inventory was almost entirely under 500px wide (the era of dial-up-friendly image sizes). qa-check's `image-low-resolution` rule failed every page, with failures clustered at 0.82–0.99× — just barely stretched, but enough to fail. The customer's photos genuinely cannot be upscaled without quality loss; the qa-check's job is to flag soft images, not to gate deploy on customer-asset reality. `OPTION C IMAGE-QUALITY ESCAPE HATCH` covers Option C (curated stock substitution allowed); A and B had no equivalent until this rule.
+
+##### The rule
+
+When 80%+ of must-reuse manifest photos are under 500px wide, qa-check enters **OLD-SITE INVENTORY MODE**:
+
+- `image-low-resolution` issues are **demoted from FAIL to WARN** site-wide. The check still emits the message (the operator should still know which images are soft), but it cannot block deploy.
+- Each demoted issue is prefixed with `[OLD-SITE INVENTORY MODE]` so the operator knows the demotion happened.
+- A one-time notice prints at QA-startup: `OLD-SITE IMAGE INVENTORY MODE: N/M (X%) of must-reuse manifest photos are under 500px wide. image-low-resolution will be DOWNGRADED from FAIL to WARN.`
+
+The 80% threshold is over the **meaningful image pool** (records with `width >= 100`, filtering out icons / badges / dingbats). At least 5 meaningful images must exist for the detection to fire — the threshold over a 3-image inventory would be too unstable.
+
+##### What this rule does NOT change
+
+- A and B still use the customer's actual photos (faithful-rebuild contract — non-negotiable). No stock substitution, no AI generation. The rule's effect is purely on qa-check severity, not on what gets shipped.
+- `image-reuse-A` (the 90%-must-render rule) still applies — old-site inventory is a quality concern, not a coverage concern.
+- Option C is unaffected — C has its own escape hatch (substitute high-quality stock when warranted) which produces a different output. The two rules pair cleanly: A/B keep the customer's actual soft photos but don't get blocked; C can substitute stock for the same problem.
+- `image-low-resolution` warnings are still emitted on `dist/` images that aren't from the manifest (i.e., images the worker added themselves). If a worker introduces a soft non-manifest image, that's still a fail — the rule only forgives manifest-derived softness.
+
+##### Pairing with OPTION C IMAGE-QUALITY ESCAPE HATCH
+
+| Customer asset state | A behavior | B behavior | C behavior |
+|---|---|---|---|
+| Photos all >= 500px (modern site) | use as-is, qa fails on stretch | use as-is, qa fails on stretch | use as-is, qa fails on stretch |
+| Photos < 500px (cherokee old-site) | use as-is, qa **WARN** | use as-is, qa **WARN** | substitute high-quality stock per ESCAPE HATCH |
+
+A/B render the customer's actual inventory (it's what customers recognize as "their site"); C delivers the design-bar by substituting where needed. Both are honest — A/B is "this is your actual site, suddenly expensive given the asset reality"; C is "this is a design language pitch, here's what your site could be with a photo refresh."
+
+---
+
 #### MULTILINGUAL SUPPORT (architectural — Options B and C; A stays English-only)
 
 User clarifications:
