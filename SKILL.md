@@ -1386,10 +1386,11 @@ If your home page can fit 8-12 photos using the patterns above, you're at the ri
 1. Parse `manifest.pages[*].images` and `manifest.pages[*].backgroundImages` into a flat inventory keyed by basename
 2. Apply the must-reuse classifier (see "Definition of must-reuse" above)
 3. Walk every `dist/**/*.html` file (computed from the served URL → corresponding dist tree) AND every `dist/**/*.css` file, collect every referenced image basename
-4. Compute `rendered ∩ must-reuse / |must-reuse|`
-5. If ratio < 0.90, **FAIL** the build with a message naming the ratio + the count of unused photos + the first ~5 unused basenames + the suggestion to "add a portfolio / gallery section, photo-per-service-card, or about-the-crew section to absorb them" — pointing at IMAGE REUSE RULE in SKILL.md
+4. Compute `rendered ∩ must-reuse / |must-reuse|` by basename match
+5. **If ratio < 0.90, run SHA-1 content-hash fallback before failing** (added 2026-04-30 per cherokeecarpetcleaning.com feedback): for every unused-by-basename record, compute SHA-1 of its local file (`jobs/{domain}/<localPath>`); fetch every rendered image URL and SHA-1 it; count cross-matches. Records whose hash is in the rendered-hashes set are reclassified as rendered. This catches the case where a worker renamed manifest images to friendly filenames (`oriental-rug.jpg` instead of `Orient1.jpg`) — the bytes are identical, only the basename changed. Report mentions both metrics: `"...basename-match alone found X; SHA-1 content-hash fallback rescued Y renamed-but-identical images"`.
+6. If ratio is STILL < 0.90 after the hash fallback, **FAIL** the build with a message naming the ratio + the count of unused photos + the first ~5 unused basenames + the suggestion to "add a portfolio / gallery section, photo-per-service-card, or about-the-crew section to absorb them" — pointing at IMAGE REUSE RULE in SKILL.md
 
-The check runs once per QA invocation (not once per page) since reuse is a site-wide property. If `--option` is not passed OR `--manifest` is not passed, the check is skipped silently (back-compat for existing invocations).
+The check runs once per QA invocation (not once per page) since reuse is a site-wide property. The hash fallback only runs on the failure path so the happy case stays fast (no fetching of every rendered image when basenames already pass). If `--option` is not passed OR `--manifest` is not passed, the check is skipped silently (back-compat for existing invocations).
 
 ##### What this rule rules out
 

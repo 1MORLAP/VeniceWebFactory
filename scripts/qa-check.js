@@ -35,7 +35,8 @@
 
 import { chromium } from 'playwright';
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
+import { createHash } from 'node:crypto';
 
 // ---- argv parsing (supports --manifest <path> + --reference-dist <path> + --reference-dist-i18n <path> + --option <a|b|c> mixed with positional paths) ----
 // MULTILINGUAL SUPPORT (2026-04-30 extended for any language; default flipped to
@@ -2107,10 +2108,24 @@ function rgbToHexFromComputed(rgb) {
             return segs[segs.length - 1];
           } catch { return null; }
         };
+        // 2026-04-30 cherokee feedback: also collect ABSOLUTE URLs (not just
+        // basenames) so the Node-side image-reuse-A check can fall back to
+        // SHA-1 content-hash matching when basenames don't match (worker may
+        // have renamed manifest images to friendly filenames like
+        // `oriental-rug.jpg` instead of preserving the manifest's
+        // `Orient1.jpg`). Hash fallback resolves: file is THE SAME image,
+        // just renamed.
+        const absUrls = new Set();
+        const absolveUrl = (raw) => {
+          try { return new URL(raw, location.href).href; } catch { return null; }
+        };
         // <img src>
         for (const el of document.querySelectorAll('img[src]')) {
-          const b = fromUrl(el.getAttribute('src') || '');
+          const src = el.getAttribute('src') || '';
+          const b = fromUrl(src);
           if (b) basenames.add(b);
+          const abs = absolveUrl(src);
+          if (abs && abs.startsWith('http')) absUrls.add(abs);
         }
         // <picture><source srcset>
         for (const el of document.querySelectorAll('source[srcset]')) {
@@ -2118,6 +2133,8 @@ function rgbToHexFromComputed(rgb) {
           for (const u of set) {
             const b = fromUrl(u);
             if (b) basenames.add(b);
+            const abs = absolveUrl(u);
+            if (abs && abs.startsWith('http')) absUrls.add(abs);
           }
         }
         // Computed background-image on every visible-ish element.
@@ -2132,9 +2149,12 @@ function rgbToHexFromComputed(rgb) {
             const u = m.replace(/^url\(["']?/, '').replace(/["']?\)$/, '');
             const b = fromUrl(u);
             if (b) basenames.add(b);
+            const abs = absolveUrl(u);
+            if (abs && abs.startsWith('http')) absUrls.add(abs);
           }
         }
         report.renderedImageBasenames = [...basenames];
+        report.renderedImageUrls = [...absUrls];
       })();
       // ---- end rendered-image collection ----
 
@@ -2188,10 +2208,14 @@ function rgbToHexFromComputed(rgb) {
   let imageReuseSiteIssue = null;
   if (optionName === 'a' && manifestImageInventory.size > 0) {
     const renderedBasenames = new Set();
+    const renderedUrls = new Set();
     for (const r of results) {
       if (r.viewport !== 'desktop') continue;       // dedupe — desktop sees the same images mobile does
       if (Array.isArray(r.renderedImageBasenames)) {
         for (const b of r.renderedImageBasenames) renderedBasenames.add(b);
+      }
+      if (Array.isArray(r.renderedImageUrls)) {
+        for (const u of r.renderedImageUrls) renderedUrls.add(u);
       }
     }
     // Dedupe inventory by canonical record identity (multiple basenames can
@@ -2200,33 +2224,100 @@ function rgbToHexFromComputed(rgb) {
     const mustReuse = [...canonicalRecords].filter(isMustReusePhoto);
     // A canonical record counts as RENDERED if ANY of its alias basenames
     // appears in the rendered set — the build can use any of the duplicates.
-    const renderedMustReuse = mustReuse.filter(r => {
+    let renderedMustReuse = mustReuse.filter(r => {
       for (const alias of (r.aliases || [r.basename])) {
         if (renderedBasenames.has(alias)) return true;
       }
       return false;
     });
-    const ratio = mustReuse.length === 0 ? 1 : renderedMustReuse.length / mustReuse.length;
-    const unused = mustReuse.filter(r => {
+    let ratio = mustReuse.length === 0 ? 1 : renderedMustReuse.length / mustReuse.length;
+    let unused = mustReuse.filter(r => {
       for (const alias of (r.aliases || [r.basename])) {
         if (renderedBasenames.has(alias)) return false;
       }
       return true;
     });
+
+    // ---- SHA-1 content-hash FALLBACK (added 2026-04-30 — cherokee feedback) ----
+    //
+    // Real bug 2026-04-30 (cherokeecarpetcleaning.com): worker renamed manifest
+    // images to friendly filenames (oriental-rug.jpg) instead of preserving
+    // basenames (Orient1.jpg). Visual reuse was fine; image-reuse-A reported
+    // 0% because basename comparison fails. The image bytes are identical;
+    // basenames differ.
+    //
+    // Fallback algorithm: when basename comparison would fail (ratio < 0.90),
+    // compute SHA-1 of every rendered image (fetched via http) and every
+    // unused must-reuse manifest record (read from local jobs/{domain}/<localPath>),
+    // then count cross-matches. This catches the rename case without the
+    // operator having to know which filenames the worker chose.
+    //
+    // Hashing only fires on the failure path so the happy case stays fast.
+    let hashRescuedCount = 0;
+    if (ratio < 0.90 && unused.length > 0 && renderedUrls.size > 0 && manifestPath) {
+      const jobDir = dirname(manifestPath);
+      // Hash every unused manifest record's local file.
+      const unusedHashes = new Map();   // canonical record → hex hash (or null on read fail)
+      for (const r of unused) {
+        if (!r.localPath) { unusedHashes.set(r, null); continue; }
+        const abs = join(jobDir, r.localPath);
+        try {
+          const buf = readFileSync(abs);
+          unusedHashes.set(r, createHash('sha1').update(buf).digest('hex'));
+        } catch {
+          unusedHashes.set(r, null);   // file missing or unreadable
+        }
+      }
+      // Hash every rendered URL by fetching it.
+      const renderedHashes = new Set();
+      for (const url of renderedUrls) {
+        try {
+          const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+          if (!res.ok) continue;
+          const ab = await res.arrayBuffer();
+          const buf = Buffer.from(ab);
+          renderedHashes.add(createHash('sha1').update(buf).digest('hex'));
+        } catch {}
+      }
+      // Re-classify: any unused record whose hash is in renderedHashes is
+      // actually rendered (under a different basename).
+      const stillUnused = [];
+      const rescuedRecords = [];
+      for (const r of unused) {
+        const h = unusedHashes.get(r);
+        if (h && renderedHashes.has(h)) {
+          rescuedRecords.push(r);
+        } else {
+          stillUnused.push(r);
+        }
+      }
+      hashRescuedCount = rescuedRecords.length;
+      if (hashRescuedCount > 0) {
+        renderedMustReuse = [...renderedMustReuse, ...rescuedRecords];
+        unused = stillUnused;
+        ratio = mustReuse.length === 0 ? 1 : renderedMustReuse.length / mustReuse.length;
+        console.log(`✓ image-reuse-A SHA-1 fallback: ${hashRescuedCount} unused-by-basename record(s) matched a rendered image's content hash. Recounted ratio: ${(ratio * 100).toFixed(1)}%.`);
+      }
+    }
+    // ---- end SHA-1 content-hash fallback ----
     const ratioPct = (ratio * 100).toFixed(1);
+
+    const rescuedNote = hashRescuedCount > 0
+      ? ` (basename-match alone found ${renderedMustReuse.length - hashRescuedCount}; SHA-1 content-hash fallback rescued ${hashRescuedCount} renamed-but-identical image${hashRescuedCount === 1 ? '' : 's'})`
+      : '';
 
     if (ratio < 0.90) {
       const sample = unused.slice(0, 5).map(r => `${r.basename} (${r.width || '?'}×${r.height || '?'}${r.alt ? ` "${r.alt.slice(0,40)}"` : ''})`).join(', ');
       imageReuseSiteIssue = {
         severity: 'fail',
         check: 'image-reuse-A',
-        msg: `Option A renders only ${renderedMustReuse.length} of ${mustReuse.length} must-reuse manifest photos (${ratioPct}%, target ≥ 90%). The customer's site is a small-business contractor's website with photos of the work — it's drifted to magazine / NYT layout. Add a portfolio / gallery / "Recent Work" section, give every service card a photo, add an about-the-crew section. Editorial / typographic / file-tab / bracket-numbered design language belongs to Option C, not A. First ${unused.slice(0,5).length} unused photos: ${sample}. (See IMAGE REUSE RULE in SKILL.md.)`,
+        msg: `Option A renders only ${renderedMustReuse.length} of ${mustReuse.length} must-reuse manifest photos (${ratioPct}%, target ≥ 90%)${rescuedNote}. The customer's site is a small-business contractor's website with photos of the work — it's drifted to magazine / NYT layout. Add a portfolio / gallery / "Recent Work" section, give every service card a photo, add an about-the-crew section. Editorial / typographic / file-tab / bracket-numbered design language belongs to Option C, not A. First ${unused.slice(0,5).length} unused photos: ${sample}. (See IMAGE REUSE RULE in SKILL.md.)`,
       };
     } else {
       imageReuseSiteIssue = {
         severity: 'pass',
         check: 'image-reuse-A',
-        msg: `Option A renders ${renderedMustReuse.length}/${mustReuse.length} must-reuse photos (${ratioPct}% ≥ 90%).`,
+        msg: `Option A renders ${renderedMustReuse.length}/${mustReuse.length} must-reuse photos (${ratioPct}% ≥ 90%)${rescuedNote}.`,
       };
     }
   } else if (optionName === 'a' && manifestPath && manifestImageInventory.size === 0) {
