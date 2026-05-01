@@ -122,6 +122,110 @@ function looksLikePlaceholderLogo(url) {
   return patterns.some((p) => p.test(lower));
 }
 
+// ---------- Off-domain hostname rejection (added 2026-04-30 — cherokee bug) ----------
+//
+// Real bug 2026-04-30 (cherokeecarpetcleaning.com): the variant-hunter scored
+// an Arvixe HOSTING-COMPANY logo at 5213 (highest of any candidate) and
+// silently overwrote the customer's real logo with the Arvixe brand mark.
+// Variant-hunt had no domain-scope filter — any URL that pattern-matched as a
+// "logo" was a candidate, including third-party hosting/CDN/analytics badges.
+//
+// Two-tier defense:
+//   (1) Hard blocklist — known hosting / CMS / web-design vendors that ship
+//       branding in their default templates, footer badges, or admin panels.
+//       Always reject these regardless of URL pattern.
+//   (2) Off-domain warn — for any URL whose hostname doesn't match the
+//       customer's domain AND isn't on the recognized-CDN allowlist, log a
+//       warning. We don't auto-reject (customers legitimately use S3,
+//       CloudFront, Cloudinary, Wix-static, etc.), but a flag in the variant
+//       table makes the operator review the chosen logo's origin.
+//
+// The blocklist is conservative — only obvious "this is the hosting company,
+// not the customer" hosts. Add more hosts as new false-positives surface.
+
+// Hard-blocklist hostnames. Any logo URL whose hostname (or parent host)
+// matches any of these is REJECTED outright with no scoring.
+const HOST_HARD_BLOCKLIST = [
+  'arvixe.com',                   // Arvixe hosting (cherokee bug)
+  'hibu.com',                     // Hibu CMS (template branding)
+  'godaddy.com',                  // GoDaddy default site logos
+  'godaddy-cdn.com',              // GoDaddy CDN paths for default assets
+  'googleusercontent.com',        // Generic Google hosting; usually ad / analytics badges in this context
+  'www.w3.org',                   // W3C "valid HTML" badges
+  'validator.w3.org',
+  'jigsaw.w3.org',                // CSS validator badge
+  'sealserver.trustwave.com',     // Trustwave seal
+  'siteseal.godaddy.com',         // GoDaddy SSL siteseal
+  'click.linksynergy.com',
+  'badge.fluencer.com',
+  'cdn.networksolutions.com',     // Network Solutions hosting
+];
+
+// Recognized-CDN allowlist. URLs on these hosts get NO warning even if
+// hostname doesn't match customer domain — they're legit places to host
+// real customer assets.
+const HOST_CDN_ALLOWLIST = [
+  's3.amazonaws.com',
+  's3.us-east-1.amazonaws.com',
+  's3.us-east-2.amazonaws.com',
+  's3.us-west-1.amazonaws.com',
+  's3.us-west-2.amazonaws.com',
+  'cloudfront.net',
+  'cloudinary.com',
+  'imgix.net',
+  'akamai.net',
+  'akamaihd.net',
+  'fastly.net',
+  'cdn.shopify.com',
+  'shopifycdn.com',
+  'wixstatic.com',                // Wix CDN — customer-uploaded assets
+  'squarespace-cdn.com',
+  'static1.squarespace.com',
+  'static.wixstatic.com',
+  'images.squarespace-cdn.com',
+  'res.cloudinary.com',
+  'cdn.duda.co',
+  'irp.cdn-website.com',          // Duda CDN
+  'lirp.cdn-website.com',         // Duda CDN
+];
+
+function hostnameOf(url) {
+  try { return new URL(url).hostname.toLowerCase(); } catch { return null; }
+}
+
+function rootDomain(host) {
+  if (!host) return null;
+  // Trim www. and take the last 2 dot-separated parts (good enough for .com,
+  // .net, .org, .co.uk gets handled imperfectly but that's OK for the
+  // "is this off-domain" comparison).
+  const cleaned = host.replace(/^www\./, '');
+  const parts = cleaned.split('.');
+  if (parts.length <= 2) return cleaned;
+  return parts.slice(-2).join('.');
+}
+
+function isHardBlocklistedHost(url) {
+  const h = hostnameOf(url);
+  if (!h) return false;
+  for (const blocked of HOST_HARD_BLOCKLIST) {
+    if (h === blocked || h.endsWith('.' + blocked)) return true;
+  }
+  return false;
+}
+
+function isOffDomain(url, customerDomain) {
+  const h = hostnameOf(url);
+  if (!h) return false;
+  if (!customerDomain) return false;
+  const customer = rootDomain(customerDomain.toLowerCase().replace(/^www\./, ''));
+  const candidate = rootDomain(h);
+  if (candidate === customer) return false;
+  for (const allowed of HOST_CDN_ALLOWLIST) {
+    if (h === allowed || h.endsWith('.' + allowed)) return false;
+  }
+  return true;
+}
+
 // ---------- Favicon fallback ----------
 
 /**
@@ -411,18 +515,31 @@ async function main() {
     for (const u of generateCandidateUrls(c.src)) fetchUrls.add(u);
   }
 
-  // Fetch each candidate and score it
+  // Fetch each candidate and score it.
+  //
+  // Off-domain filter (added 2026-04-30, cherokeecarpetcleaning.com bug):
+  // before fetching, drop any URL whose hostname is on the hard blocklist
+  // (Arvixe, Hibu, GoDaddy, etc.). For URLs that are off the customer's
+  // domain but on the recognized-CDN allowlist (S3, Cloudfront, Wixstatic,
+  // etc.), proceed silently. For URLs that are off-domain AND not on the
+  // CDN allowlist, fetch + score but mark as off-domain in the log so the
+  // operator can review.
   console.log(`\nFetching ${fetchUrls.size} variant URLs...`);
   const downloaded = [];
 
   for (const url of fetchUrls) {
+    if (isHardBlocklistedHost(url)) {
+      console.log(`  ✗ ${url} — REJECTED (hostname on hard blocklist; likely third-party hosting/CMS branding, not the customer's logo)`);
+      continue;
+    }
+    const offDomain = isOffDomain(url, domain);
     const buf = await tryFetch(url);
     if (!buf) {
       console.log(`  ✗ ${url} — fetch failed`);
       continue;
     }
 
-    let entry = { url, buf, format: 'unknown', width: 0, height: 0, hasAlphaChannel: false };
+    let entry = { url, buf, format: 'unknown', width: 0, height: 0, hasAlphaChannel: false, offDomain };
 
     if (isSvg(buf)) {
       entry.format = 'svg';
@@ -442,7 +559,8 @@ async function main() {
     }
 
     downloaded.push(entry);
-    console.log(`  → ${url} — ${entry.format} ${entry.width}x${entry.height} ${entry.hasAlphaChannel ? '[alpha channel]' : '[opaque]'}`);
+    const offDomainTag = offDomain ? ' [off-domain — manual review recommended]' : '';
+    console.log(`  → ${url} — ${entry.format} ${entry.width}x${entry.height} ${entry.hasAlphaChannel ? '[alpha channel]' : '[opaque]'}${offDomainTag}`);
   }
 
   if (downloaded.length === 0) {
@@ -460,11 +578,17 @@ async function main() {
 
   // Score each downloaded variant. Higher is better.
   // Priority: SVG > transparent PNG > opaque PNG. Within format, larger > smaller.
+  // Off-domain candidates take a -8000 penalty (so a same-domain opaque PNG
+  // beats an off-domain transparent PNG with similar resolution; the operator
+  // can override by manually adjusting the manifest if a CDN-hosted variant
+  // is genuinely the right choice). The penalty stacks on top of the hard
+  // blocklist (arvixe etc. never reach scoring at all).
   function score(entry) {
     let s = 0;
     if (entry.format === 'svg') s += 10000;
     if (entry.hasAlphaChannel) s += 5000;
     s += Math.min(entry.width, 5000); // cap so 99999 (svg) doesn't overflow
+    if (entry.offDomain) s -= 8000;
     return s;
   }
 
