@@ -196,6 +196,13 @@ Write to: <absolute path to .astro file>
 
 **`_shared.md`** in the same directory captures cross-page concerns: component prop signatures, design tokens, hard rules (no `\uXXXX`, no `&#NNN;` in JSX, etc.), and aesthetic anchor (1 paragraph). Every per-page spec references it.
 
+**Mandatory `_shared.md` "What NOT to add" entries** — the spec author MUST include these prohibitions verbatim in `_shared.md` so every Sonnet sub-agent reads them BEFORE writing code (regression-source listed after each):
+
+- **No numbered section eyebrows on non-blog pages.** Forbidden across Option A and Option B: `01 — SECTION`, `[ 02 ] · CATEGORY`, `01 / SERVICES`, `§ 01 · DIY RISK`, `SVC · 01`, and every other numeric prefix variant. Drop the number; use just the category label (`SERVICES · WHAT WE DO`, `RECENT WORK`). qa-check's `numbered-section-labels` rule will fail the build, and post-strip is structurally unsafe — if a CSS grid was defined `grid-template-columns: 56px 1fr` to hold a `.why-num` span, removing the span collapses the grid and stacks content vertically. Real bug 2026-04-30 (cherokeecarpetcleaning.com — three deploys shipped with broken grids before anyone noticed). The fix is at the source: don't author numbered eyebrows in the first place. See `NUMBERED SECTION LABELS RULE` in this doc.
+- **No fabricated availability/pricing/credential claims.** "Free estimates", "24/7 service", "BBB A+", "Licensed and insured", "20+ years experience" — every such phrase must be grounded in `manifest.json` or `design-brief.json`. The Sonnet sub-agent should not invent ANY claim, no matter how natural it sounds. `validate-specs.cjs` enforces this at Stage 2.5b. See `FACT GROUNDING PRINCIPLE`.
+- **No `\uXXXX` JS escape sequences as visible text** and **no `&#NNN;` HTML entity references inside Astro JSX `{...}` expressions.** Use the literal Unicode character or `set:html`. See FEEDBACK.md note `feedback_no_unicode_escapes.md`.
+- **Nested `<h*>` headings inside colored containers MUST set their own color override.** Workers can drop the cascade when adding `font-semibold` etc. via Tailwind. (See "Hard rule learned 2026-04-28" below.)
+
 **`_<type>-template.md`** files (e.g., `_service-template.md`) capture repeating structural patterns across multiple pages. Validated 2026-04-28: 8 service pages can share one template, with each page-spec adding only its specific content (~30-50 lines per page-spec instead of 80+).
 
 **Spec quality is the upstream cause of build quality.** A weak spec produces a weak Sonnet output. Treat spec generation as the most important Opus step. Iterate on a spec before dispatching workers, especially for the home page.

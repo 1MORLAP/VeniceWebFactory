@@ -203,6 +203,37 @@ const FACT_RULES = [
       return `manifest does not support availability/free promise "${match[0]}"`;
     },
   },
+
+  // numbered-section-eyebrow: catches authored numbered eyebrows in specs
+  // BEFORE worker dispatch (mirrors the qa-check.js `numbered-section-labels`
+  // post-build check, but earlier in the pipeline = N× cheaper). The rule
+  // is corpus-independent — there's NO valid corpus support for these on
+  // non-blog pages; the post-strip qa-check pass is structurally unsafe
+  // because CSS grids in the templates are dimensioned to hold the number
+  // spans (e.g. `grid-template-columns: 56px 1fr`). Strip the spans, the
+  // grid collapses; rows stack vertically. Real bug 2026-04-30
+  // (cherokeecarpetcleaning.com — three deploys shipped with collapsed
+  // grids before anyone noticed).
+  //
+  // Pattern matches all known eyebrow-numeric variants:
+  //   `01 — WHAT WE DO`, `02 ── RECENT WORK`, `[ 03 ] · NEW`,
+  //   `§ 01 · DIY RISK`, `SVC · 01`, `01 / SERVICES`, `01 · INTERIOR`.
+  //
+  // The verify() always returns a reason — no corpus search saves it.
+  {
+    label: 'numbered-section-eyebrow',
+    pattern: /(?:^|\s|>|`|"|'|\*|\(|\[)(?:§\s*)?(?:\[\s*)?\d{1,2}(?:\s*\])?\s*[\/—·│|‒–-]\s+[A-Z][A-Z\s]{2,}/g,
+    verify(match, _corpus) {
+      const text = match[0].trim();
+      // Allow blog post numerics like "Step 1 — How to..." since blog/article
+      // contexts genuinely have ordered lists.  Detection: if the line context
+      // includes "Step ", "Part ", or "Chapter ", skip.  We don't have line
+      // context here in verify(), so as a coarse filter only fail on patterns
+      // that look like section eyebrows (ALL-CAPS after the divider).
+      // The pattern already requires [A-Z][A-Z\s]{2,} so "Step 1 — How to" doesn't match.
+      return `numbered section eyebrow "${text}" — FORBIDDEN on non-blog/non-article pages per NUMBERED SECTION LABELS RULE. Drop the number, keep the category label only ("SERVICES · WHAT WE DO" not "01 / SERVICES · WHAT WE DO"). Real bug 2026-04-30 (cherokeecarpetcleaning.com): post-strip qa-check breaks CSS grids dimensioned to hold the number-spans. Eliminate at the spec source.`;
+    },
+  },
 ];
 
 // ---- Walk specs/*.md and check each ----

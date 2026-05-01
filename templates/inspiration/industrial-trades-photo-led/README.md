@@ -34,7 +34,7 @@ That page renders 7+ content images and reads as a contractor's actual website. 
 - **Italic emphasis pattern**: pick ONE phrase per headline (NOT the whole thing) and render it italic in `var(--color-rust)`. The contrast between roman ink and italic rust gives the headline character without shouting. See `.display-emphasis` in `src/styles/global.css`.
 - **Body: Inter**, weights 400/500/600/700. Generous body size (17px desktop, 16px mobile minimum), line-height 1.6.
 - **Mono: JetBrains Mono**, weight 600. Used SPARINGLY for technical captions only:
-  - Section eyebrows: `01 / SERVICES · WHAT WE DO`
+  - Section eyebrows: `SERVICES · WHAT WE DO` (NEVER prefixed with `01 /`, `02 /`, etc. — see "What NOT to copy" below; numbered eyebrows shipped as a real bug 2026-04-30 on cherokeecarpetcleaning.com)
   - Photo annotations: `OAK ST · OCT '25`
   - Stat strip labels: `YEARS IN TRADE`, `BBB ACCREDITED`
   - Footer credentials: `EST. 2014 · LIC. #PA-128744`
@@ -55,7 +55,7 @@ The palette is intentionally close to the elysian-gc reference. Not because we w
 ### Hero composition
 
 - **Full-bleed work photo**, 0.65 opacity, with a 3-layer pattern: (1) image, (2) gradient scrim darker at bottom, (3) text + CTAs on top of the scrim. See `HERO CONTRAST RULE` in `SKILL.md`.
-- **Mono eyebrow** above headline: `01 / EST. 2014 · PHILADELPHIA, PA` in amber-on-dark.
+- **Mono eyebrow** above headline: `EST. 2014 · PHILADELPHIA, PA` in amber-on-dark. (No numeric prefix — see "What NOT to copy" below.)
 - **Display headline** in Fraunces opsz 96, italic emphasis on one phrase in rust-bright (the on-dark variant). Maximum 3 short lines.
 - **Subhead** in Inter 19–20px, max 56ch, color `rgba(244,239,230,0.88)` for soft cream-on-dark.
 - **CTA stack**: rust-bg primary + bone-outline secondary. NEVER amber-on-dark as a CTA (amber is for captions, not actions).
@@ -69,7 +69,7 @@ The palette is intentionally close to the elysian-gc reference. Not because we w
 
 - 4:3 aspect-ratio photo at the top
 - Photo with optional bottom-left mono caption (location · date)
-- Mono eyebrow under the photo: `01 / INTERIOR · DRYWALL`
+- Mono eyebrow under the photo: `INTERIOR · DRYWALL` (no numeric prefix)
 - Title in Fraunces serif (NOT condensed sans, NOT ALL-CAPS)
 - Hairline rule under title
 - Body description in Inter, ink-muted color
@@ -81,7 +81,7 @@ If the customer has 4 services and 4 service photos in the manifest, every servi
 
 The single highest-leverage section for satisfying the IMAGE REUSE RULE. A "Recent Work" gallery with 4-12 customer photos absorbs 40-60% of the must-reuse pool in one move.
 
-- Section eyebrow: `04 / RECENT WORK`
+- Section eyebrow: `RECENT WORK` (no numeric prefix)
 - Headline with italic emphasis: "A craftsman's portfolio — *photographed honestly*."
 - Optional intro paragraph: 1 line of context ("Every photo on this page is from a real job. Ask for the full archive.")
 - 4×1, 2×2, 3×2, or 4×2 grid depending on photo count
@@ -98,7 +98,7 @@ The lead contractor's headshot block. For small contractors, this is the highest
 
 - 2-column at lg+: portrait photo (col-span-5) on left, bio + CTAs (col-span-7) on right
 - Portrait in 4:5 aspect, with a decorative offset rust shadow behind the frame (purely decorative)
-- Mono eyebrow: `03 / MEET THE LEAD`
+- Mono eyebrow: `MEET THE LEAD` (no numeric prefix)
 - Display headline with multiple italic-emphasis lines: "Schedule a private estimate. *Ask a question. Get advice.*"
 - Bio as a blockquote with a 2px rust left-border, max 56ch, Inter 18px
 - Attribution row: small rust square + name + role
@@ -135,7 +135,7 @@ NEVER `45° hatched amber/ink stripes`. That's `industrial-trades/`. Cross-polli
 
 ## What NOT to copy
 
-- ❌ Bracket-numbered eyebrows like `[ 02 ] · WHAT WE DO`. Use `02 / SECTION-NAME` mono caption with a slim numeric prefix.
+- ❌ **ALL numbered section eyebrows.** Bracket-numbered (`[ 02 ] · WHAT WE DO`), slash-prefixed (`02 / SECTION-NAME`), section-symbol (`§ 02 · DIY RISK`), bracket-suffix (`SVC · 01`) — every variant is FORBIDDEN on Option A and Option B non-blog pages. Drop the number; use just the category label (`SERVICES · WHAT WE DO`, `RECENT WORK`). See `NUMBERED SECTION LABELS RULE` in `SKILL.md`. Real bug 2026-04-30 (cherokeecarpetcleaning.com): the prior version of this README modeled `01 / SERVICES · WHAT WE DO` as canonical; workers authored matching specs; qa-check's post-strip removed the number-spans, which collapsed CSS grids defined as `grid-template-columns: 56px 1fr` (the 56px column existed to hold `.why-num`) — words stacked vertically and shipped to all 3 deploys before anyone noticed. The grids and the numbers were tightly coupled; the strip was structurally unsafe. Eliminate at the design-vocabulary source.
 - ❌ File-tab nav with filled-rect active state. Use underline-active or border-left-active.
 - ❌ Hatched / caution-tape borders (`.hatched-border-y`). Use hairline `.rule-thin`.
 - ❌ ALL-CAPS condensed sans display. Use Fraunces in title-case with italic emphasis on one phrase.
