@@ -305,13 +305,31 @@ async function scrape(startUrl) {
       const screenshotPath = join(screenshotDir, `${slug}.png`);
       await page.screenshot({ path: screenshotPath, fullPage: true });
 
-      // Download images
+      // Download images.
+      //
+      // Analytics-pixel filter (added 2026-05-01 — wyomingmemorialsinc.com
+      // bug): drop tracking pixels at the source so they never enter the
+      // manifest. Three layers:
+      //   (1) Hostname blocklist — known analytics/beacon hosts (prnx.net,
+      //       google-analytics.com, doubleclick.net, etc.). Skip without
+      //       fetching.
+      //   (2) URL-path heuristic — /pixel/, /track/, /beacon/, /collect,
+      //       /b.gif, etc. Skip without fetching even if host is unknown.
+      //   (3) Post-fetch byte-size — buffers under 200 bytes are tracking
+      //       pixels regardless of host (a real photo is never that small).
+      //       Skip the writeFile + manifest entry.
       const downloadedImages = [];
+      let skippedAnalytics = 0;
+      let skippedTinyByte = 0;
       for (const img of pageData.images) {
+        if (isAnalyticsHost(img.src) || looksLikeTrackingPixel(img.src)) {
+          skippedAnalytics++;
+          continue;
+        }
         try {
           const imgUrl = new URL(img.src);
           if (imgUrl.origin !== origin && !img.src.startsWith(origin)) {
-            // External image - still download it
+            // External image - still download it (subject to filters above)
           }
           const ext = getImageExtension(img.src);
           const filename = `img_${imageCounter++}${ext}`;
@@ -320,6 +338,13 @@ async function scrape(startUrl) {
           const response = await page.request.get(img.src);
           if (response.ok()) {
             const buffer = await response.body();
+            if (buffer.length < ANALYTICS_PIXEL_BYTE_LIMIT) {
+              // Sub-200-byte image is almost always a 1×1 tracking pixel;
+              // skip the writeFile + manifest entry. The image counter still
+              // advanced so existing on-disk files (img_N) keep their numbers.
+              skippedTinyByte++;
+              continue;
+            }
             await writeFile(imgPath, buffer);
             downloadedImages.push({
               ...img,
@@ -331,13 +356,22 @@ async function scrape(startUrl) {
           downloadedImages.push({ ...img, localPath: null });
         }
       }
+      if (skippedAnalytics > 0 || skippedTinyByte > 0) {
+        console.log(`    skipped ${skippedAnalytics} analytics-host image(s) and ${skippedTinyByte} tiny-byte image(s) per tracking-pixel filter`);
+      }
 
       // Download CSS background images
       const downloadedBgImages = [];
       const seenBgUrls = new Set(downloadedImages.map(i => i.src));
+      let skippedBgAnalytics = 0;
+      let skippedBgTinyByte = 0;
       for (const img of pageData.bgImages) {
         if (seenBgUrls.has(img.src)) continue;
         seenBgUrls.add(img.src);
+        if (isAnalyticsHost(img.src) || looksLikeTrackingPixel(img.src)) {
+          skippedBgAnalytics++;
+          continue;
+        }
         try {
           const ext = getImageExtension(img.src);
           const filename = `bg_${imageCounter++}${ext}`;
@@ -345,6 +379,10 @@ async function scrape(startUrl) {
           const response = await page.request.get(img.src);
           if (response.ok()) {
             const buffer = await response.body();
+            if (buffer.length < ANALYTICS_PIXEL_BYTE_LIMIT) {
+              skippedBgTinyByte++;
+              continue;
+            }
             await writeFile(imgPath, buffer);
             downloadedBgImages.push({
               ...img,
@@ -354,6 +392,9 @@ async function scrape(startUrl) {
         } catch {
           downloadedBgImages.push({ ...img, localPath: null });
         }
+      }
+      if (skippedBgAnalytics > 0 || skippedBgTinyByte > 0) {
+        console.log(`    skipped ${skippedBgAnalytics} analytics-host bg-image(s) and ${skippedBgTinyByte} tiny-byte bg-image(s) per tracking-pixel filter`);
       }
 
       // Collect internal links for crawling
@@ -543,6 +584,88 @@ function getImageExtension(src) {
   const match = src.match(/\.(jpg|jpeg|png|gif|svg|webp|avif)/i);
   return match ? `.${match[1].toLowerCase()}` : '.jpg';
 }
+
+// ---- Analytics / tracking-beacon blocklist (added 2026-05-01 — wyomingmemorialsinc.com bug) ----
+//
+// Real bug 2026-04-30 (wyomingmemorialsinc.com): scrape.js captured a 1×1
+// tracking pixel from t8.prnx.net (an analytics beacon endpoint) as
+// img_10.jpg into the must-reuse pool. image-reuse-A failed at 66.7%
+// because the tracking pixel was treated as a real photo. Worker filtered
+// the manifest manually as a workaround.
+//
+// First-line defense: never download images from known analytics / beacon
+// hosts in the first place. Second line is qa-check.js isMustReusePhoto()
+// (file-size + tiny-dimension filter — added in the same commit) which
+// catches any host that isn't in this list.
+const ANALYTICS_HOSTS = [
+  // Adobe / Centro / Adcolony tracking pixels
+  'prnx.net',
+  'pixel.adsafeprotected.com',
+  'pixel.servebom.com',
+  'pixel.rubiconproject.com',
+  // Google
+  'google-analytics.com',
+  'googletagmanager.com',
+  'googleadservices.com',
+  'googlesyndication.com',
+  'doubleclick.net',
+  'g.doubleclick.net',
+  // Facebook / Meta
+  'connect.facebook.net',
+  // Bing / Microsoft
+  'bat.bing.com',
+  'clarity.ms',
+  // Tiktok / Bytedance
+  'analytics.tiktok.com',
+  // Twitter / X
+  't.co',
+  'analytics.twitter.com',
+  'ads-twitter.com',
+  // Misc analytics
+  'mc.yandex.ru',
+  'mc.yandex.com',
+  'static.hotjar.com',
+  'script.hotjar.com',
+  'cdn.amplitude.com',
+  'cdn.segment.com',
+  'api.segment.io',
+  'cdn.heap.io',
+  'cdn.mxpnl.com',
+  'api.mixpanel.com',
+  'pixel.criteo.com',
+  'pixel.quantserve.com',
+  'rules.quantcount.com',
+  'sb.scorecardresearch.com',
+  'b.scorecardresearch.com',
+  'pixel.advertising.com',
+  // Shopify analytics
+  'monorail-edge.shopifysvc.com',
+  // Generic patterns: 1×1 .gif endpoints under /pixel/, /track/, /beacon/
+];
+
+function isAnalyticsHost(url) {
+  try {
+    const h = new URL(url).hostname.toLowerCase();
+    for (const blocked of ANALYTICS_HOSTS) {
+      if (h === blocked || h.endsWith('.' + blocked)) return true;
+    }
+    return false;
+  } catch { return false; }
+}
+
+// Catches URL paths that look like tracking-beacon endpoints regardless of
+// host. Used as a secondary filter for hosts not in ANALYTICS_HOSTS but
+// whose URL pattern reveals tracking intent.
+function looksLikeTrackingPixel(url) {
+  try {
+    const u = new URL(url);
+    // /pixel/, /track/, /beacon/, /collect, /b.gif, /tr/, etc.
+    if (/(\/|^)(pixel|track|beacon|collect|tr|p\.gif|b\.gif|t\.gif)(\/|\.|\?|$)/i.test(u.pathname)) return true;
+    return false;
+  } catch { return false; }
+}
+
+const ANALYTICS_PIXEL_BYTE_LIMIT = 200;
 
 async function autoScroll(page) {
   await page.evaluate(async () => {

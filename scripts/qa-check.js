@@ -195,8 +195,22 @@ if (manifestPath) {
       }
       // Attach aliases set to each canonical record + register every alias
       // basename in the inventory pointing to the SAME canonical record.
+      // Also stat the file ONCE per record to capture fileSize — used by
+      // the must-reuse classifier's tracking-pixel byte-size filter
+      // (added 2026-05-01 per wyomingmemorialsinc.com feedback).
+      const manifestDir = dirname(manifestPath);
       for (const [key, rec] of srcToCanonical) {
         rec.aliases = srcToAliases.get(key);
+        // Best-effort file size lookup; missing file → 0 (treated as unknown).
+        rec.fileSize = 0;
+        if (rec.localPath) {
+          try {
+            const abs = join(manifestDir, rec.localPath);
+            rec.fileSize = statSync(abs).size;
+          } catch {
+            // file missing or unreadable — leave fileSize at 0
+          }
+        }
         for (const alias of rec.aliases) {
           // Multiple aliases all map to the same canonical record. The
           // "rendered" check looks up by basename and finds the same record
@@ -278,9 +292,20 @@ if (manifestImageInventory.size > 0) {
 //   - tiny total area: w*h < 50000 px². Catches the same 90s-era text-strip
 //     bug from a different angle. 263×98 = 25774 px² (skip); 255×255
 //     content photo = 65025 px² (keep); a 200×300 portrait = 60000 px² (keep).
+//   - tracking pixel by dimension: width <= 8 OR height <= 8 (when known).
+//     Catches 1×1 through 8×8 analytics beacons that pre-date the 100px
+//     filter cutoff. Real bug 2026-05-01 (wyomingmemorialsinc.com) — a 1×1
+//     tracking pixel from t8.prnx.net was scraped as img_10.jpg and
+//     counted in the must-reuse pool, failing image-reuse-A at 66.7%.
+//   - tracking pixel by file size: rec.fileSize > 0 && rec.fileSize < 200.
+//     Same wyomingmemorialsinc.com bug from a second angle. A real photo
+//     is never under 200 bytes; tracking pixels (1×1 GIF/JPEG) are. Catches
+//     analytics pixels whose dimensions weren't captured by the scraper
+//     (load failures, headless-render races, etc.) but the file is on disk.
 function isMustReusePhoto(rec) {
   const w = rec.width || 0;
   const h = rec.height || 0;
+  const fileSize = rec.fileSize || 0;
   const alt = (rec.alt || '').toLowerCase();
   const lp  = (rec.localPath || '').toLowerCase();
   const src = (rec.src || '').toLowerCase();
@@ -297,6 +322,12 @@ function isMustReusePhoto(rec) {
   if (h > 0 && w > 0 && (w / h) >= 2.5 && h < 200) return false;
   // Tiny-area filter — same era of bug, second angle.
   if (w > 0 && h > 0 && (w * h) < 50000) return false;
+  // Tracking-pixel dimension filter (analytics beacon, 1×1 through 8×8).
+  if ((w >= 1 && w <= 8) || (h >= 1 && h <= 8)) return false;
+  // Tracking-pixel file-size filter (real photos are never <200 bytes; sub-
+  // 200-byte files are 1×1 GIF/JPEG analytics beacons regardless of
+  // dimensions captured by the scraper).
+  if (fileSize > 0 && fileSize < 200) return false;
   return true;
 }
 
