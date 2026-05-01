@@ -229,8 +229,19 @@ if (manifestPath) {
 //     templates ship per-section "Transparent BG" or "White background" assets
 //     that are content padding, not photos.
 //   - third-party CDN utility tiles (mapbox tiles, google static maps, etc.)
+//   - banner-aspect text-as-image: w/h >= 2.5 AND h < 200. Pre-2010s sites
+//     (90s/2000s static HTML) frequently render headings, nav labels, and
+//     site titles as JPEG/GIF banner slices. Real bug 2026-04-30
+//     (trophybirds.com) — 51 such "must-reuse" photos were nav/title text
+//     rendered as 263×98 JPEGs with alt="trophybirds.com" and similar.
+//     A 16:9 hero photo at 1920×1080 has w/h ≈ 1.78 (kept). A nav-text
+//     banner at 263×98 has w/h ≈ 2.68 with h<200 (skipped).
+//   - tiny total area: w*h < 50000 px². Catches the same 90s-era text-strip
+//     bug from a different angle. 263×98 = 25774 px² (skip); 255×255
+//     content photo = 65025 px² (keep); a 200×300 portrait = 60000 px² (keep).
 function isMustReusePhoto(rec) {
   const w = rec.width || 0;
+  const h = rec.height || 0;
   const alt = (rec.alt || '').toLowerCase();
   const lp  = (rec.localPath || '').toLowerCase();
   const src = (rec.src || '').toLowerCase();
@@ -241,6 +252,12 @@ function isMustReusePhoto(rec) {
   if (/blank|empty.*background|white\s+background|solid\s+background|transparent\s+bg/.test(alt)) return false;
   // CDN utility-tile sources (mapbox tiles, google static maps, etc.)
   if (/tiles\.mapbox\.com|\.tiles\.|maps\.google|gstatic\.com\/maps/.test(src)) return false;
+  // Banner-aspect text-as-image (90s/2000s static-HTML era).
+  // Only fires when both dimensions are known (h > 0); falls through for
+  // CSS background images that don't always carry intrinsic height.
+  if (h > 0 && w > 0 && (w / h) >= 2.5 && h < 200) return false;
+  // Tiny-area filter — same era of bug, second angle.
+  if (w > 0 && h > 0 && (w * h) < 50000) return false;
   return true;
 }
 

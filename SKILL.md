@@ -1333,6 +1333,8 @@ Root cause: after the 2026-04-25 pivot from monolithic-template-copy to scaffold
   - `localPath` matches `/favicon|spinner|loading|placeholder/i` — utility asset
   - Detected as a duplicate of another image in the inventory by content hash (e.g. the BBB seal saved 6 times because it appeared on every page → counts once)
   - The customer's logo (only the smallest size variant — full-bleed logo photos like "logo over a forest path" 1920×1458 ARE work photos and DO count)
+  - **Banner-aspect text-as-image** (`width / height >= 2.5 && height < 200`): pre-2010s sites (90s/2000s static HTML) frequently render headings, nav labels, and site titles as JPEG/GIF banner slices. The scraper picks them up as `<img>` records and the rule used to count them as content photos. Real bug 2026-04-30 (trophybirds.com) — 51 "must-reuse" photos were nav/title text rendered as 263×98 JPEGs with `alt="trophybirds.com"`. A 16:9 hero photo at 1920×1080 has `w/h ≈ 1.78` (kept). A nav-text banner at 263×98 has `w/h ≈ 2.68` with `h<200` (skipped).
+  - **Tiny total area** (`width * height < 50000` px²): same bug class from a different angle — many text-as-image strips are below the 100px-wide cutoff in one axis but pass it on the other. 263×98 = 25,774 px² (skip); 255×255 content photo = 65,025 px² (keep); 200×300 portrait = 60,000 px² (keep).
 
 **Definition of "rendered"** (the numerator):
 - The image's basename appears as the `src` of any `<img>` tag in any built `dist/**/*.html` file, OR
