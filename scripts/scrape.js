@@ -240,6 +240,31 @@ async function scrape(startUrl) {
           meta: { description: metaDesc, ogImage, ogTitle },
           favicons: faviconCandidates,
           internalLinks,
+          // Raw stripped-text fallback for fact-grounding (added 2026-05-01,
+          // mckeecoins.com bug). Legacy-CMS / 1998-era table-layout sites
+          // hide content inside <font>, <center>, <marquee>, and table
+          // cells — none of which the structured section-walker captures.
+          // Without rawText, fact-grounding has 1 section heading on the
+          // home page and reports every claim ("20 terms of sale", "ANA
+          // member", "mail-bid mechanics") as un-grounded. With rawText,
+          // the manifest corpus contains the full visible body text and
+          // those claims verify cleanly. nav + footer are excluded since
+          // they're already represented in their own manifest fields.
+          rawText: (() => {
+            try {
+              // Clone the body, strip script/style/nav/header/footer in the
+              // clone (so we don't mutate the live page), then read innerText.
+              const clone = document.body.cloneNode(true);
+              for (const sel of ['script', 'style', 'nav', 'header', 'footer', 'noscript']) {
+                for (const el of clone.querySelectorAll(sel)) el.remove();
+              }
+              const txt = (clone.innerText || clone.textContent || '').replace(/\s+/g, ' ').trim();
+              // Cap at 64KB per page to bound manifest size on extreme cases.
+              return txt.length > 64_000 ? txt.slice(0, 64_000) + '… [truncated at 64KB]' : txt;
+            } catch {
+              return '';
+            }
+          })(),
         };
       });
 
@@ -424,6 +449,12 @@ async function scrape(startUrl) {
         navigation: pageData.navigation || { items: [] },
         footer: pageData.footer || {},
         meta: pageData.meta || {},
+        // Raw stripped-text fallback for fact-grounding (added 2026-05-01,
+        // mckeecoins.com bug). Captures content the structured section-walker
+        // misses on legacy-CMS sites (<marquee>, <font>, <center>, table
+        // cells). The manifest corpus walker (qa-check.js + validate-specs.cjs)
+        // picks this up automatically since it deep-walks every string field.
+        rawText: pageData.rawText || '',
       });
 
       // Store raw HTML for each section (separate file to keep manifest clean)

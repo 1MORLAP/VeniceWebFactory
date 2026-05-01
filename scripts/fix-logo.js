@@ -159,6 +159,23 @@ const HOST_HARD_BLOCKLIST = [
   'click.linksynergy.com',
   'badge.fluencer.com',
   'cdn.networksolutions.com',     // Network Solutions hosting
+  // Auction / affiliate / payment-processor BADGE platforms (added 2026-05-01,
+  // mckeecoins.com bug). The customer's real logo (cover.jpg) returned
+  // 0 bytes; the variant-hunter then scored a Proxibid bidding banner
+  // (alt="Proxibid - Live Internet Bidding") highest because it was the
+  // only successfully-fetched candidate. These are third-party affiliate
+  // badges, never the customer's own brand mark.
+  'proxibid.com',                 // Live auction bidding (mckee bug)
+  'liveauctioneers.com',
+  'icollector.com',
+  'invaluable.com',
+  'verify.authorize.net',         // Authorize.Net merchant seal
+  'verify.geotrust.com',
+  'seal.networksolutions.com',
+  'kitco.com',                    // Precious-metals price ticker badges
+  'ws.amazon-adsystem.com',
+  'ir-na.amazon-adsystem.com',
+  's.yelp.com',                   // Yelp review badges
 ];
 
 // Recognized-CDN allowlist. URLs on these hosts get NO warning even if
@@ -224,6 +241,44 @@ function isOffDomain(url, customerDomain) {
     if (h === allowed || h.endsWith('.' + allowed)) return false;
   }
   return true;
+}
+
+// Affiliate-badge alt-text / filename heuristic (added 2026-05-01 — mckee bug).
+// Catches third-party affiliate / verification / payment-processor badges
+// whose host isn't in HOST_HARD_BLOCKLIST (because we can't enumerate every
+// possible badge platform). Soft penalty in the score function — these CAN
+// still win as last resort if nothing better exists.
+const AFFILIATE_BADGE_PATTERNS = [
+  // Auction / bidding platforms
+  /\bproxibid\b/i,
+  /\bbid(?:ding)?\b/i,
+  /\blive[- ]auction\b/i,
+  /\bicollector\b/i,
+  /\binvaluable\b/i,
+  // Payment / verification seals
+  /\bauthorize\.?net\b/i,
+  /\bsecure\s+(?:payments?|trading)\b/i,
+  /\bverified\b/i,
+  /\btrust(?:wave|seal)\b/i,
+  /\bnortonsecured\b/i,
+  /\bmcafee\s+secure\b/i,
+  /\bgeotrust\b/i,
+  // Affiliate / partner badges
+  /\baffiliate\b/i,
+  /\bpartner[- ]?(?:logo|badge)\b/i,
+  /\bpowered[- ]by\b/i,
+  // Review / rating badges (covered partially by main classifier but defensive)
+  /\byelp\b/i,
+  /\btrustpilot\b/i,
+  /\bbbb\b/i,
+];
+
+function looksLikeAffiliateBadge(url, alt) {
+  const haystack = `${alt || ''} ${url || ''}`;
+  for (const re of AFFILIATE_BADGE_PATTERNS) {
+    if (re.test(haystack)) return true;
+  }
+  return false;
 }
 
 // ---------- Favicon fallback ----------
@@ -297,6 +352,14 @@ async function tryFetch(url) {
     });
     if (!res.ok) return null;
     const buf = Buffer.from(await res.arrayBuffer());
+    // Reject empty / near-empty responses (added 2026-05-01 — mckee bug).
+    // mckeecoins.com's cover.jpg returned 0 bytes (the file was on the
+    // server but empty). The variant-hunter previously accepted it as a
+    // successful fetch and the unusable record then lost out only because
+    // a third-party Proxibid badge happened to be smaller, so the badge
+    // won. Reject anything under 100 bytes — no real logo file is that
+    // small, regardless of format.
+    if (buf.length < 100) return null;
     return buf;
   } catch {
     return null;
@@ -509,10 +572,18 @@ async function main() {
   const primary = candidates[0];
   const localPath = join(jobDir, primary.localPath);
 
-  // Generate fetch URLs from ALL candidates, deduplicated
+  // Generate fetch URLs from ALL candidates, deduplicated.
+  // Track the alt text of the source candidate per URL so the affiliate-
+  // badge heuristic can run during the fetch loop without losing context.
   const fetchUrls = new Set();
+  const urlToAlt = new Map();   // url → alt text from the source candidate
   for (const c of candidates) {
-    for (const u of generateCandidateUrls(c.src)) fetchUrls.add(u);
+    for (const u of generateCandidateUrls(c.src)) {
+      fetchUrls.add(u);
+      // Keep the FIRST alt seen for a given variant URL (candidates sorted
+      // by their position in the manifest; the more-canonical entry wins).
+      if (!urlToAlt.has(u)) urlToAlt.set(u, c.alt || '');
+    }
   }
 
   // Fetch each candidate and score it.
@@ -524,6 +595,15 @@ async function main() {
   // etc.), proceed silently. For URLs that are off-domain AND not on the
   // CDN allowlist, fetch + score but mark as off-domain in the log so the
   // operator can review.
+  //
+  // Affiliate-badge soft penalty (added 2026-05-01, mckeecoins.com bug):
+  // ALT text or filename matches like "Proxibid", "bidding", "verified",
+  // "authorize.net", "powered by" trigger a soft -6000 score penalty —
+  // these CAN still win as last resort if literally nothing else exists,
+  // but a real customer logo will outscore them. Pairs with the
+  // HOST_HARD_BLOCKLIST entries for proxibid.com / liveauctioneers.com /
+  // authorize.net seal etc. — host-blocklist catches the obvious cases,
+  // alt/src pattern catches the long tail.
   console.log(`\nFetching ${fetchUrls.size} variant URLs...`);
   const downloaded = [];
 
@@ -533,13 +613,15 @@ async function main() {
       continue;
     }
     const offDomain = isOffDomain(url, domain);
+    const alt = urlToAlt.get(url) || '';
+    const affiliateBadge = looksLikeAffiliateBadge(url, alt);
     const buf = await tryFetch(url);
     if (!buf) {
-      console.log(`  ✗ ${url} — fetch failed`);
+      console.log(`  ✗ ${url} — fetch failed (or empty/sub-100-byte response)`);
       continue;
     }
 
-    let entry = { url, buf, format: 'unknown', width: 0, height: 0, hasAlphaChannel: false, offDomain };
+    let entry = { url, alt, buf, format: 'unknown', width: 0, height: 0, hasAlphaChannel: false, offDomain, affiliateBadge };
 
     if (isSvg(buf)) {
       entry.format = 'svg';
@@ -560,7 +642,8 @@ async function main() {
 
     downloaded.push(entry);
     const offDomainTag = offDomain ? ' [off-domain — manual review recommended]' : '';
-    console.log(`  → ${url} — ${entry.format} ${entry.width}x${entry.height} ${entry.hasAlphaChannel ? '[alpha channel]' : '[opaque]'}${offDomainTag}`);
+    const affiliateTag = affiliateBadge ? ` [affiliate-badge: alt="${alt}" — soft-deprioritized]` : '';
+    console.log(`  → ${url} — ${entry.format} ${entry.width}x${entry.height} ${entry.hasAlphaChannel ? '[alpha channel]' : '[opaque]'}${offDomainTag}${affiliateTag}`);
   }
 
   if (downloaded.length === 0) {
@@ -583,12 +666,22 @@ async function main() {
   // can override by manually adjusting the manifest if a CDN-hosted variant
   // is genuinely the right choice). The penalty stacks on top of the hard
   // blocklist (arvixe etc. never reach scoring at all).
+  // Affiliate-badge candidates (alt-text or filename match like "Proxibid",
+  // "bidding", "verified", "authorize.net") take a -6000 penalty — softer
+  // than off-domain because the heuristic has false-positive risk (an
+  // auction house's actual logo might legitimately mention "auctioneer"),
+  // but enough that a real customer logo with similar quality always wins.
+  // Real bug 2026-05-01 (mckeecoins.com): cover.jpg returned 0 bytes (now
+  // rejected by tryFetch's <100-byte filter); the variant-hunter then
+  // scored a Proxibid bidding banner highest. Both filters together prevent
+  // the bidding-banner-as-logo failure mode.
   function score(entry) {
     let s = 0;
     if (entry.format === 'svg') s += 10000;
     if (entry.hasAlphaChannel) s += 5000;
     s += Math.min(entry.width, 5000); // cap so 99999 (svg) doesn't overflow
     if (entry.offDomain) s -= 8000;
+    if (entry.affiliateBadge) s -= 6000;
     return s;
   }
 
