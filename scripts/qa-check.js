@@ -701,11 +701,32 @@ async function main() {
     // Real users scroll and see fully-revealed content; the QA check should
     // measure that same end-state.
     //
-    // Belt-and-suspenders approach: (1) explicitly add `.has-animations` +
-    // `.visible` classes so any CSS that gates on them resolves to the
-    // revealed state; (2) scroll the entire page top-to-bottom so the real
-    // IntersectionObserver fires for below-fold elements; (3) scroll back to
-    // top and wait one frame for any final layout to settle.
+    // Belt-and-suspenders approach:
+    //   (0) Inject a no-transitions stylesheet so any in-flight CSS animation
+    //       or transition snaps instantly to its end state. This is what fixes
+    //       the `.stagger > *` mid-transition screenshot bug (woodsmusictn.com
+    //       worker feedback 2026-04-30): even after we apply `.visible` to
+    //       `.stagger`, the per-child `transition-delay` means children would
+    //       still be mid-fade when the screenshot fires, causing false text-
+    //       contrast fails on text rendering at, e.g., opacity:0.4. Setting
+    //       transition-duration / animation-duration / -delay all to 0
+    //       collapses the animation to its final frame instantly.
+    //   (1) Explicitly add `.has-animations` + `.visible` classes so any CSS
+    //       that gates on them resolves to the revealed state.
+    //   (2) Scroll the entire page top-to-bottom so the real
+    //       IntersectionObserver fires for below-fold elements.
+    //   (3) Scroll back to top and wait two frames for any final layout to settle.
+    await page.addStyleTag({
+      content: `
+        *, *::before, *::after {
+          transition-duration: 0s !important;
+          transition-delay: 0s !important;
+          animation-duration: 0s !important;
+          animation-delay: 0s !important;
+          animation-iteration-count: 1 !important;
+        }
+      `,
+    });
     await page.evaluate(async () => {
       document.documentElement.classList.add('has-animations');
       for (const el of document.querySelectorAll('.fade-up, .stagger')) {
