@@ -19,6 +19,7 @@ WebFactory runs UNATTENDED. The user types `/webfactory <url>` ONCE — that sin
 ```
 1. Scrape  →  2. Brief  →  3. Build A  →  4. QA A  →  5. Build B  →  6. QA B  →
 7. Build C  →  8a. QA Gate  →  8b. Deploy  →  9. Verify  →  10. Report (4 URLs)
+                                                                    ↘ 10c. Register with WebFactory Store (non-fatal)
 ```
 
 **Common stop-too-early failure mode (especially with smaller / cheaper models like Qwen, Haiku, local LLMs)**: the model finishes Build A (Stage 3), sees it succeeded, says *"Build complete. Want me to start the dev server and inspect the pages?"* → stops → user has to manually say "yes, continue" → repeat at every stage boundary. **This is wrong.** The full PIPELINE COMPLETION CONTRACT is in SKILL.md — workers MUST read it and follow it. If you find yourself typing a question to the user mid-pipeline ("ready for X?", "want me to Y?"), erase the question and just do the work.
@@ -132,7 +133,8 @@ The skill auto-detects existing work (manifest, Option A, Option B, Option C) an
 - `scripts/fix-logo.js` — Post-scrape: hunts for SVG/transparent logo variants, samples background colour, writes `manifest.logo` metadata
 - `scripts/qa.cjs` — Headless Playwright QA: desktop + mobile screenshots, console/network error logging
 - `scripts/qa-check.js` — Blocking pre-deploy QA gate: logo legibility, logo/nav background match, hero overlay + WCAG contrast, broken images, missing nav/footer/h1
-- `scripts/init-metrics.cjs` / `get-port.cjs` / `log-stage.cjs` / `finalize-metrics.cjs` / `manifest-query.cjs` — Pipeline helpers
+- `scripts/init-metrics.cjs` / `get-port.cjs` / `log-stage.cjs` / `finalize-metrics.cjs` / `manifest-query.cjs` / `record-deploy-url.cjs` — Pipeline helpers (record-deploy-url.cjs added 2026-05-03 — captures the URL printed by `vercel deploy --prebuilt --yes` into `metrics.optionX.url` so Stage 10c can read all three URLs from one place)
+- `scripts/register-with-store.mjs` — **Stage 10c**: posts deploy URLs + manifest metadata + 1280×800 fresh screenshots to `https://tomekgroup.com/wf/api/jobs/intake` so the new job appears in the WebFactory storefront DB. Idempotent via `jobs/{domain}/store-registration.json` checkpoint. Soft-fails on missing API key / network error / API error — appends a curl-equivalent to `jobs/{domain}/feedback.md` and exits 0 so the pipeline still reports success. Requires `WEBFACTORY_STORE_API_KEY` in `.env`.
 - `scripts/stitch-generate.js`, `scripts/stitch.sh`, `scripts/grab-heroes.js` — **Orphaned** (old Option B Stitch track retired). Kept for reference.
 - `templates/scaffold/` — pure Astro 5 + Tailwind v4 scaffold (copied per-build, ZERO visual opinions). `templates/REQUIRED-PATTERNS.md` documents structural requirements every build must satisfy. `templates/inspiration/` is read-only references (saas-default, industrial-trades, more planned). Pivot from monolithic-template-copy to scaffold+inspiration architecture landed 2026-04-25 — see ROADMAP.md "Recently Shipped" + FEEDBACK.md.
 - `jobs/{domain}/` — Per-job working directory (manifest, assets, design-brief, option-a, option-b, option-c)

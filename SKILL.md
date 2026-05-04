@@ -3573,7 +3573,10 @@ npx vercel build --yes
 
 ```bash
 cd jobs/{domain}/option-a/
-npx vercel deploy --prebuilt --yes
+DEPLOY_URL_A=$(npx vercel deploy --prebuilt --yes 2>/dev/null | tail -1)
+echo "Option A deployed: $DEPLOY_URL_A"
+cd /Users/tomasz/WebFactory
+node scripts/record-deploy-url.cjs "$DOMAIN" a "$DEPLOY_URL_A"
 ```
 
 **Option B** — same pattern (B inherits A's design and outputs to its own Astro build):
@@ -3585,7 +3588,10 @@ npx vercel build --yes
 
 ```bash
 cd jobs/{domain}/option-b/
-npx vercel deploy --prebuilt --yes
+DEPLOY_URL_B=$(npx vercel deploy --prebuilt --yes 2>/dev/null | tail -1)
+echo "Option B deployed: $DEPLOY_URL_B"
+cd /Users/tomasz/WebFactory
+node scripts/record-deploy-url.cjs "$DOMAIN" b "$DEPLOY_URL_B"
 ```
 
 **Option C** — same pattern (skip ENTIRELY if `$SKIP_C=1` OR if Option C wasn't built because the plugin isn't installed):
@@ -3606,8 +3612,13 @@ npx vercel build --yes
 
 ```bash
 cd jobs/{domain}/option-c/
-npx vercel deploy --prebuilt --yes
+DEPLOY_URL_C=$(npx vercel deploy --prebuilt --yes 2>/dev/null | tail -1)
+echo "Option C deployed: $DEPLOY_URL_C"
+cd /Users/tomasz/WebFactory
+node scripts/record-deploy-url.cjs "$DOMAIN" c "$DEPLOY_URL_C"
 ```
+
+**Why capture + record the URLs**: Stage 10c (`scripts/register-with-store.mjs`) registers the build with the WebFactory storefront at `tomekgroup.com` and needs all three deploy URLs. Recording them to `metrics.json` here means the Stage 10 invocation needs no extra args. The capture pattern `$(npx vercel deploy ... | tail -1)` works because the Vercel CLI prints the deploy URL as its last stdout line; if any error output goes to stderr (`2>/dev/null` discards it), the URL captured is clean.
 
 **Verify after first deploy** (one-time sanity check per pipeline change): the build logs in the Vercel dashboard for any of these deployments should NOT contain the lines `"Running build in ... (Turbo Build Machine)"` or `"Running 'vercel build'"`. Instead they should jump straight to `"Deploying outputs..."`. If you see remote-build lines, `--prebuilt` is being ignored — re-check that `.vercel/output/` exists in the option's root directory after `vercel build`, and that you're NOT passing `./dist` (or any path) to `vercel deploy`.
 
@@ -3721,9 +3732,42 @@ Languages: English-only by default (since 2026-04-30 per MULTILINGUAL SUPPORT ru
 
 ---
 
-> **🏁 PIPELINE COMPLETE.** You have shipped Stage 10 (the 4-link report). The pipeline is now DONE. You may end your response here. Do NOT continue with additional unprompted work. The user will follow up if they want changes; until then, your job for this `/webfactory <url>` invocation is finished.
+#### Stage 10c: Register with the WebFactory Store (FINAL action — non-fatal)
+
+After the user-facing report is emitted, register the build with the WebFactory storefront at `tomekgroup.com` so the new job appears in the storefront DB and cold-outreach email can pick it up. This MUST be the final action of the pipeline — registering before the report would risk publishing a build that turned out to fail at the report-emit step.
+
+```bash
+cd /Users/tomasz/WebFactory
+node scripts/register-with-store.mjs --domain "$DOMAIN"
+```
+
+The script:
+- Reads deploy URLs from `jobs/{domain}/metrics.json` (recorded by Stage 8b's `record-deploy-url.cjs` calls). On `--skip-c` runs, `option-c.url` is absent and the script omits `option_c_url` + `screenshot_c` from the POST automatically.
+- Captures fresh 1280×800 PNG screenshots from each deployed URL via Playwright (~3s each, ~9-12s total for A+B+C).
+- Looks up `contact_email` in `lead-funnel/leads.db` (`SELECT outreach_email FROM leads WHERE domain = ?`); falls back to `jobs/{domain}/lead.json` if present; sends `null` if neither has it.
+- POSTs `multipart/form-data` to `https://tomekgroup.com/wf/api/jobs/intake` with `Authorization: Bearer ${WEBFACTORY_STORE_API_KEY}`.
+- On success: writes `jobs/{domain}/store-registration.json` checkpoint with the returned `{job_id, slug, store_url, expires_at}`. Prints `✓ Registered with store: <store_url>`.
+- On failure: appends a structured note + curl-equivalent to `jobs/{domain}/feedback.md`. **NON-FATAL** — exits 0 so the pipeline still reports success. The build itself is fine; only registration retry remains.
+
+**Idempotency**: if `jobs/{domain}/store-registration.json` already exists, the script prints the existing storefront URL and exits without re-POSTing (the intake API generates a fresh slug on every call — calling twice creates duplicate storefront entries). Pass `--force` to re-register intentionally (e.g., after substantive content changes).
+
+**API key requirement**: `WEBFACTORY_STORE_API_KEY` must be set in the environment OR in `~/WebFactory/.env`. If missing, the script soft-fails (logs to feedback.md, does not block the pipeline). To populate:
+
+```bash
+# Option 1: paste the secret directly
+echo "WEBFACTORY_STORE_API_KEY=<token>" >> /Users/tomasz/WebFactory/.env
+
+# Option 2: pull from Vercel (the secret is set in production for the
+# webfactory-store project under team_4Hr5Lqd6pY5D7gmeXDVsDmYx)
+cd ~/webfactory-store && vercel env pull .env.local --environment=production --scope tomek-group
+# then copy the WEBFACTORY_STORE_API_KEY line into ~/WebFactory/.env
+```
+
+---
+
+> **🏁 PIPELINE COMPLETE.** You have shipped Stage 10 (the 4-link report) AND Stage 10c (storefront registration). The pipeline is now DONE. You may end your response here. Do NOT continue with additional unprompted work. The user will follow up if they want changes; until then, your job for this `/webfactory <url>` invocation is finished.
 >
-> **Self-check before you stop**: scroll back through your most recent message. Does it contain (a) 4 clickable `<https://...>` URLs (or 3 if `--skip-c`), AND (b) a markdown metrics table? If YES → done, send the response. If NO → resume from wherever Stage 10 fell short.
+> **Self-check before you stop**: scroll back through your most recent message. Does it contain (a) 4 clickable `<https://...>` URLs (or 3 if `--skip-c`), AND (b) a markdown metrics table, AND (c) the line `✓ Registered with store: <store_url>` (OR a soft-fail message about WEBFACTORY_STORE_API_KEY / network — both are acceptable since registration is non-fatal)? If YES → done, send the response. If NO → resume from wherever Stage 10 fell short.
 
 ---
 
