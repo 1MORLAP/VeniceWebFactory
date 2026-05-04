@@ -67,18 +67,25 @@ if (!domain) {
   process.exit(2);
 }
 
-// ---- load .env (no external dep — tiny inline parser) --------------------
-const envPath = join(PROJECT_ROOT, '.env');
-if (existsSync(envPath)) {
-  for (const rawLine of readFileSync(envPath, 'utf8').split(/\r?\n/)) {
+// ---- load .env.local (preferred, Vercel convention) and .env (fallback) -
+// Order matters: .env.local is loaded FIRST so its values win, then .env
+// fills in anything not yet set. This matches Next.js / Vercel CLI semantics
+// (`vercel env pull` writes to .env.local by default; .env is the
+// committed-defaults file that .env.local overrides). The "don't overwrite
+// real env" guard ensures real shell env vars beat both files.
+function loadEnvFile(filePath) {
+  if (!existsSync(filePath)) return;
+  for (const rawLine of readFileSync(filePath, 'utf8').split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line || line.startsWith('#')) continue;
-    const m = line.match(/^([A-Z_][A-Z0-9_]*)\s*=\s*(.*)$/);
+    const m = line.match(/^(?:export\s+)?([A-Z_][A-Z0-9_]*)\s*=\s*(.*)$/);
     if (!m) continue;
-    if (process.env[m[1]] !== undefined) continue;   // don't overwrite real env
+    if (process.env[m[1]] !== undefined) continue;
     process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
   }
 }
+loadEnvFile(join(PROJECT_ROOT, '.env.local'));
+loadEnvFile(join(PROJECT_ROOT, '.env'));
 
 const apiKey = process.env.WEBFACTORY_STORE_API_KEY;
 const STORE_INTAKE_URL =
@@ -108,9 +115,10 @@ if (existsSync(checkpointPath) && !force) {
 // ---- fail-fast preconditions ---------------------------------------------
 if (!apiKey) {
   softFail(
-    'WEBFACTORY_STORE_API_KEY not set in env or .env file',
-    `Set it in ~/WebFactory/.env (echo "WEBFACTORY_STORE_API_KEY=<token>" >> .env) OR `
-    + `pull from Vercel (cd webfactory-store && vercel env pull .env.local --environment=production --scope tomek-group; copy the value).`
+    'WEBFACTORY_STORE_API_KEY not set in shell env, .env.local, or .env',
+    `Recommended: paste it into ~/WebFactory/.env.local (Vercel convention; gitignored). `
+    + `Easiest: \`vercel env pull /Users/tomasz/WebFactory/.env.local --environment=production --scope tomek-group --cwd ~/webfactory-store --yes\` (writes the whole production env to that file). `
+    + `Or paste directly: open /Users/tomasz/WebFactory/.env.local and add the line WEBFACTORY_STORE_API_KEY=<token>.`
   );
 }
 if (!existsSync(manifestPath)) {
