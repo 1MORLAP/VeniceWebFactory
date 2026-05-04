@@ -3732,9 +3732,9 @@ Languages: English-only by default (since 2026-04-30 per MULTILINGUAL SUPPORT ru
 
 ---
 
-#### Stage 10c: Register with the WebFactory Store (FINAL action — non-fatal)
+#### Stage 10c: Register with the WebFactory Store (non-fatal)
 
-After the user-facing report is emitted, register the build with the WebFactory storefront at `tomekgroup.com` so the new job appears in the storefront DB and cold-outreach email can pick it up. This MUST be the final action of the pipeline — registering before the report would risk publishing a build that turned out to fail at the report-emit step.
+After the user-facing report is emitted, register the build with the WebFactory storefront at `tomekgroup.com` so the new job appears in the storefront DB and cold-outreach email can pick it up. This MUST run after the report — registering before the report would risk publishing a build that turned out to fail at the report-emit step.
 
 ```bash
 cd /Users/tomasz/WebFactory
@@ -3785,9 +3785,23 @@ If missing from all four tiers, the script soft-fails (logs to feedback.md, does
 
 ---
 
-> **🏁 PIPELINE COMPLETE.** You have shipped Stage 10 (the 4-link report) AND Stage 10c (storefront registration). The pipeline is now DONE. You may end your response here. Do NOT continue with additional unprompted work. The user will follow up if they want changes; until then, your job for this `/webfactory <url>` invocation is finished.
+#### Stage 10d: Sync the lead-funnel DB (mark-rebuilt — non-fatal)
+
+After storefront registration, sync the lead-funnel DB so the just-built domain is marked `rebuilt` and `lead-funnel/scripts/queue-rebuilds.js` won't re-queue it on the next batch run.
+
+```bash
+node /Users/tomasz/WebFactory/lead-funnel/scripts/mark-rebuilt.js --domain "$DOMAIN"
+```
+
+Soft-fail by design — if `$DOMAIN` isn't in `lead-funnel/leads.db` (e.g., an ad-hoc rebuild from a URL that was never funneled), the script logs and exits 0 without erroring. So calling it unconditionally at the end of every `/webfactory` run is safe — it's a no-op for ad-hoc rebuilds and a correctness step for funnel-sourced ones.
+
+This is bookkeeping only — it does NOT replace the user-visible 4-URL report (the completion contract is the URLs + metrics table, emitted in Stage 10's main body before this step). The script's stdout is fine to show in the orchestrator's output but should not appear above or instead of the report.
+
+---
+
+> **🏁 PIPELINE COMPLETE.** You have shipped Stage 10 (the 4-link report), Stage 10c (storefront registration), and Stage 10d (lead-funnel DB sync). The pipeline is now DONE. You may end your response here. Do NOT continue with additional unprompted work. The user will follow up if they want changes; until then, your job for this `/webfactory <url>` invocation is finished.
 >
-> **Self-check before you stop**: scroll back through your most recent message. Does it contain (a) 4 clickable `<https://...>` URLs (or 3 if `--skip-c`), AND (b) a markdown metrics table, AND (c) the line `✓ Registered with store: <store_url>` (OR a soft-fail message about WEBFACTORY_STORE_API_KEY / network — both are acceptable since registration is non-fatal)? If YES → done, send the response. If NO → resume from wherever Stage 10 fell short.
+> **Self-check before you stop**: scroll back through your most recent message. Does it contain (a) 4 clickable `<https://...>` URLs (or 3 if `--skip-c`), AND (b) a markdown metrics table, AND (c) the line `✓ Registered with store: <store_url>` (OR a soft-fail message about WEBFACTORY_STORE_API_KEY / network — both are acceptable since registration is non-fatal), AND (d) a mark-rebuilt log line (success message OR "domain not in funnel — skipping" — both are acceptable since the script soft-fails)? If YES → done, send the response. If NO → resume from wherever Stage 10 fell short.
 
 ---
 
