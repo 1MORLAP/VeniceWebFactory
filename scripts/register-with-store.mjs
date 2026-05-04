@@ -43,6 +43,7 @@ import {
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { homedir } from 'node:os';
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = resolve(SCRIPT_DIR, '..');
@@ -67,12 +68,25 @@ if (!domain) {
   process.exit(2);
 }
 
-// ---- load .env.local (preferred, Vercel convention) and .env (fallback) -
-// Order matters: .env.local is loaded FIRST so its values win, then .env
-// fills in anything not yet set. This matches Next.js / Vercel CLI semantics
-// (`vercel env pull` writes to .env.local by default; .env is the
-// committed-defaults file that .env.local overrides). The "don't overwrite
-// real env" guard ensures real shell env vars beat both files.
+// ---- env loading: 4-tier with sibling-storefront fallback ----------------
+//
+// Load order (first to set a variable wins; real shell env always beats files):
+//   1. shell env       — `WEBFACTORY_STORE_API_KEY=... node ...` etc.
+//   2. ~/WebFactory/.env.local         — local override (gitignored)
+//   3. ~/WebFactory/.env               — committed-defaults fallback (gitignored)
+//   4. ~/webfactory-store/.env.local   — sibling project's env file
+//
+// Tier 4 (sibling) exists because the WEBFACTORY_STORE_API_KEY is the SAME
+// secret on both sides: the storefront authenticates intake POSTs with it,
+// WebFactory signs them with it. Reading it from the storefront's env file
+// means rotating the secret on the storefront side picks up automatically
+// here — no copy/paste between repos. Easy to extend with more sibling
+// project paths later if the pattern repeats.
+//
+// ENV_PROVENANCE tracks which file supplied each variable so the success log
+// can show "Loaded WEBFACTORY_STORE_API_KEY from <file>" — useful for debug.
+const ENV_PROVENANCE = new Map();   // varName → filePath that supplied it
+
 function loadEnvFile(filePath) {
   if (!existsSync(filePath)) return;
   for (const rawLine of readFileSync(filePath, 'utf8').split(/\r?\n/)) {
@@ -80,12 +94,20 @@ function loadEnvFile(filePath) {
     if (!line || line.startsWith('#')) continue;
     const m = line.match(/^(?:export\s+)?([A-Z_][A-Z0-9_]*)\s*=\s*(.*)$/);
     if (!m) continue;
-    if (process.env[m[1]] !== undefined) continue;
-    process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
+    // Treat empty values as "not set" — a placeholder line like
+    // `WEBFACTORY_STORE_API_KEY=` from an earlier file in the load order
+    // must NOT shadow a real value from a later file.
+    const existing = process.env[m[1]];
+    if (existing !== undefined && existing !== '') continue;
+    const value = m[2].replace(/^["']|["']$/g, '');
+    if (value === '') continue;   // empty value = effectively not set
+    process.env[m[1]] = value;
+    ENV_PROVENANCE.set(m[1], filePath);
   }
 }
 loadEnvFile(join(PROJECT_ROOT, '.env.local'));
 loadEnvFile(join(PROJECT_ROOT, '.env'));
+loadEnvFile(join(homedir(), 'webfactory-store', '.env.local'));
 
 const apiKey = process.env.WEBFACTORY_STORE_API_KEY;
 const STORE_INTAKE_URL =
@@ -115,12 +137,16 @@ if (existsSync(checkpointPath) && !force) {
 // ---- fail-fast preconditions ---------------------------------------------
 if (!apiKey) {
   softFail(
-    'WEBFACTORY_STORE_API_KEY not set in shell env, .env.local, or .env',
-    `Recommended: paste it into ~/WebFactory/.env.local (Vercel convention; gitignored). `
-    + `Easiest: \`vercel env pull /Users/tomasz/WebFactory/.env.local --environment=production --scope tomek-group --cwd ~/webfactory-store --yes\` (writes the whole production env to that file). `
-    + `Or paste directly: open /Users/tomasz/WebFactory/.env.local and add the line WEBFACTORY_STORE_API_KEY=<token>.`
+    'WEBFACTORY_STORE_API_KEY not set in any of: shell env, ~/WebFactory/.env.local, ~/WebFactory/.env, ~/webfactory-store/.env.local',
+    `Easiest: ensure the secret is set in ~/webfactory-store/.env.local — WebFactory reads it from there directly so you don't need a separate copy. `
+    + `If you don't have the storefront repo locally, paste the secret into ~/WebFactory/.env.local instead: \`echo "WEBFACTORY_STORE_API_KEY=<token>" >> ~/WebFactory/.env.local\`.`
   );
 }
+
+// Trace which env file supplied the API key — useful when debugging which
+// repo's env got read. Doesn't print the secret value.
+const apiKeySource = ENV_PROVENANCE.get('WEBFACTORY_STORE_API_KEY') || '(shell env)';
+console.log(`✓ Loaded WEBFACTORY_STORE_API_KEY from ${apiKeySource}`);
 if (!existsSync(manifestPath)) {
   softFail(`manifest not found at ${manifestPath}`, 'Run /webfactory <url> first to produce the manifest.');
 }

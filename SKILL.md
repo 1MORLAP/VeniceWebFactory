@@ -3751,20 +3751,36 @@ The script:
 
 **Idempotency**: if `jobs/{domain}/store-registration.json` already exists, the script prints the existing storefront URL and exits without re-POSTing (the intake API generates a fresh slug on every call — calling twice creates duplicate storefront entries). Pass `--force` to re-register intentionally (e.g., after substantive content changes).
 
-**API key requirement**: `WEBFACTORY_STORE_API_KEY` must be set in the shell env OR in `~/WebFactory/.env.local` (preferred — Vercel convention, gitignored) OR `~/WebFactory/.env` (fallback). The script loads `.env.local` FIRST so its values win, then `.env` fills in anything not yet set. If missing from all three, the script soft-fails (logs to feedback.md, does not block the pipeline). To populate:
+**API key requirement**: the script loads `WEBFACTORY_STORE_API_KEY` from FOUR sources, in order (first non-empty value wins; real shell env always beats files):
+
+1. **shell env** — `WEBFACTORY_STORE_API_KEY=... node ...`
+2. **`~/WebFactory/.env.local`** — local override (gitignored)
+3. **`~/WebFactory/.env`** — committed-defaults fallback (gitignored)
+4. **`~/webfactory-store/.env.local`** — sibling storefront repo's env file
+
+**Tier 4 is the canonical setup.** The same secret authenticates storefront intake POSTs (server side) AND signs them (WebFactory side); both projects need it; storing it once in the storefront's env file (where `vercel env pull` writes by default) and letting WebFactory read it from there means rotating the secret in production picks up here automatically — no copy/paste between repos. The placeholder line in `~/WebFactory/.env.local` and `~/WebFactory/.env` are for the rare case where the operator wants to override (e.g., testing against a preview-deploy storefront).
+
+To populate (only needed if the storefront repo isn't cloned locally OR `vercel env pull` hasn't been run there):
 
 ```bash
-# Easiest: pull the entire production env from the webfactory-store project
-# straight into WebFactory's .env.local (writes WEBFACTORY_STORE_API_KEY plus
-# any other shared secrets in one shot). The secret is in Vercel production
-# under team_4Hr5Lqd6pY5D7gmeXDVsDmYx.
-vercel env pull /Users/tomasz/WebFactory/.env.local \
-  --environment=production --scope tomek-group \
-  --cwd ~/webfactory-store --yes
+# Easiest path — pull the storefront's production env if not already done.
+# This writes WEBFACTORY_STORE_API_KEY (plus all other shared secrets) into
+# the sibling file that register-with-store.mjs reads automatically.
+cd ~/webfactory-store
+vercel env pull .env.local --environment=production --scope tomek-group --yes
+# Done — register-with-store.mjs picks it up next run.
 
-# OR: paste directly (open the file and add a line, gitignored)
+# OR (only if you don't have the storefront repo locally):
 echo "WEBFACTORY_STORE_API_KEY=<token>" >> /Users/tomasz/WebFactory/.env.local
 ```
+
+The script's success log shows which file supplied the secret, so you can always trace where it came from:
+
+```
+✓ Loaded WEBFACTORY_STORE_API_KEY from /Users/tomasz/webfactory-store/.env.local
+```
+
+If missing from all four tiers, the script soft-fails (logs to feedback.md, does not block the pipeline).
 
 ---
 
