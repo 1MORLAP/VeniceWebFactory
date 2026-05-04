@@ -815,63 +815,38 @@ fi
 
 **For brand-new domains** (no existing `.vercel/project.json`): the worker session must use the Vercel Teams Configuration `Method A: pre-link before first deploy` pattern from Stage 8. Run `npx vercel link --scope tomek-group --yes` in each option's directory before `vercel build` / `vercel deploy`. See SKILL.md Vercel Teams section for details.
 
-Then run the normal Smart Resume probe (it will report everything as NEEDED after a clean wipe):
+Then run the Smart Resume probe — a single invocation of `scripts/smart-resume.cjs` that prints the recommended resume point as JSON. **The orchestrator does NOT read manifests/dists/screenshots itself for resume detection** — the script does that work and prints a small (~600 byte) summary. This keeps the orchestrator's context budget clean (added 2026-05-04 as Tier 1b of the context-optimization plan):
 
 ```bash
 DOMAIN=$(echo "{{url}}" | sed 's|https\?://||; s|www\.||; s|/.*||')
-echo "=== Checking existing work for $DOMAIN ==="
-
-# Stage 1: Scrape
-if [ -f "jobs/$DOMAIN/manifest.json" ]; then
-  echo "✓ Stage 1 (Scrape): DONE — manifest.json exists"
-else
-  echo "○ Stage 1 (Scrape): NEEDED"
-fi
-
-# Stage 2: Design brief
-if [ -f "jobs/$DOMAIN/design-brief.json" ]; then
-  echo "✓ Stage 2 (Design Brief): DONE"
-else
-  echo "○ Stage 2 (Design Brief): NEEDED"
-fi
-
-# Stage 3: Option A
-if [ -d "jobs/$DOMAIN/option-a/src/pages" ]; then
-  PAGE_COUNT=$(ls jobs/$DOMAIN/option-a/src/pages/*.astro 2>/dev/null | wc -l | tr -d ' ')
-  echo "✓ Stage 3 (Option A Build): DONE — $PAGE_COUNT pages"
-else
-  echo "○ Stage 3 (Option A Build): NEEDED"
-fi
-
-# Stage 5: Option B (copy-rewritten Option A)
-if [ -d "jobs/$DOMAIN/option-b/src/pages" ]; then
-  PLUS_COUNT=$(ls jobs/$DOMAIN/option-b/src/pages/*.astro 2>/dev/null | wc -l | tr -d ' ')
-  echo "✓ Stage 5 (Option B Build): DONE — $PLUS_COUNT pages"
-else
-  echo "○ Stage 5 (Option B Build): NEEDED"
-fi
-
-# Stage 7: Option C (Plugin-driven) — gate on SKIP_C
-if [ "$SKIP_C" = "1" ]; then
-  echo "⏭️ Stage 7 (Option C Build): SKIPPED (--skip-c mode)"
-elif [ -d "jobs/$DOMAIN/option-c/dist" ]; then
-  C_COUNT=$(find jobs/$DOMAIN/option-c/dist -maxdepth 1 -name '*.html' 2>/dev/null | wc -l | tr -d ' ')
-  echo "✓ Stage 7 (Option C Build): DONE — $C_COUNT pages"
-else
-  echo "○ Stage 7 (Option C Build): NEEDED"
-fi
+node scripts/smart-resume.cjs "$DOMAIN"
 ```
 
-**Rules for skipping:**
-- If `manifest.json` exists → skip Stage 1 (scrape)
-- If `design-brief.json` exists → skip Stage 2
-- If `option-a/src/pages/` has .astro files AND `option-a/dist/` exists → skip Stages 3-4 (Option A build + QA)
-- If `option-b/src/pages/` has .astro files AND `option-b/dist/` exists → skip Stage 5 (B rewrite). **If A is rebuilt, B MUST also be rebuilt** (it inherits from A). **If B is rebuilt and `$SKIP_C != 1`, C MUST also be rebuilt** (it reads B's text — a stale C would diverge from the canonical text). **If `$SKIP_C = 1`, the B→C cascade is short-circuited** — there is no C to rebuild.
-- If `option-c/src/pages/` has .astro files AND `option-c/dist/` exists → verify page count matches manifest. If it does, skip to deploy. If not, rebuild Option C. If B is rebuilt, C MUST also be rebuilt (C inherits text from B). **Skipped entirely when `$SKIP_C = 1`** — existing `option-c/` is left untouched (orphan from a previous full run; safe to ignore or `rm -rf` manually).
-- **Option B is retired** (as of 2026-04-24). If `option-b/`, `stitch-output/`, or any V1-shape Option B artifacts exist from earlier runs, ignore them — Smart Resume will not regenerate Option B. Safe to delete manually if you want to clean up.
-- **NEVER skip the completeness check or QA stages** — always run these even on resume
+The script prints a JSON object like:
 
-Report what will be skipped and what will be built, then proceed with the first needed stage.
+```json
+{
+  "domain": "giffins.net",
+  "jobDir": "jobs/giffins.net",
+  "resumeFrom": "stage-2-design-brief",
+  "summary": "Stage 1 complete (scrape + assets + metrics). Resume at Stage 2 (Design Brief).",
+  "artifactsFound": { "manifest.json": true, "design-brief.json": false, ... }
+}
+```
+
+Possible `resumeFrom` values (in pipeline order): `stage-1-scrape`, `stage-2-design-brief`, `stage-2.5-specs`, `stage-3-build-a`, `stage-5-build-b`, `stage-7-build-c`, `stage-8a-qa-gate`, `stage-9-verify`, `stage-10-report-and-register`, `pipeline-complete`.
+
+**Rules for skipping (cascade constraints — ENFORCE these even when smart-resume reports a later stage as the entry point):**
+
+- **If A is rebuilt, B MUST also be rebuilt** (B inherits A's design verbatim — stale B = inconsistent build).
+- **If B is rebuilt and `$SKIP_C != 1`, C MUST also be rebuilt** (C reads B's text — stale C diverges from the canonical text).
+- **If `$SKIP_C = 1`, the B→C cascade is short-circuited** — there is no C to rebuild. `option-c/` may exist as orphan from a previous full run; leave it untouched.
+- **NEVER skip the completeness check or QA stages** — always run these even on resume. `smart-resume.cjs` recommending `stage-9-verify` doesn't mean skip the deploy gate; it means "everything before is verified done; start from gate forward."
+- **Old Option B (Stitch-driven, retired 2026-04-24)**: if `option-b/` directories from V1 exist, `smart-resume.cjs` ignores them — they're not the current Option B's artifacts. Safe to `rm -rf` manually if cleaning up.
+
+If `resumeFrom` is `pipeline-complete` and the user did NOT pass `--full`/`--clean`, **report the existing storefront URL and exit cleanly** — no point re-running a finished build. Pass `--full` to override.
+
+Report which stages will be skipped and which will be run, then proceed from the first needed stage.
 
 ## Pipeline
 
