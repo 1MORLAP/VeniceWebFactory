@@ -150,13 +150,24 @@ console.log(`✓ Loaded WEBFACTORY_STORE_API_KEY from ${apiKeySource}`);
 if (!existsSync(manifestPath)) {
   softFail(`manifest not found at ${manifestPath}`, 'Run /webfactory <url> first to produce the manifest.');
 }
-if (!existsSync(metricsPath)) {
-  softFail(`metrics not found at ${metricsPath}`, 'Run /webfactory <url> first to populate metrics.json.');
-}
 
-// ---- read manifest + metrics ---------------------------------------------
+// ---- read manifest + metrics (metrics is optional if URL overrides cover it)
 const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-const metrics  = JSON.parse(readFileSync(metricsPath, 'utf8'));
+let metrics = {};
+if (existsSync(metricsPath)) {
+  try {
+    metrics = JSON.parse(readFileSync(metricsPath, 'utf8'));
+  } catch (e) {
+    console.error(`⚠ ${metricsPath} unparseable (${e.message}); proceeding with empty metrics — URLs must come from --option-{a,b,c}-url overrides.`);
+    metrics = {};
+  }
+} else {
+  // metrics.json is missing — that's OK if the caller supplied URL overrides
+  // (typical for the backfill flow on pre-Stage-8b-recording builds). The
+  // URL resolution step below will soft-fail with a helpful message if
+  // overrides are also missing.
+  console.error(`ℹ ${metricsPath} not found — relying on --option-{a,b,c}-url overrides for deploy URLs.`);
+}
 
 // Resolve URLs — CLI override wins, then metrics.json. Try a couple of
 // shapes for back-compat in case Stage 8b records under different keys.
