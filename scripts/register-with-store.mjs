@@ -191,9 +191,58 @@ if (!optionAUrl || !optionBUrl) {
 const skipC = !optionCUrl;
 console.log(`Domain:       ${domain}`);
 console.log(`Mode:         ${skipC ? 'A+B (--skip-c)' : 'A+B+C'}`);
-console.log(`Option A URL: ${optionAUrl}`);
-console.log(`Option B URL: ${optionBUrl}`);
-if (!skipC) console.log(`Option C URL: ${optionCUrl}`);
+
+// ---- canonical-URL derivation (added 2026-05-04) -------------------------
+// We send the project's canonical URL (https://{projectName}.vercel.app) to
+// the storefront intake API instead of the deployment-specific URL
+// (https://{projectName}-{hash}-tomek-group.vercel.app) that Stage 8b
+// captured. Why: deployment-specific URLs are immutable — they point to the
+// deployment captured at build time. When a job is later re-deployed (post-
+// purchase, --add-language, manual fix), the project's PRODUCTION
+// deployment changes but the deployment-specific URL still points at the
+// OLD content. Pre-purchase preview buttons on the storefront would show
+// stale content; admin links go stale; anything *.vercel.app reference is
+// frozen at intake time.
+//
+// The canonical URL `{projectName}.vercel.app` is Vercel's auto-assigned
+// production alias — always serves the project's CURRENT production
+// deployment. Reading project name from .vercel/project.json (each option
+// dir has one post-link) makes this deterministic.
+//
+// The deployment-specific URL passed via --option-{a,b,c}-url or pulled
+// from metrics.optionX.url is kept as a FALLBACK — if .vercel/project.json
+// is missing for any option (very old build, link wiped, etc.), use the
+// deployment URL we already have. Better than failing the whole step.
+function canonicalUrlForOption(option) {
+  const linkPath = join(jobDir, `option-${option}`, '.vercel', 'project.json');
+  if (!existsSync(linkPath)) return null;
+  try {
+    const json = JSON.parse(readFileSync(linkPath, 'utf8'));
+    if (typeof json.projectName === 'string' && json.projectName.trim()) {
+      return `https://${json.projectName.trim()}.vercel.app`;
+    }
+  } catch {}
+  return null;
+}
+
+const canonicalAUrl = canonicalUrlForOption('a');
+const canonicalBUrl = canonicalUrlForOption('b');
+const canonicalCUrl = !skipC ? canonicalUrlForOption('c') : null;
+
+// Use canonical when available, else fall back to the deployment-specific
+// URL we already resolved. Track which we used per option so the log line
+// is honest about it.
+const finalAUrl = canonicalAUrl || optionAUrl;
+const finalBUrl = canonicalBUrl || optionBUrl;
+const finalCUrl = !skipC ? (canonicalCUrl || optionCUrl) : null;
+
+const aSource = canonicalAUrl ? 'canonical' : 'deployment (fallback — .vercel/project.json missing)';
+const bSource = canonicalBUrl ? 'canonical' : 'deployment (fallback — .vercel/project.json missing)';
+const cSource = !skipC ? (canonicalCUrl ? 'canonical' : 'deployment (fallback — .vercel/project.json missing)') : null;
+
+console.log(`Option A URL: ${finalAUrl}  [${aSource}]`);
+console.log(`Option B URL: ${finalBUrl}  [${bSource}]`);
+if (!skipC) console.log(`Option C URL: ${finalCUrl}  [${cSource}]`);
 
 // ---- contact_email lookup -----------------------------------------------
 let contactEmail = null;
@@ -243,9 +292,13 @@ async function captureScreenshot(url, label) {
 
 let shotA, shotB, shotC;
 try {
-  shotA = await captureScreenshot(optionAUrl, 'A');
-  shotB = await captureScreenshot(optionBUrl, 'B');
-  if (!skipC) shotC = await captureScreenshot(optionCUrl, 'C');
+  // Screenshot the canonical URL — gives the storefront an image of what
+  // pre-purchase visitors actually see (current production deployment),
+  // not what we built today (which the canonical URL also points at right
+  // now since we just deployed, but will diverge on any future re-deploy).
+  shotA = await captureScreenshot(finalAUrl, 'A');
+  shotB = await captureScreenshot(finalBUrl, 'B');
+  if (!skipC) shotC = await captureScreenshot(finalCUrl, 'C');
 } catch (e) {
   softFail(
     `screenshot capture failed: ${e.message}`,
@@ -255,14 +308,20 @@ try {
 }
 
 // ---- build payload --------------------------------------------------------
+// Send canonical URLs (https://{projectName}.vercel.app) — these always
+// resolve to the project's CURRENT production deployment, so storefront
+// preview buttons / admin links / pre-purchase pages stay correct after
+// any future re-deploy. The deployment-specific URL we resolved earlier
+// is preserved in metrics.optionX.url for diagnostic purposes only — it's
+// not what gets stored on the storefront side.
 const payload = {
   original_url:        manifest.url || `https://${domain}`,
   business_name:       manifest.businessName || manifest.business_name || manifest.title || domain,
   industry:            manifest.industry || null,
   contact_email:       contactEmail,
-  option_a_url:        optionAUrl,
-  option_b_url:        optionBUrl,
-  option_c_url:        optionCUrl || null,
+  option_a_url:        finalAUrl,
+  option_b_url:        finalBUrl,
+  option_c_url:        finalCUrl || null,
   webfactory_job_dir:  `jobs/${domain}`,
 };
 
@@ -307,9 +366,19 @@ const checkpoint = {
   registered_at: new Date().toISOString(),
   payload_summary: {
     domain,
-    option_a_url: optionAUrl,
-    option_b_url: optionBUrl,
-    option_c_url: optionCUrl,
+    // Canonical URLs we sent to the storefront (these are what's stored on
+    // their side and what users will click pre-purchase).
+    option_a_url: finalAUrl,
+    option_b_url: finalBUrl,
+    option_c_url: finalCUrl,
+    // Deployment-specific URLs we resolved from metrics/overrides — kept
+    // for diagnostics so it's clear which deployment we screenshotted /
+    // verified at registration time.
+    deployment_urls_at_registration: {
+      option_a: optionAUrl,
+      option_b: optionBUrl,
+      option_c: optionCUrl,
+    },
     contact_email: contactEmail,
   },
 };
