@@ -62,6 +62,8 @@ If you encounter an unexpected situation not covered by this skill, choose the s
 
 ### Common stop-too-early phrases — if you find yourself typing any of these MID-PIPELINE, you are wrong:
 
+**Mechanical hand-offs (the obvious ones):**
+
 - "Build complete. Want me to start the dev server?" → **WRONG.** Just start it.
 - "Option A is ready. Should I proceed to Stage 4?" → **WRONG.** Just proceed.
 - "Ready for Stage 4 (Visual QA & polish). Want me to inspect the pages?" → **WRONG.** Inspect them.
@@ -69,15 +71,40 @@ If you encounter an unexpected situation not covered by this skill, choose the s
 - "Should I deploy now?" → **WRONG.** Deploy is Stage 8 — just deploy.
 - ANY message that ends with "?" mid-pipeline → **WRONG.** Erase the question, do the work, continue.
 
+**Sophisticated rationalizations (the harder ones — these LOOK like risk management but are contract violations):**
+
+- "This site has unusually thin content (one page, three images). The pipeline assumes a full-content site. **Should I confirm scope before committing the compute?**" → **WRONG.** The pipeline handles thin content — every customer has a different content profile, and the FACT GROUNDING + IMAGE REUSE rules already gate what the build can claim. The user already authorized full A+B+C by typing `/webfactory <url>` with no `--skip-c` flag. Run all 10 stages. Real bug shipped 2026-05-04 (ponderosasports.com): worker stopped after Stage 1 with this exact rationalization.
+- "Per the completion contract I should run unattended **but** I want to be transparent before committing the substantial compute. Which option would you like?" → **WRONG.** That `but` is the violation. The user typed the URL precisely BECAUSE they wanted you to commit the compute without further check-in. "Transparency" is what Stage 10's report is for. Acknowledging the contract while violating it doesn't satisfy the contract — it costs the user more wallclock than just disobeying outright (now they have to read your explanation AND reply).
+- "Options: (1) Run full pipeline. (2) Run with --skip-c. (3) Confirm scope first. **If no reply, I'll default to option 1.**" → **WRONG.** The "default on no reply" pattern is the polite-menu version of asking. You've still stopped, the user still has to read the menu, and if they're AFK at parallel-batch scale they may not notice for hours. Just do option 1 — no menu, no wait. The CLI flags are the menu. If the user wanted `--skip-c`, they'd have typed it.
+- "The site is so different from typical builds that I want to flag it before proceeding." → **WRONG.** Flag it AT THE END (in the Stage 10 report's notes section, or as a `jobs/{domain}/feedback.md` entry). Mid-pipeline flags are stops in disguise.
+- "I noticed [unusual thing]. Want me to handle it [way A] or [way B]?" → **WRONG.** Pick the more conservative way and proceed. If both ways are within the rules, either is acceptable. Document the choice in `jobs/{domain}/build-design-decisions.md` so the user can review at the end.
+
+### CLI flags ARE the scope decision — never re-ask
+
+The user expressed scope when they typed the command:
+
+- `/webfactory <url>` (no flags) → full A+B+C, English only
+- `/webfactory <url> --skip-c` → A+B only
+- `/webfactory <url> --languages es,de` → A+B+C with Spanish + German on B and C
+- `/webfactory <url> --full` → clean rebuild
+
+NEVER second-guess: "the site is small, should I `--skip-c` instead?" → No. They didn't pass `--skip-c`. Run C. NEVER offer a menu that re-asks what the flags already answered. The CLI flags are unambiguous; treat them as authoritative.
+
 ### How to tell if you're done
 
-The completion test (run this self-check before sending any response that includes "complete" or "done" or "ready"):
+The completion test (run this self-check before sending any response that includes "complete" or "done" or "ready" or any question to the user):
 
 > **Did my most recent message contain 4 (or 3 with `--skip-c`) deployment URLs in `<https://...>` markdown autolink format, AND a metrics table?**
 >
 > If NO → you are not done. There is more pipeline to run. Resume from wherever you stopped — figure out which stage you completed last, then start the next stage. Do NOT send the response.
 >
 > If YES → you are done. Send the response.
+
+**Critical follow-on rule — if NO, you DO NOT ask the user what to do:**
+
+The "if NO" branch's instruction is "resume", NOT "ask the user how to resume." Even if you have a question, even if the situation feels unusual, even if you'd like the user's input — the contract says: figure out which stage you finished last, then run the next stage. Do not type a question. Do not type a 3-option menu. Do not type "If no reply, I'll default to X."
+
+If you're in the NO branch and your draft response contains a "?", the response is wrong. Erase it, run the next stage, then re-evaluate.
 
 ### What to do if a stage genuinely fails (not "I want to ask permission")
 
