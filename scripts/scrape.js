@@ -137,11 +137,15 @@ async function scrape(startUrl) {
           }
         });
 
-        // Extract video embeds
+        // Extract video embeds. Coverage extended 2026-05-05 to include
+        // Brightcove / JW Player / Vidyard / Wistia / Loom alongside the
+        // original YouTube + Vimeo. The 4-variant classifier
+        // (scripts/inspect-splash.cjs) handles these post-scrape.
         const videos = [];
+        const KNOWN_VIDEO_HOSTS = /(youtube\.com|youtu\.be|youtube-nocookie\.com|vimeo\.com|brightcove\.net|bcove\.video|jwplayer\.com|jwpcdn\.com|vidyard\.com|wistia\.com|wistia\.net|fast\.wistia|loom\.com)/i;
         document.querySelectorAll('iframe').forEach(iframe => {
           const src = iframe.src || '';
-          if (src.includes('youtube.com') || src.includes('youtu.be') || src.includes('vimeo.com')) {
+          if (KNOWN_VIDEO_HOSTS.test(src)) {
             videos.push({ src, width: iframe.width, height: iframe.height });
           }
         });
@@ -149,6 +153,36 @@ async function scrape(startUrl) {
           const src = video.src || video.querySelector('source')?.src || '';
           if (src) videos.push({ src, type: 'native' });
         });
+
+        // Extract Watch-Video CTA links — `<a>` whose visible text or
+        // aria-label matches video vocabulary AND whose href points to a
+        // splash page (NOT to a YouTube/Vimeo URL — those would be
+        // handled as direct embeds elsewhere). Common pattern on Hibu /
+        // Wix / Squarespace sites where the customer's actual video is
+        // on a /watch-video.html splash page or behind a popup.
+        // The 4-variant classifier (scripts/inspect-splash.cjs) probes
+        // the splash URL post-scrape and classifies it.
+        let videoCta = null;
+        const VIDEO_CTA_TEXT_RE = /(watch\s+(?:our|the)?\s*video|see\s+(?:our|the)?\s*video|play\s+(?:our|the)?\s*video|view\s+(?:our|the)?\s*video|click\s+to\s+watch|watch\s+now)/i;
+        for (const a of document.querySelectorAll('a[href]')) {
+          const text = (a.innerText || a.textContent || '').trim();
+          const aria = (a.getAttribute('aria-label') || '').trim();
+          const title = (a.getAttribute('title') || '').trim();
+          const haystack = `${text}\n${aria}\n${title}`;
+          if (!VIDEO_CTA_TEXT_RE.test(haystack)) continue;
+          const href = a.href || '';
+          if (!href || href === window.location.href) continue;
+          // Skip CTAs that link directly to a known video host — those
+          // are already captured as iframe-eligible in `videos[]`.
+          if (KNOWN_VIDEO_HOSTS.test(href)) continue;
+          // Take the FIRST CTA on the page — most pages have at most one.
+          videoCta = {
+            href,
+            text: text.slice(0, 80),
+            ariaLabel: aria || null,
+          };
+          break;
+        }
 
         // Extract forms
         const forms = Array.from(document.querySelectorAll('form')).map(form => ({
@@ -229,6 +263,7 @@ async function scrape(startUrl) {
           images,
           bgImages,
           videos,
+          videoCta,
           forms,
           navigation: { items: navItems },
           footer: {
@@ -438,6 +473,7 @@ async function scrape(startUrl) {
         images: downloadedImages,
         backgroundImages: downloadedBgImages,
         videos: pageData.videos,
+        videoCta: pageData.videoCta || null,
         forms: pageData.forms,
         favicons: pageData.favicons || [],
         // BUGFIX 2026-04-25: previously navigation/footer/meta were captured

@@ -111,3 +111,36 @@ If the customer's site has an unusually high chrome ratio (e.g. >70% chrome — 
 4. If portfolio sections genuinely lack enough real photos, OMIT the section (don't fabricate) and flag in `feedback.md`
 
 Stock-photo substitution is allowed ONLY for Option C per the OPTION C IMAGE-QUALITY ESCAPE HATCH — never for A or B.
+
+#### Stage 1e: Classify video CTAs (MANDATORY when manifest contains video-CTA links)
+
+If the scraper captured any `manifest.pages[*].videoCta.href` (added by scrape.js 2026-05-05 — looks for `<a>` whose text matches /watch|play|view/.*video/i and whose href is NOT a known video-host URL) OR any `manifest.pages[*].videos[*].src` from `<iframe>` / `<video>` tags, classify each into one of 4 preservation variants:
+
+```bash
+DOMAIN=$(echo "{{url}}" | sed 's|https\?://||; s|www\.||; s|/.*||')
+node scripts/inspect-splash.cjs --domain $DOMAIN
+```
+
+The script uses Playwright headless to load each video URL, inspects the DOM for native `<video>` elements / known-platform `<iframe>` / placeholder copy, and writes:
+
+- **Updated manifest.json** with `_variant: 'A' | 'B' | 'C' | 'D'` on every videoCta + page.videos[] entry
+- **video-classification.json** summary report
+
+If `--domain` mode finds no video URLs, it exits 0 cleanly with `"No video CTAs found"` — Stage 1e silently no-ops on customers without videos (most sites).
+
+##### Variant table
+
+| Variant | What it is | Build-time action |
+|---|---|---|
+| **A** | Direct MP4/WebM/MOV in a `<video>` source | `transcode-video.cjs <src> jobs/{domain}/option-X/public/videos/<slug>.mp4` per option, then render an inline self-hosted `<video>` (Variant A pattern in `templates/REQUIRED-PATTERNS.md` section 8.2) |
+| **B** | HLS stream (`.m3u8`) in a `<video>` source | Same `transcode-video.cjs` (ffmpeg reads .m3u8 directly via HTTP demuxer, remuxes to MP4). Self-host. |
+| **C** | Known-platform `<iframe>` (YouTube/Vimeo/Brightcove/JW/Vidyard/Wistia/Loom) | Re-embed cleanly with aspect-ratio wrapper + lazy load (Variant C pattern in REQUIRED-PATTERNS.md section 8.4). NO transcode. |
+| **D** | Hibu/Wix/template placeholder (no real video on splash page) | Drop the CTA entirely. Replace with phone CTA / image gallery / before-after carousel / testimonial card. |
+
+##### ffmpeg as soft dependency
+
+`transcode-video.cjs` checks for `ffmpeg` on PATH. Absent → script warns and exits 0 (graceful degradation). Build falls back to rendering an `<a href={original}>` link to the original splash URL — better than dropping a real video, worse than self-hosting. Operator can install ffmpeg later (`brew install ffmpeg` / `apt install ffmpeg`) and re-run Stage 1e + the affected per-page workers.
+
+##### Skip-if-no-videos
+
+If `--domain` mode reports 0 video URLs, Stage 1e is a no-op for this build. Skip directly to Stage 2.

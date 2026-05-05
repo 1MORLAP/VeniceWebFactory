@@ -325,15 +325,75 @@ This semantic discipline matters because the `testimonial-tampering` check treat
 
 ---
 
-## 8. Video CTAs (VIDEO CTA RULE)
+## 8. Video CTAs (VIDEO PRESERVATION RULE)
 
 ### 8.1 Never fabricate
 
-**Structural rule**: never render a "Watch Video" / "Play Video" / play-button-icon CTA unless a real video URL exists in the manifest (YouTube/Vimeo/MP4 embed). If the original site's CTA pointed to a Hibu/CMS splash placeholder, drop the CTA entirely (replace with phone CTA or other functional element).
+**Structural rule**: never render a "Watch Video" / "Play Video" / play-button-icon CTA unless a real video URL exists in the manifest. The 4-variant classifier (`scripts/inspect-splash.cjs`, runs at Stage 1e) has tagged each video CTA's classification on `manifest.pages[*].videoCta._variant` ∈ {A, B, C, D}. The build MUST react per the variant table below. If the variant is D (Hibu/Wix/template placeholder with no real video), drop the CTA entirely — replace with phone CTA / image gallery / before-after carousel.
 
-**Visual freedom**: when video IS real, CTA styling, embed treatment, thumbnail, autoplay/muted policy. When video ISN'T real, what replaces the section.
+**Visual freedom**: CTA styling, embed treatment, thumbnail, autoplay/muted policy. The four reference renderings below are mandatory shapes; visual styling within them is the worker's call.
 
-**qa-check enforcement**: `video-cta-fake` (FAIL — anchor has play-button icon AND href is internal/non-video), `video-cta-no-link` (FAIL — visible "Watch Video" text anchor with non-video href), `fake-play-button` (FAIL — play-button graphic inside anchor with non-video href).
+### 8.2 Variant A — direct MP4 (self-hosted)
+
+Manifest: `videoCta._variant === 'A'`. The orchestrator has called `transcode-video.cjs <src> jobs/{domain}/option-X/public/videos/<slug>.mp4` so the file is local. Render:
+
+```astro
+<div class="video-wrapper" style="aspect-ratio: 16/9; max-width: 100%;">
+  <video
+    src="/videos/{slug}.mp4"
+    controls
+    playsinline
+    preload="metadata"
+    poster="/images/{poster-slug}.jpg"
+    style="width: 100%; height: 100%; object-fit: cover;"
+  />
+</div>
+```
+
+`playsinline` is mandatory (iOS Safari fullscreen-takeover bug otherwise). `controls` is mandatory (silent autoplay-only video has accessibility issues). `preload="metadata"` (NOT `auto` — full preload kills mobile bandwidth).
+
+### 8.3 Variant B — HLS stream (transcoded to MP4)
+
+Manifest: `videoCta._variant === 'B'`. Same shape as Variant A — `transcode-video.cjs` already remuxed the .m3u8 to MP4. Render the same `<video>` element. If transcode failed (DRM, ffmpeg absent), fall back to a static `<a href="{original-splash-url}" target="_blank">Watch on the original site →</a>` link.
+
+### 8.4 Variant C — third-party iframe (re-embed)
+
+Manifest: `videoCta._variant === 'C'`, `videoCta._platform === 'youtube'|'vimeo'|'brightcove'|'jwplayer'|'vidyard'|'wistia'|'loom'`. Render with aspect-ratio wrapper + lazy load:
+
+```astro
+<div class="video-wrapper" style="aspect-ratio: 16/9; max-width: 100%;">
+  <iframe
+    src={videoCta._mediaSrc}
+    title="Video — {customer business name}"
+    loading="lazy"
+    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+    allowfullscreen
+    style="width: 100%; height: 100%; border: 0;"
+  />
+</div>
+```
+
+The `aspect-ratio: 16/9` (or `padding-bottom: 56.25%` fallback for older browsers) is mandatory — bare iframes break responsive layouts. `loading="lazy"` saves bandwidth on pages where the video is below the fold.
+
+### 8.5 Variant D — placeholder (drop the CTA)
+
+Manifest: `videoCta._variant === 'D'`. The customer has no real video. Drop the section entirely. Replace with:
+1. **Phone CTA** if the customer has a phone number — `<a href="tel:..." class="btn-primary">Call (555) 123-4567</a>` is functional and points somewhere useful.
+2. **Image gallery** if the customer has ≥ 6 work-photos in the manifest — repurpose the visual real estate for actual work.
+3. **Before/after carousel** if the customer has paired before-after photos — relevant for trades, auto body, landscaping.
+4. **Testimonial card** if the customer has good reviews in the manifest.
+
+NEVER substitute a stock video, NEVER point the original CTA href to `/about`/`/contact`/`#`, NEVER render the original CTA with the original href if that href is to a Hibu splash page (variant D by definition).
+
+**Visual freedom**: which replacement element you pick + how you style it.
+
+**qa-check enforcement**:
+- `video-cta-fake` (FAIL — anchor has play-button icon AND href is internal/non-video)
+- `video-cta-no-link` (FAIL — visible "Watch Video" text anchor with non-video href)
+- `fake-play-button` (FAIL — play-button graphic inside anchor with non-video href)
+- `video-missing-playsinline` (FAIL — `<video>` without `playsinline` attribute — iOS bug)
+- `video-too-large-mobile` (FAIL — self-hosted `<video>` source > 10 MB without mobile variant)
+- `video-iframe-no-aspect` (FAIL — variant-C `<iframe>` without aspect-ratio wrapper)
 
 ---
 
@@ -587,5 +647,8 @@ Spanish was originally proposed as the default for B and C — every initial bui
 | `unicode-escapes` | (general — no `\uXXXX` literal in DOM) |
 | `video-cta-fake` | 8.1 Never fabricate video |
 | `video-cta-no-link` | 8.1 Never fabricate video |
+| `video-missing-playsinline` | 8.2 Variant A render (also 8.3) |
+| `video-too-large-mobile` | 8.2 Variant A render (also 8.3) |
+| `video-iframe-no-aspect` | 8.4 Variant C render |
 
 If you satisfy every numbered pattern in this document, qa-check will pass. The visual treatment is yours.

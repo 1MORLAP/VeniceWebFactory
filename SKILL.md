@@ -997,7 +997,7 @@ Stage 1 (Scrape) → Stage 1b (Fix logo) → Stage 2 (Design Brief)
 
 > **Detail**: see `skill-stages/stage-1.md` (extracted 2026-05-04 as Tier 1a of the context-optimization plan).
 >
-> Run `scripts/scrape.js` (Playwright crawl), then `scripts/fix-logo.js` (1b — recovers high-res logo variants from WordPress favicon-crops), then `scripts/detect-placeholders.cjs` (1c — tags template-default placeholder content from Hibu/Wix/Squarespace/GoDaddy etc. with `_placeholder` so downstream stages drop or substitute), then `scripts/classify-images.cjs` (1d — tags every image with `_class: 'content' | 'nav-button' | 'banner' | 'line' | 'spacer' | 'tracking' | 'tiny' | 'icon'` so Stage 2/2.5 image-pool generation can filter chrome from portfolio slots — see PORTFOLIO INTEGRITY RULE). Output: `jobs/{domain}/manifest.json` + `assets/img/` + `assets/screenshots/` + `placeholder-report.json` + `image-classification.json`.
+> Run `scripts/scrape.js` (Playwright crawl), then `scripts/fix-logo.js` (1b — recovers high-res logo variants from WordPress favicon-crops), then `scripts/detect-placeholders.cjs` (1c — tags template-default placeholder content from Hibu/Wix/Squarespace/GoDaddy etc. with `_placeholder` so downstream stages drop or substitute), then `scripts/classify-images.cjs` (1d — tags every image with `_class: 'content' | 'nav-button' | 'banner' | 'line' | 'spacer' | 'tracking' | 'tiny' | 'icon'` so Stage 2/2.5 image-pool generation can filter chrome from portfolio slots — see PORTFOLIO INTEGRITY RULE), then `scripts/inspect-splash.cjs --domain $DOMAIN` (1e — classifies every video CTA URL into 4 preservation variants A/B/C/D — see VIDEO PRESERVATION RULE; silently no-ops when manifest has no video CTAs). Output: `jobs/{domain}/manifest.json` + `assets/img/` + `assets/screenshots/` + `placeholder-report.json` + `image-classification.json` + `video-classification.json` (when applicable).
 >
 > **Inputs**: customer URL.
 > **Outputs**: enriched `manifest.json` (with logo metadata + per-element `_placeholder` tags + per-image `_class` tags), downloaded images (both `<img>` and CSS `background-image`), full-page screenshots per page, `image-classification.json` summary report.
@@ -1324,48 +1324,48 @@ This catches both bug variants we shipped: no-overlay AND insufficient-contrast-
 
 ---
 
-#### VIDEO CTA RULE (strict, all options — NEVER FABRICATE A "WATCH VIDEO" BUTTON)
+#### VIDEO PRESERVATION RULE (strict, all options — preserve real videos, drop only placeholders)
 
-Real bug shipped (2026-04-25 — morettiscentryautobody.com): the build rendered a "Watch Video" CTA button on the homepage and on the auto-body-repair page. The buttons linked to `/about` and `/contact` respectively (random pages, no video). The customer's original Hibu site had a `/hibu-video-splash` page in the manifest, which sounds like a video — but that page is a Hibu *template placeholder* containing only social share buttons, not an actual video. The worker session saw the page name, assumed a video existed, and fabricated CTAs that point nowhere useful.
+Replaces the prior **VIDEO CTA RULE** (2026-04-25, "drop if not a real video") with a richer policy that ALSO preserves the customer's actual videos when they exist. The drop-on-fabrication clause is preserved verbatim — never invent a video the customer didn't have. What's NEW is the four-variant classifier that lets the build self-host or re-embed real videos.
 
-**The principle**: a "Watch Video" / "Play Video" / "View Demo" / "See Our Work" video CTA may only exist if a real, embeddable video URL exists in the scraped manifest. If no real video was scraped, the CTA must not be created. There is no acceptable substitute — pointing a video CTA to `/about`, `/contact`, the homepage, or any non-video page is a bug.
+##### The four variants
 
-##### Detecting "real video" in the manifest
+Every video CTA URL is classified via `scripts/inspect-splash.cjs` (Stage 1e, post-scrape) into one of four buckets. The classifier reads `manifest.pages[*].videoCta.href` (added by scrape.js 2026-05-05) and walks `manifest.pages[*].videos[*].src` for native `<video>` and known-platform iframes.
 
-A real video means ONE of the following appears in the manifest, in `assets/html/*.json`, or in raw scraped HTML:
+| Variant | What it is | Build-time action |
+|---|---|---|
+| **A** | Direct MP4 / WebM / MOV (native `<video>` source ending in `.mp4`/`.webm`/`.mov`) | Run `scripts/transcode-video.cjs <src> public/videos/<slug>.mp4` to download + transcode to mobile-optimized H.264 (libx264, CRF 23, max 1280×720, AAC 128k mono, faststart). Self-host. Render an inline `<video controls playsinline preload="metadata" poster="...">`. |
+| **B** | HLS stream (source ends in `.m3u8`) | Same `transcode-video.cjs` — ffmpeg can read .m3u8 directly via the HTTP demuxer, remuxes to MP4. Self-host the result. Falls back to variant D if the source is DRM-protected and ffmpeg can't read it. |
+| **C** | Third-party iframe from a known platform (YouTube / Vimeo / Brightcove / JW Player / Vidyard / Wistia / Loom) | Re-embed cleanly via the platform's official embed URL with proper aspect-ratio wrapper (CSS `aspect-ratio: 16/9` or `padding-bottom: 56.25%`) + `loading="lazy"` + `allowfullscreen`. NO transcode — let the platform serve. |
+| **D** | Hibu / Wix / template placeholder (splash page that LOOKS like a video CTA but has no `<video>` or known-platform `<iframe>`) | DROP the CTA entirely per the original VIDEO CTA RULE. Replace the section with image gallery / testimonial / contact CTA / before-after carousel. NEVER point the CTA to `/about`, `/contact`, `#`, or any non-video page. |
 
-- A `<iframe>` whose `src` matches: `youtube.com/embed/`, `youtu.be/`, `youtube-nocookie.com/embed/`, `player.vimeo.com/video/`, `wistia.com/embed`, `loom.com/embed`, `fast.wistia.com`, `vidyard.com/embed`
-- An `<a href>` pointing to: `youtube.com/watch?v=`, `youtu.be/`, `vimeo.com/<id>`, a `.mp4` / `.webm` / `.mov` file URL
-- A `<video src=...>` element with a `.mp4` / `.webm` / `.mov` source
-- A scraped JSON-LD VideoObject
+##### Pipeline integration
 
-If none of those exist for a customer, **the customer has no embeddable video**. Period. Don't create a video CTA.
+Stage 1e (`inspect-splash.cjs`, runs after Stage 1d classify-images) writes `manifest.pages[*].videoCta._variant` AND emits `jobs/{domain}/video-classification.json` (summary report mirroring `image-classification.json`).
 
-##### Allowed responses when no real video exists
+Stage 3/5/7d sub-agents read `videoCta._variant` for each page and render the corresponding pattern from `templates/REQUIRED-PATTERNS.md` (`Video.astro` section). For variants A/B the orchestrator calls `transcode-video.cjs` BEFORE dispatching workers — workers reference the local file at `public/videos/<slug>.mp4`.
 
-1. **Drop the CTA entirely.** Replace the section with a different content block (image gallery, testimonial, services grid, contact CTA) drawn from manifest content.
-2. **Convert to a static "before / after" image carousel** if the customer has multiple work-photos in the manifest — relevant for trades, auto body, landscaping. Same visual real estate, real content.
-3. **Replace with a primary CTA** (Call now, Get a quote, Visit us). Functional, points somewhere useful.
+##### ffmpeg as soft dependency
 
-##### Forbidden responses
+`transcode-video.cjs` checks for `ffmpeg` on PATH. If absent: warns once, exits 0 (graceful degradation), and the build falls back to rendering an `<a href>` link to the original splash URL — better than dropping a real customer video, worse than self-hosted playback. Operator can install ffmpeg later (`brew install ffmpeg` / `apt install ffmpeg`) and re-run Stage 1e + the relevant per-page sub-agents to get full self-hosting.
+
+##### Forbidden responses (carried over from VIDEO CTA RULE)
 
 - ❌ "Watch Video" button linking to a non-video page (`/about`, `/contact`, `/`, `#`, `javascript:`)
 - ❌ Inventing a YouTube embed with a placeholder ID (`youtube.com/embed/dQw4w9WgXcQ` or any other guessed video ID)
-- ❌ Linking to the customer's `/video-splash` page when that page itself contains no actual video (Hibu placeholder pattern)
+- ❌ Linking to the customer's `/video-splash` page when that page itself contains no actual video (Hibu placeholder pattern — variant D)
 - ❌ Inventing a video poster/thumbnail with a play-button overlay that goes nowhere
+- ❌ Substituting a stock video for a missing one (faithful-rebuild contract for A/B; only OPTION C IMAGE-QUALITY ESCAPE HATCH allows substitution and even there, video substitution is NOT permitted — too easy to drift into "this isn't even the same business")
 
-##### QA gate enforcement (NEW in qa-check.js)
+##### QA gate enforcement (`qa-check.js`)
 
-For every page in the build:
-1. Find all elements containing the visible text "Watch Video" / "Play Video" / "View Video" / "See Video" / "Watch Our Story" / "Watch Demo" (case-insensitive)
-2. For each, walk up to the nearest `<a href>` ancestor (or check the element itself if it's an anchor)
-3. Check the `href`:
-   - If it's a video URL (matches the patterns above) → pass
-   - If it's a `tel:`, `mailto:`, or `#anchor` to a section containing a real video → pass
-   - If it points to ANY other URL (internal page, external site, placeholder) → **FAIL** with: `"'Watch Video' button on {page} points to {href} which is not a video resource. Either wire a real video embed (YouTube/Vimeo/MP4) OR drop the CTA entirely (see VIDEO CTA RULE in SKILL.md)."`
-4. Also fail if a play-button-styled element (icon `▶`, `play_arrow`, SVG with `M8 5v14l11-7z`-style polygon path) sits inside an `<a>` whose href is not a video resource — catches the "fake play button" pattern.
+The original `video-cta-fabrication` rule (was: any "Watch Video" button must point at a video URL) is preserved. THREE NEW rules added 2026-05-05:
 
-This rule applies pipeline-wide (A, B, C). One real bug, one structural fix.
+- **`video-missing-playsinline`** — every rendered `<video>` element must have `playsinline` attribute (iOS Safari fullscreen-takeover bug otherwise) AND `controls` (silent autoplay-only video has accessibility issues).
+- **`video-too-large-mobile`** — every self-hosted `<video>` source must be ≤ 10 MB OR have a `<source media="(max-width: 480px)">` mobile variant. Mobile-first contract.
+- **`video-iframe-no-aspect`** — every variant-C `<iframe>` must be wrapped in an aspect-ratio container (CSS `aspect-ratio` OR `padding-bottom: 56.25%` pattern). Bare iframes break responsive layouts.
+
+This rule applies pipeline-wide (A, B, C). The CTA-fabrication-on-Hibu-sites bug + the all-or-nothing-drop-of-real-videos policy are both fixed by the same architectural shift.
 
 ---
 

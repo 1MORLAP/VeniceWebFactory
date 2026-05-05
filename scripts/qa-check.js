@@ -1555,6 +1555,73 @@ function rgbToHexFromComputed(rgb) {
       }
       // ---- end video CTA audit ----
 
+      // ---- VIDEO PRESERVATION RULE — three new checks (added 2026-05-05) ----
+      // These verify the rendered output of variants A/B/C from the
+      // VIDEO PRESERVATION RULE. They run on every page in the build.
+      //
+      // Required attributes per the Video.astro pattern in REQUIRED-PATTERNS.md:
+      //   - <video>: must have `playsinline` AND `controls`
+      //   - <video>: source ≤ 10 MB OR has a <source media="(max-width: 480px)"> mobile variant
+      //   - <iframe> from known video host: must be wrapped in aspect-ratio container
+      const VIDEO_PLATFORM_RE = /(youtube|youtu\.be|youtube-nocookie|vimeo|brightcove|jwplayer|jwpcdn|vidyard|wistia|loom)/i;
+      // Check every <video> element.
+      for (const v of document.querySelectorAll('video')) {
+        const hasPlaysinline = v.hasAttribute('playsinline') || v.hasAttribute('webkit-playsinline');
+        if (!hasPlaysinline) {
+          report.issues.push({
+            severity: 'fail',
+            check: 'video-missing-playsinline',
+            msg: `<video> on this page lacks the \`playsinline\` attribute. iOS Safari forces fullscreen takeover otherwise — broken UX on iPhone. Add \`playsinline\` to every <video> per VIDEO PRESERVATION RULE Variant A/B render.`,
+          });
+        }
+        // Mobile-too-large check: when a <video> has no mobile-media <source>,
+        // the same source plays on all viewports. Browsers can't tell us the
+        // source byte size from this side; we check for the existence of a
+        // mobile-tagged <source> as the Variant A/B contract — if there's
+        // only one source AND it's > 10 MB the source URL itself is the
+        // signal. We can't fetch HEAD here. Best-effort: warn when there's
+        // a single source AND no `media="(max-width:480px)"` source.
+        const sources = Array.from(v.querySelectorAll('source'));
+        const hasMobileVariant = sources.some(s => /max-width:\s*\d{3}px/i.test(s.getAttribute('media') || ''));
+        if (sources.length === 1 && !hasMobileVariant) {
+          report.issues.push({
+            severity: 'warn',
+            check: 'video-too-large-mobile',
+            msg: `<video> has a single <source> with no mobile-tagged variant. If the source > 10 MB, mobile users will exhaust bandwidth. Add a <source media="(max-width: 480px)" src="..."> with a smaller transcode, OR keep the single source ≤ 10 MB. See VIDEO PRESERVATION RULE.`,
+          });
+        }
+      }
+      // Check every video-host <iframe>.
+      for (const f of document.querySelectorAll('iframe')) {
+        const src = f.src || '';
+        if (!VIDEO_PLATFORM_RE.test(src)) continue;
+        // Walk up to ~3 ancestors looking for an aspect-ratio container.
+        let cursor = f.parentElement;
+        let hops = 0;
+        let hasAspect = false;
+        while (cursor && hops < 4) {
+          const cs = window.getComputedStyle(cursor);
+          // CSS `aspect-ratio: X/Y` (modern) — reads as `X / Y` from getComputedStyle
+          if (cs.aspectRatio && cs.aspectRatio !== 'auto' && cs.aspectRatio !== 'auto / auto') {
+            hasAspect = true;
+            break;
+          }
+          // padding-bottom hack (older pattern): parent has padding-bottom in % units
+          const pb = cs.paddingBottom || '';
+          if (pb.endsWith('%') && parseFloat(pb) > 30) { hasAspect = true; break; }
+          cursor = cursor.parentElement;
+          hops++;
+        }
+        if (!hasAspect) {
+          report.issues.push({
+            severity: 'fail',
+            check: 'video-iframe-no-aspect',
+            msg: `Video-platform <iframe src="${src.slice(0, 80)}"> is NOT wrapped in an aspect-ratio container. Bare iframes break responsive layouts. Wrap with \`<div style="aspect-ratio: 16/9; max-width: 100%">\` (or padding-bottom: 56.25% fallback) per VIDEO PRESERVATION RULE Variant C render.`,
+          });
+        }
+      }
+      // ---- end VIDEO PRESERVATION RULE checks ----
+
       // ---- Placeholder copy audit (added 2026-04-25 alongside detect-placeholders.cjs) ----
       // Catches CMS-template placeholder strings that should never appear in built pages.
       // Centralized list mirrors scripts/detect-placeholders.cjs PATTERNS.copyText —
