@@ -86,3 +86,95 @@ Before declaring the brief done, verify each of these is filled with INTENTION, 
 - **Brand signature inventory** (NEW — see brand recognizability rule in build): list 1-3 elements from the original site worth preserving (primary brand color, font vibe, hero composition, signature word/tagline). Then mark which ones the build will preserve. If the original is so generic/bad that nothing is worth preserving, say so explicitly with reasoning — silence here is not acceptable.
 
 A weak brief produces a "merely better than original" build. Strong brief = strong A.
+
+#### Stage 2 sub-agent dispatch (Tier 3 of context-optimization, 2026-05-05)
+
+Per Tier 3 of the context-optimization plan, the orchestrator MAY (and by default SHOULD) delegate Stage 2 to an Opus sub-agent so the brief generation's screenshot reads + manifest walk happen off the main session. Tier 1a (skill-stages split) + Tier 1b (smart-resume) + Tier 2 (visual-pass dispatch) shipped 2026-05-04 brought main-session context for a 6-page build from ~600-800K to ~250-350K. Tier 3 takes another ~80-120K off main when the customer has more than 4-5 pages.
+
+Spawn ONE Opus sub-agent via the `Agent` tool — same dispatch shape as Tier 2 visual-pass:
+
+- `subagent_type: 'general-purpose'`
+- `model: 'opus'`
+- Prompt template (substitute `{DOMAIN}`):
+
+```
+## Charter
+
+You are running **Stage 2: Design Brief** for WebFactory build {DOMAIN}. Read /Users/tomasz/WebFactory/skill-stages/stage-2.md FIRST for the full brief structure + DESIGN QUALITY BAR criteria.
+
+## What to read
+
+- jobs/{DOMAIN}/manifest.json — every page, every section, business facts, social/footer
+- jobs/{DOMAIN}/assets/screenshots/*.png — visual reference for the original site
+- jobs/{DOMAIN}/image-classification.json — content-vs-chrome inventory (helps you scope "thin manifest" vs "rich photo coverage" sites)
+- /Users/tomasz/WebFactory/SKILL.md sections referenced from stage-2.md (DESIGN QUALITY BAR, FACT GROUNDING PRINCIPLE, BRAND RECOGNIZABILITY)
+
+## What to write
+
+- jobs/{DOMAIN}/design-brief.json — the full brief, schema per stage-2.md
+- A 1-line acknowledgment back to the orchestrator (~200 tokens summary): industry classification + 3-color palette names + display+text typography pairing + 1 distinctive design move you're committing to. The orchestrator reads ONLY this summary; it does not re-open the brief.
+
+## What you do NOT do
+
+- DO NOT write specs/ — that's Stage 2.5, a separate sub-agent dispatch.
+- DO NOT design any components or layouts. Brief = direction, not implementation.
+- DO NOT spawn further sub-agents. One pass, one design-brief.json file.
+- DO NOT modify manifest.json.
+```
+
+After the sub-agent returns, run the hard gate:
+
+```bash
+node scripts/validate-design-brief.cjs $DOMAIN
+node scripts/log-decision.cjs "$DOMAIN" 2 design-brief-written --detail dispatcher=opus-sub-agent
+```
+
+The gate verifies the brief has the required fields (typography, palette, hero, distinctive-elements, micro-interactions, mobile-first, brand-signature) per the DESIGN QUALITY BAR. Soft no-op if the file is missing — that's a separate failure mode handled by Stage 2.5b's dependency check.
+
+If the orchestrator deliberately runs Stage 2 inline (smaller sites, debugging), pass `--allow-inline` to the gate. Use sparingly.
+
+#### Stage 2.5 sub-agent dispatch (Tier 3 — paired with Stage 2 above)
+
+Same pattern for per-page spec generation. Spawn ONE Opus sub-agent (NOT N parallel — the spec-author needs holistic understanding to produce coherent specs across pages):
+
+- `subagent_type: 'general-purpose'`
+- `model: 'opus'`
+- Prompt template (substitute `{DOMAIN}`):
+
+```
+## Charter
+
+You are running **Stage 2.5: Per-page spec generation** for WebFactory build {DOMAIN}. Read /Users/tomasz/WebFactory/skill-stages/stage-2.md FIRST (covers Stage 2.5 too) and /Users/tomasz/WebFactory/SKILL.md "Stage 2.5: Per-page spec generation" section.
+
+## What to read
+
+- jobs/{DOMAIN}/manifest.json — pages, sections, business facts
+- jobs/{DOMAIN}/design-brief.json — the brief from Stage 2
+- jobs/{DOMAIN}/image-classification.json — to filter portfolio slot images to _class === "content"
+- jobs/{DOMAIN}/video-classification.json (if exists) — to wire variant A/B/C/D into specs
+- /Users/tomasz/WebFactory/templates/REQUIRED-PATTERNS.md — non-negotiable structural patterns
+- /Users/tomasz/WebFactory/templates/inspiration/<directory>/ — chosen inspiration source (the brief named which one)
+
+## What to write
+
+- jobs/{DOMAIN}/specs/_shared.md
+- jobs/{DOMAIN}/specs/_image-pools.json — content-class images ONLY in portfolio/catalog/gallery slots (per PORTFOLIO INTEGRITY RULE)
+- jobs/{DOMAIN}/specs/<page>.md — one per page in the manifest
+- A 3-line summary back to the orchestrator: page count + 1-line confirmation that _image-pools is content-class-filtered + any "What NOT to add" prohibitions added to _shared.md.
+
+## What you do NOT do
+
+- DO NOT build any pages. Stage 3 dispatch handles that.
+- DO NOT spawn further sub-agents. One pass, one specs/ tree.
+- DO NOT skip prohibitions in _shared.md — every spec MUST list the no-fabrication rules from SKILL.md (no numbered eyebrows on non-blog pages, no fabricated claims, no chrome in portfolio, no invented brand graphics, no \\uXXXX escapes, etc.).
+```
+
+After the sub-agent returns, run BOTH hard gates:
+
+```bash
+node scripts/validate-specs.cjs --manifest jobs/$DOMAIN/manifest.json --design-brief jobs/$DOMAIN/design-brief.json --specs jobs/$DOMAIN/specs/
+node scripts/validate-image-pool.cjs $DOMAIN
+node scripts/log-decision.cjs "$DOMAIN" 2.5 specs-written --detail dispatcher=opus-sub-agent --detail specCount=$(ls jobs/$DOMAIN/specs/*.md 2>/dev/null | grep -v '^_' | wc -l | tr -d ' ')
+```
+
+If either gate fails, the orchestrator either re-dispatches the Stage 2.5 sub-agent with the gate's error message as input OR falls back to inline curation. The gates are the safety net.

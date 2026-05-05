@@ -2085,7 +2085,8 @@ Pattern detected: `<Footer[^>]*class="[^"]*\bmt-\d`. Pattern in component CSS: s
 >
 > **Inputs**: manifest.json, screenshots (visual read).
 > **Outputs**: design-brief.json (codifies all DESIGN QUALITY BAR choices). Brief quality determines all downstream worker quality.
-> **Model**: Opus orchestrator (holistic understanding required).
+> **Model**: Opus — orchestrator OR an Opus sub-agent dispatched per Tier 3 of the context-optimization plan (see skill-stages/stage-2.md). Stage 2 + 2.5 both delegate-eligible since 2026-05-05 (~80–120K tokens off main session per build).
+> **Hard gate**: `node scripts/validate-design-brief.cjs $DOMAIN` enforces the DESIGN QUALITY BAR (≥ 70% of 8 checks: business identity, typography pairing, palette ≥ 3 with role/rationale, hero direction ≥ 50 chars, distinctive elements ≥ 2, micro-interactions ≥ 1, mobile-first commitments, brand signature inventory). Pass `--allow-thin` only for genuine 1-page sites. The 2026-05-04 watkinsmonuments build's design brief passes only 4/8 — that thinness was the upstream cause of multiple downstream failures.
 >
 > Continue to Stage 3 — build Option A from the brief.
 ---
