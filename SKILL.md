@@ -327,6 +327,18 @@ node scripts/log-decision.cjs "$DOMAIN" 2.5b validate-specs-pass --detail specCo
 2. Re-run `validate-specs.cjs` until exit 0.
 3. THEN dispatch workers.
 
+#### Stage 2.5c: Auto-image-pool-validation (MANDATORY when `_image-pools.json` exists)
+
+The third hard gate in the chrome-leak defense chain (after Stage 1d classify-images + the orchestrator's filter on `_class === 'content'` when generating `_image-pools.json`). This script verifies the orchestrator did the filter correctly — every image assigned to a portfolio / catalog / gallery slot has `_class === 'content'`.
+
+```bash
+node scripts/validate-image-pool.cjs $DOMAIN
+```
+
+Exit 0 = pool clean (proceed to Stage 3). Exit 2 = chrome leak detected — re-curate `_image-pools.json` with content-class images only. Soft-skip when `_image-pools.json` doesn't exist (qa-check `portfolio-integrity` rule is the post-build safety net).
+
+The script matches portfolio-class slot keys via case-insensitive substring on `productPhotos | gallery | portfolio | catalog | recentWork | ourWork | shopWork | examples | beforeAfter | actualWork | workSamples` (and camelCase variants — `portfolioGrid`, `galleryStrip`, etc.). Non-portfolio slots like `hero`, `aboutPhoto`, `serviceCards`, `iconography` are NOT checked — those have their own curation considerations.
+
 **Validated regression** (2026-04-29):
 - Plumbers (twoirishplumbers): correctly catches all 4 "Free estimates" instances across 4 specs.
 - Bwlocksmith: caught a real spec drift (manifest says "35 years", spec said "30+ years") — minor understatement, but the same class of bug.
