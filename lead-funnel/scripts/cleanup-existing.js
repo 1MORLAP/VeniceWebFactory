@@ -95,6 +95,22 @@ const detectComplexTech = lower => {
   return null;
 };
 
+// Mirror of EXTERNAL_STOREFRONT_DOMAINS in filter.js — sites whose REAL store
+// runs on a separate platform (Sanmar/companycasuals, ssactivewear, Shopify
+// subdomain, etsy, square.site, etc.). Brochure rebuild won't move the needle.
+const EXTERNAL_STOREFRONT_DOMAINS = [
+  'companycasuals.com', 'sanmar.com/promo', 'alphabroder.com',
+  'ssactivewear.com', 'staton.com/store', 'spectorandco.com',
+  'gemline.com', 'logomark.com',
+  '.myshopify.com', 'etsy.com/shop/', 'bigcartel.com',
+  'square.site', 'squareup.com/store', 'ecwid.com/store',
+  'storenvy.com', 'shopfat.com', 'shopify.com/store',
+];
+const detectExternalStorefront = lower => {
+  for (const tok of EXTERNAL_STOREFRONT_DOMAINS) if (lower.includes(tok)) return tok;
+  return null;
+};
+
 function apexDomain(url) {
   if (!url) return null;
   try {
@@ -243,7 +259,7 @@ for (const [apex, leads] of byApex) {
 const stillPassed = listAllLeads().filter(l => l.filter_status === 'passed' && l.website);
 console.log(`\n[cleanup] re-probing ${stillPassed.length} passed leads for complex-tech + size + videos`);
 
-let complexCount = 0, sizeCount = 0, videoCount = 0, htmlMiss = 0;
+let complexCount = 0, sizeCount = 0, videoCount = 0, htmlMiss = 0, storefrontCount = 0;
 for (const lead of stillPassed) {
   try {
     const html = await fetchHtml(lead.website);
@@ -261,11 +277,17 @@ for (const lead of stillPassed) {
     };
 
     const tok = detectComplexTech(lower);
+    const storefront = detectExternalStorefront(lower);
     if (tok) {
       updates.filter_status = 'rejected';
       updates.filter_reason = `complex_integration:${tok.split('.')[0]}`;
       complexCount++;
       console.log(`  · complex_integration:${tok.split('.')[0]}: ${lead.business_name}`);
+    } else if (storefront) {
+      updates.filter_status = 'rejected';
+      updates.filter_reason = `ecommerce_external_storefront:${storefront}`;
+      storefrontCount++;
+      console.log(`  · ecommerce_external_storefront (${storefront}): ${lead.business_name} [${lead.website}]`);
     } else if (linkCount > SITE_SIZE_ANCHOR_LIMIT) {
       updates.filter_status = 'rejected';
       updates.filter_reason = `site_too_big_${linkCount}_links`;
@@ -285,4 +307,4 @@ for (const lead of stillPassed) {
 
 if (sharedBrowser) await sharedBrowser.close().catch(() => {});
 
-console.log(`\n[cleanup] legal_risk=${legalCount} association=${assocCount} blocklist_law=${lawIndustry} gov=${govCount} duplicate_domain=${dupCount} complex_integration=${complexCount} site_too_big=${sizeCount} too_many_videos=${videoCount} html_miss=${htmlMiss}`);
+console.log(`\n[cleanup] legal_risk=${legalCount} association=${assocCount} blocklist_law=${lawIndustry} gov=${govCount} duplicate_domain=${dupCount} complex_integration=${complexCount} ext_storefront=${storefrontCount} site_too_big=${sizeCount} too_many_videos=${videoCount} html_miss=${htmlMiss}`);

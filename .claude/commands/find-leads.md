@@ -162,13 +162,117 @@ Once you've built up a catalog, the safe processing path is:
 #    Pre-flight checks jobs/{domain}/ and self-heals if a build already exists.
 node lead-funnel/scripts/queue-rebuilds.js --top 5 [--dry] [--reset-stuck]
 
-# 2. The script outputs `/webfactory <url>` commands. Run them in series.
+# 2. The script outputs `/webfactory <url>` commands. Launch each (see launch
+#    methods below).
 
 # 3. After each /webfactory finishes, mark the lead:
 node lead-funnel/scripts/mark-rebuilt.js \
   --domain example.com \
   --marketplace-url https://webfactory.market/example
 ```
+
+### Three ways to launch a `/webfactory` build
+
+`/webfactory` runs unattended for ~2-3 hours per site, so we want each build
+to live in its own context. You'll mix and match these depending on what's at
+hand. None is "better" — they trade off observability, parallelism, and how
+much human input each needs.
+
+#### A. Paste into a fresh Claude Code session (manual, classic)
+
+The simplest path. Open a new terminal session (or new Claude Code tab in
+Cursor / iTerm / IDE), paste the slash command, watch it run. Use this when:
+
+- You want to **see live progress** in a UI (stages logged, screenshots, etc.)
+- You're running **2-3 builds and have monitors free** to host them
+- The site is **important enough to babysit** (hero rebuild, customer demo)
+
+```
+/webfactory http://www.example.com/
+```
+
+Pros: full visibility, easy to intervene if something looks off, can use
+Medium tier and get the best design quality. Cons: you're running the
+sessions; they don't survive closing the tab.
+
+#### B. Spawnable task chip (one-click handoff)
+
+Fire `mcp__ccd_session__spawn_task` with the `/webfactory <url>` prompt — a
+chip appears in the user's UI, one click spins it into its own session +
+worktree. Use this when:
+
+- You're **already in a Claude Code session** (e.g. lead-funnel triage) and
+  want to hand a build off without leaving
+- The user is **driving the UI** and prefers per-build isolation (separate
+  worktree per chip = no cross-contamination)
+- You want **the user to decide** when to actually start the build (chips
+  can sit idle, get dismissed, get reordered)
+
+The skill lives at the lead-funnel session's tool surface; just call it:
+
+```
+mcp__ccd_session__spawn_task({
+  title: "Build example.com",
+  tldr:  "Runs /webfactory on example.com — returns 4 Vercel preview URLs.",
+  prompt: "/webfactory http://www.example.com/"
+})
+```
+
+Pros: zero friction for the user, isolated worktree per build, full UI
+feedback when started, parallel-by-default. Cons: requires an active CCD
+session (this MCP server). Build still won't run until the user clicks.
+
+#### C. Background subprocess via `claude -p` (unattended, fire-and-forget)
+
+Spawn `claude -p` as a `nohup` background process from any Bash tool call.
+The build runs headlessly to completion and survives this session ending.
+Use this when:
+
+- You want to **launch a build right now without user interaction**
+- You're **batch-running 20+ builds overnight** — chip approach would flood
+  the UI with chips
+- The current Claude session is **already busy with something else** (e.g.
+  monitoring keep-going-til-1000) and you don't want to block it
+
+```bash
+mkdir -p /Users/tomasz/WebFactory/lead-funnel/reports/webfactory-runs
+LOG=/Users/tomasz/WebFactory/lead-funnel/reports/webfactory-runs/example-$(date +%Y%m%d-%H%M).log
+
+nohup claude -p "/webfactory http://www.example.com/" \
+  --model opus \
+  --permission-mode bypassPermissions \
+  --add-dir /Users/tomasz/WebFactory \
+  > "$LOG" 2>&1 &
+disown
+```
+
+Pros: completely hands-off, scales to many parallel builds, log file per run,
+survives terminal close. Cons: **no streaming progress** — default `-p` mode
+buffers stdout until completion, so the log stays empty for hours. To peek at
+mid-flight progress, watch the filesystem instead:
+
+```bash
+# Stage milestones — files appear as the pipeline advances:
+ls /Users/tomasz/WebFactory/jobs/{domain}/
+#   manifest.json     → Stage 1 (scrape) done
+#   design-brief.json → Stage 2 done
+#   option-a/dist/    → Stage 3 (Build A) done
+#   qa-option-a/      → Stage 4 done
+#   option-b/dist/    → Stage 5 done
+#   option-c/dist/    → Stage 7 done
+#   metrics.json      → Stage 10 (Report) done — pipeline complete
+```
+
+#### Quick decision matrix
+
+| Situation                                 | Pick |
+|-------------------------------------------|------|
+| Hero rebuild, want to watch + intervene   | **A** |
+| 2-5 builds, want each in its own UI tab   | **B** |
+| Lead-funnel session driving the workflow  | **B** |
+| 20+ builds overnight, fully unattended    | **C** |
+| Current session is busy, can't paste      | **C** |
+| User said "spin one up now"               | **C** (default) or **B** (if "in the UI") |
 
 **Idempotency guarantees** (the lead is never picked twice):
 

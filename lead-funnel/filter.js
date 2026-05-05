@@ -447,6 +447,43 @@ function detectEcommerceFromHtml(html) {
   return null;
 }
 
+// White-label / external storefronts the customer's site links OUT to as their
+// "shop" — common with screen printers, promo/apparel, embroidery, taxidermy
+// supply, etc. The brochure site stays small and mailto-friendly, but the
+// REAL business runs on the external store. Rebuilding the brochure doesn't
+// move the needle for them — they need the storefront, not a redesign.
+//
+// Match is substring on the lowercased HTML — if any of these appear ANYWHERE
+// in the page (typically as href), the lead is rejected.
+const EXTERNAL_STOREFRONT_DOMAINS = [
+  // Apparel / promo / embroidery white-label storefronts
+  'companycasuals.com',          // Sanmar — bridgetownimprints leak found this
+  'sanmar.com/promo',
+  'alphabroder.com',
+  'ssactivewear.com',
+  'staton.com/store',
+  'spectorandco.com',
+  'gemline.com',
+  'logomark.com',
+  // Generic ecommerce platforms hosted as separate stores
+  '.myshopify.com',
+  'etsy.com/shop/',
+  'bigcartel.com',
+  'square.site',
+  'squareup.com/store',
+  'ecwid.com/store',
+  'storenvy.com',
+  'shopfat.com',
+  'shopify.com/store',
+];
+
+function detectExternalStorefront(html) {
+  for (const tok of EXTERNAL_STOREFRONT_DOMAINS) {
+    if (html.includes(tok)) return tok;
+  }
+  return null;
+}
+
 // Domains that look like emails in HTML but aren't real contact addresses
 // (analytics, error tracking, CDN, vendor support, etc.).
 const EMAIL_FALSE_POSITIVE_PATTERNS = [
@@ -618,12 +655,13 @@ function analyzeHtml(html, url) {
   const techAge = scoreTechAge(html);
   const reachability = detectReachability(html, lower, url);
   const ecommerce = detectEcommerceFromHtml(lower);
+  const externalStorefront = detectExternalStorefront(lower);
   const chainHtml = detectChainFromHtml(lower);
   const complexTech = detectComplexIntegration(lower);
   const linkCount = countAnchors(html);
   const videoCount = countVideos(html);
   return {
-    lower, techAge, reachability, ecommerce, chainHtml, complexTech,
+    lower, techAge, reachability, ecommerce, externalStorefront, chainHtml, complexTech,
     linkCount, videoCount, html_len: html.length,
   };
 }
@@ -690,6 +728,7 @@ async function probeSite(url) {
   // Always return size signals so we can store them even when probe rejects.
   const size = { link_count: a.linkCount, html_bytes: a.html_len, video_count: a.videoCount };
   if (a.ecommerce) return { ok: false, reason: 'ecommerce', tech_age: a.techAge, reachability: a.reachability, size };
+  if (a.externalStorefront) return { ok: false, reason: `ecommerce_external_storefront:${a.externalStorefront}`, tech_age: a.techAge, reachability: a.reachability, size };
   if (a.chainHtml) return { ok: false, reason: 'multi_location', tech_age: a.techAge, reachability: a.reachability, size };
   if (a.complexTech) return { ok: false, reason: `complex_integration:${a.complexTech.split('.')[0]}`, tech_age: a.techAge, reachability: a.reachability, size };
   if (a.linkCount > SITE_SIZE_ANCHOR_LIMIT) return { ok: false, reason: `site_too_big_${a.linkCount}_links`, tech_age: a.techAge, reachability: a.reachability, size };
