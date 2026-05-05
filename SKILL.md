@@ -844,6 +844,8 @@ Parse the input:
 - If input contains `--full` → **delete `jobs/{domain}/` entirely** (`rm -rf`), then run all stages from scratch. This is a true clean slate — no stale files from prior runs, no risk of mixing old + new artifacts. Run the delete BEFORE Stage 1 (scrape), no confirmation prompt — `--full` is itself the confirmation.
 - If input contains `--skip-c` (or the aliases `--no-c` / `--ab-only`) or the user says "skip option C" / "no C" / "just A and B" → **build A and B only, skip Stage 7 (Build Option C) entirely**, and emit only 3 links in the final report (Original + A + B). See "SKIP-C MODE" callout below for what gets gated. **`--skip-c` and `--option-c` are mutually exclusive** — if both are passed, error and ask the user which they meant. Combine freely with `--full` (a clean rebuild that produces only A + B).
 - **`--decomposed` is now the DEFAULT** (promoted 2026-04-29 after 5 successful real customer builds). The flag is kept as a no-op alias for backwards compat. Decomposed mode = Opus orchestrates, Sonnet sub-agents do per-page builds + copy rewrites in parallel. See the "🔀 EXECUTION MODE" section near the top + the "🔀 DECOMPOSED MODE" callout below for the full architecture. **REQUIRES Opus orchestrator.** Skipping decomposition (escape hatch only): pass `--monolithic` to revert to the single-orchestrator pipeline.
+- If input contains `--cost-tier=<preset>` (added 2026-05-05, Phase D) → set the per-stage model assignment via `node scripts/configure-model.cjs $DOMAIN --cost-tier=<preset>`. Valid presets: `baseline` (default — all Opus where applicable), `balanced` (~30% cost cut), `aggressive` (~45% cost cut), `opus-everywhere` (~3× cost). Build runs in the canonical `jobs/{domain}/` directory. See TIERED MODEL ARCHITECTURE for the per-stage assignment under each preset.
+- If input contains `--ab=<preset>` (added 2026-05-05, Phase D) → A/B variant build. Same as `--cost-tier=<preset>` BUT runs in a SUFFIXED job directory `jobs/{domain}-ab-<preset>/` so the canonical baseline build is preserved. Also SKIPS Stage 10c (storefront registration) so A/B variants don't pollute the storefront DB. The `scripts/run-ab-build.cjs` harness reads multiple variant build dirs and emits side-by-side comparison. **`--ab=<preset>` and `--cost-tier=<preset>` are mutually exclusive** — pick one. **Note**: `--ab-only` (no equals sign) is the legacy alias for `--skip-c` and is unrelated.
 
 ### ⏭️ SKIP-C MODE (set when `--skip-c` / `--no-c` / `--ab-only` is passed)
 
@@ -944,26 +946,69 @@ This is a safe, idempotent cleanup — it only removes `.claude/` directories in
 
 ## Metrics: Initialize Tracking
 
-Run the metrics initializer to create `jobs/{domain}/metrics.json` with domain, URL, model, timestamp, and dynamic port allocation (ports are hashed from the domain to avoid collisions in parallel builds):
+Run the metrics initializer to create `jobs/{domain}/metrics.json` with domain, URL, model, timestamp, and dynamic port allocation (ports are hashed from the domain to avoid collisions in parallel builds).
+
+**Phase D — handle `--ab=<preset>` and `--cost-tier=<preset>` flags BEFORE init-metrics** (added 2026-05-05):
+
+```bash
+# Parse cost-tier and ab-variant flags from input.
+COST_TIER="baseline"
+DOMAIN_SUFFIX=""
+AB_VARIANT=""
+for arg in $@; do
+  case "$arg" in
+    --cost-tier=*) COST_TIER="${arg#--cost-tier=}" ;;
+    --ab=*)
+      AB_VARIANT="${arg#--ab=}"
+      COST_TIER="$AB_VARIANT"
+      DOMAIN_SUFFIX="-ab-$AB_VARIANT"
+      ;;
+  esac
+done
+# Validate (must match a known preset)
+case "$COST_TIER" in
+  baseline|balanced|aggressive|opus-everywhere) ;;
+  *) echo "✗ Unknown cost-tier: $COST_TIER. Valid: baseline | balanced | aggressive | opus-everywhere" >&2; exit 1 ;;
+esac
+# Mutual-exclusion check (if user passed both --ab=X and --cost-tier=Y, that's an error)
+# (the parser above lets --ab override --cost-tier silently; if you want strict,
+# require operator to pass only one — orchestrator's call.)
+```
+
+Then init-metrics with the suffix (so A/B variants land in `jobs/{domain}-ab-<preset>/` instead of clobbering canonical):
 
 ```bash
 cd /Users/tomasz/WebFactory
-node scripts/init-metrics.cjs "{{url}}"
+node scripts/init-metrics.cjs "{{url}}" --suffix="$DOMAIN_SUFFIX"
+# Use scripts/url-to-domain.cjs for portable URL→domain (macOS BSD sed
+# doesn't support `\?` in basic regex — the old `sed` prose breaks here).
+DOMAIN=$(node scripts/url-to-domain.cjs "{{url}}" --suffix="$DOMAIN_SUFFIX")
+node scripts/configure-model.cjs "$DOMAIN" --cost-tier="$COST_TIER"
+node scripts/log-decision.cjs "$DOMAIN" 0 build-started --detail costTier="$COST_TIER" --detail abVariant="${AB_VARIANT:-none}"
 ```
 
 This outputs the allocated ports, e.g.:
 ```
 ✓ Metrics initialized for example.com
-  Ports — A: 38472, B (legacy slot B): 38473, C: 38474, B (current): 38475
+  Ports — A: 38472, B: 38473, C: 38474
 ```
+
+For an A/B variant build, the dir is suffixed:
+```
+✓ Metrics initialized for example.com-ab-balanced (A/B variant: balanced)
+  Ports — A: 22432, B: 22433, C: 22434
+```
+
+The suffixed dir means every downstream script keys off `$DOMAIN` (which now includes the suffix), so all artifacts land in the variant dir consistently. Smart Resume, validate-* gates, audit scripts all work without modification.
 
 **IMPORTANT**: From this point forward, use the allocated ports from `metrics.json` — NOT hardcoded 4321/4322. Read them like this:
 
 ```bash
-DOMAIN=$(echo "{{url}}" | sed 's|https\?://||; s|www\.||; s|/.*||')
 PORT_A=$(node scripts/get-port.cjs "$DOMAIN" a)
 PORT_B=$(node scripts/get-port.cjs "$DOMAIN" b)
 ```
+
+**Note for A/B variants**: Stage 10c (storefront registration) MUST be skipped — A/B variants are local experiments, not customer-facing builds. Stage 10c prose checks `metrics.abVariant` and short-circuits when present.
 
 **After completing each stage**, log the timestamp using the helper script:
 

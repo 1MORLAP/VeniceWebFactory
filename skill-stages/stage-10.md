@@ -69,6 +69,20 @@ Languages: English-only by default (since 2026-04-30 per MULTILINGUAL SUPPORT ru
 
 After the user-facing report is emitted, register the build with the WebFactory storefront at `tomekgroup.com` so the new job appears in the storefront DB and cold-outreach email can pick it up. This MUST run after the report — registering before the report would risk publishing a build that turned out to fail at the report-emit step.
 
+**A/B variant builds SKIP Stage 10c** (added 2026-05-05 with Phase D). A/B variants are local experiments comparing cost-tier presets — they should NEVER appear in the customer-facing storefront. The check:
+
+```bash
+AB_VARIANT=$(node -e 'try { console.log(JSON.parse(require("fs").readFileSync("jobs/'$DOMAIN'/metrics.json","utf8")).abVariant || "") } catch { console.log("") }')
+if [ -n "$AB_VARIANT" ]; then
+  echo "⏭️  Stage 10c skipped — this is A/B variant '$AB_VARIANT', not registering with storefront"
+else
+  cd /Users/tomasz/WebFactory
+  node scripts/register-with-store.mjs --domain "$DOMAIN"
+fi
+```
+
+For canonical (non-A/B) builds, just run:
+
 ```bash
 cd /Users/tomasz/WebFactory
 node scripts/register-with-store.mjs --domain "$DOMAIN"
@@ -121,6 +135,19 @@ If missing from all four tiers, the script soft-fails (logs to feedback.md, does
 #### Stage 10d: Sync the lead-funnel DB (mark-rebuilt — non-fatal)
 
 After storefront registration, sync the lead-funnel DB so the just-built domain is marked `rebuilt` and `lead-funnel/scripts/queue-rebuilds.js` won't re-queue it on the next batch run.
+
+**A/B variant builds SKIP Stage 10d** as well (added 2026-05-05 with Phase D) — the canonical build's mark-rebuilt is what matters for funnel sync; the variant builds are local experiments. The check uses `metrics.canonicalDomain` so the funnel mark targets the original domain, NOT the suffixed variant key:
+
+```bash
+AB_VARIANT=$(node -e 'try { console.log(JSON.parse(require("fs").readFileSync("jobs/'$DOMAIN'/metrics.json","utf8")).abVariant || "") } catch { console.log("") }')
+if [ -n "$AB_VARIANT" ]; then
+  echo "⏭️  Stage 10d skipped — A/B variant '$AB_VARIANT' (canonical build's mark-rebuilt is the source of truth)"
+else
+  node /Users/tomasz/WebFactory/lead-funnel/scripts/mark-rebuilt.js --domain "$DOMAIN"
+fi
+```
+
+For canonical builds:
 
 ```bash
 node /Users/tomasz/WebFactory/lead-funnel/scripts/mark-rebuilt.js --domain "$DOMAIN"

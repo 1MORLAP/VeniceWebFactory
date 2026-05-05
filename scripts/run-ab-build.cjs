@@ -10,14 +10,17 @@
  * READS the artifacts of completed builds run under different presets
  * and emits a side-by-side comparison table.
  *
- * Workflow:
- *   1. Operator runs `/webfactory <url>` once per preset, with a domain
- *      suffix to keep artifacts separate:
- *        /webfactory <url>             → jobs/{domain}/             (cost-tier=baseline)
- *        /webfactory <url> --ab=balanced  → jobs/{domain}-ab-balanced/
- *        /webfactory <url> --ab=aggressive → jobs/{domain}-ab-aggressive/
- *      (the orchestrator interprets --ab flag at Stage 0 and substitutes
- *      both the cost-tier preset AND the job dir suffix.)
+ * Workflow (the --ab flag IS now wired — see SKILL.md Stage 0 prose):
+ *   1. Operator runs `/webfactory <url>` once per preset:
+ *        /webfactory <url>                  → jobs/{domain}/             (cost-tier=baseline, canonical)
+ *        /webfactory <url> --ab=balanced    → jobs/{domain}-ab-balanced/   (cost-tier=balanced)
+ *        /webfactory <url> --ab=aggressive  → jobs/{domain}-ab-aggressive/ (cost-tier=aggressive)
+ *
+ *      The orchestrator at Stage 0 parses --ab=<preset>, sets DOMAIN_SUFFIX
+ *      and COST_TIER, calls init-metrics + configure-model + url-to-domain
+ *      with the suffix. A/B variants automatically skip Stage 10c
+ *      (storefront registration) and Stage 10d (mark-rebuilt) — those are
+ *      canonical-only.
  *
  *   2. Operator runs this harness:
  *        node scripts/run-ab-build.cjs <domain> --variants baseline,balanced,aggressive
@@ -25,10 +28,6 @@
  *   3. Output: markdown report comparing all gate pass rates, qa-check
  *      failure counts, visual-pass verdicts, brief richness, wallclock,
  *      cost — across the variants.
- *
- * The orchestrator's --ab flag wiring is NOT in this script — it lives
- * in Stage 0 prose in SKILL.md. This script just consumes the resulting
- * job directories.
  *
  * Usage:
  *   node scripts/run-ab-build.cjs <base-domain> --variants <comma-list>
