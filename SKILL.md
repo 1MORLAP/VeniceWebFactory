@@ -154,6 +154,52 @@ The script appends one JSON line per call to `jobs/{domain}/orchestration.log`. 
 
 The skill-owner runs `scripts/audit-orchestration.cjs <domain>` to read the log + cross-reference on-disk artifacts and emit a drift report. Drift means "skill said X, log shows Y" — e.g., the spec said decomposed mode but the log shows no sub-agent-dispatched entries (orchestrator went monolithic silently).
 
+**Cost-tracking detail** (added 2026-05-05 alongside Phase C tiered model architecture): every `--detail` block SHOULD include `model=<opus|sonnet|haiku>` (which model ran this stage) and ideally `tokensApprox=<N>` (rough output-token estimate) so `scripts/audit-cost.cjs` can roll up cost-per-stage cost-per-build. The model field is REQUIRED for every dispatch event (sub-agent-dispatched, visual-pass-dispatched, plugin-invoked) so the audit can verify the assignment matched the TIERED MODEL ARCHITECTURE table. The tokensApprox field is opt-in — most orchestrators won't have a live token count, but where a stage post-action returns a measurable artifact (a JSON file's byte size, a screenshot count, a build's HTML byte total), include `--detail tokensApprox=<bytes/4>` as a rough proxy.
+
+**Stage 2 sub-agent / Stage 2.5 sub-agent / Stage 7d-build per-page dispatch** events are added to the table above as new mandatory instrumentation points (added 2026-05-05 alongside Tier 3 sub-agentification + Phase C tiered model docs):
+
+| Stage | Event name | Required details |
+|-------|-----------|------------------|
+| 1e | `videos-classified` | `totalUrls=<n>`, `variantA=<n>`, `variantB=<n>`, `variantC=<n>`, `variantD=<n>` |
+| 2 | `design-brief-written` | `dispatcher=opus-sub-agent\|orchestrator-inline`, `model=opus` |
+| 2 | `validate-design-brief-pass` | `richness=<n>/<total>` |
+| 2.5 | `specs-written` | `dispatcher=opus-sub-agent\|orchestrator-inline`, `model=opus`, `specCount=<n>` |
+| 2.5c | `validate-image-pool-pass` | `mode=clean\|chrome-leak` |
+
+## 🎯 TIERED MODEL ARCHITECTURE (codified 2026-05-05)
+
+The pipeline runs across multiple model tiers. **The default for every stage is documented below — orchestrator and sub-agents follow this assignment unless an explicit `--monolithic` or other override flag changes it.**
+
+| Stage | Sub-stage | Model | Dispatch shape | Why this tier |
+|---|---|---|---|---|
+| 0 | Smart Resume | Opus | orchestrator inline | Decision logic on resume point — needs holistic context |
+| 1 | Scrape + post-scrape | Opus | orchestrator inline | Scripts run deterministically; orchestrator just sequences them |
+| 2 | Design Brief | **Opus** | orchestrator inline OR Opus sub-agent (Tier 3 default since 2026-05-05) | Holistic understanding of customer's industry + visual taste required. Brief quality determines all downstream worker quality |
+| 2.5 | Per-page specs + image-pool | **Opus** | orchestrator inline OR Opus sub-agent (Tier 3) | Specs need cross-page coherence + filter image-pool to content-class only. Bigger sites benefit from sub-agent dispatch |
+| 2.6 | Shared scaffold | Opus | orchestrator inline | Small task; no benefit to delegating |
+| 3 | Build A per-page | **Sonnet** | N parallel Sonnet sub-agents | Mechanical translation of spec → .astro. Spec carries the design judgment |
+| 4b | qa-check.js | (deterministic) | shell command | No model |
+| 4c-bis | Visual Sanity Pass A | **Opus** | Opus sub-agent (Tier 2) | Vision-capability + design taste. Sub-agent for context savings |
+| 4c-tris | Dramatic Improvement Audit | **Opus** | orchestrator inline | Subjective taste call — orchestrator confirms directly before B/C derive |
+| 4e | Fix loop (per-page) | **Sonnet** | Sonnet sub-agent per affected page | Mechanical fix per qa-check report |
+| 4e | Fix loop (shared) | Opus | orchestrator inline | One Opus edit benefits all pages |
+| 5 | Build B per-page | **Sonnet** | N parallel Sonnet sub-agents | Edit-mode rewrite, structure preserved |
+| 6c | Visual Sanity Pass B | **Opus** | Opus sub-agent (Tier 2) | Same shape as 4c-bis |
+| 7d | Frontend Design plugin | **Opus** | orchestrator invokes plugin via Skill tool | Plugin output is the design system |
+| 7d-build | Build C per-page | **Sonnet** | N parallel Sonnet sub-agents | Mechanical rendering of B's text in C's components |
+| 7g | Visual Sanity Pass C | **Opus** | Opus sub-agent (Tier 2) | Same shape as 4c-bis + editorial-drift / control-plane reflex checks |
+| 8a | QA gate | (deterministic) | shell command | No model |
+| 8b | Vercel deploy | (deterministic) | shell command | No model |
+| 9 | Verify | Opus | orchestrator inline | Light HTTP probes |
+| 10 | Report | Opus | orchestrator inline | Final report formatting + storefront registration. Could move to Sonnet sub-agent if main session is full |
+| AL1-6 | Multilingual add-language | **Sonnet** | N parallel Sonnet sub-agents per language | Translation is mechanical |
+
+**Cost-tracking**: every stage's `log-decision.cjs` event SHOULD include `--detail model=<opus\|sonnet\|haiku>` and ideally `--detail tokensApprox=<N>` so `scripts/audit-cost.cjs` can roll up cost-per-build. Without these, audit-orchestration can verify control flow but cannot quantify spend.
+
+**Override**: a build can run any stage on a different tier if the orchestrator has a documented reason (e.g. small 1-page customer where decomposition overhead exceeds parallelism benefit). Document the override in `jobs/{domain}/build-design-decisions.md` AND log via `--detail model=<actual> --detail tier-override=true`.
+
+**What's NOT tiered down**: the orchestrator role itself. Tier 4 of the original context-optimization plan (Sonnet orchestration) is deferred indefinitely. The orchestrator's job is most sensitive to model quality — missing a stage transition or skipping a QA gate compounds across every downstream stage. Stay on Opus.
+
 ## 🔒 SKILL LOCKDOWN — DO NOT MODIFY THE SKILL
 
 **You are running the skill. You may NOT modify the skill itself.** This applies to every session invoked via `/webfactory <url>` or any session whose primary task is building a website. If you are reading this paragraph because the user typed `/webfactory`, the answer to "may I edit this file?" is NO.
