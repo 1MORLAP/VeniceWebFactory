@@ -100,90 +100,55 @@ Also read the QA report for automated findings:
 Read: jobs/{domain}/qa-option-a/report.json
 ```
 
-#### 4c-bis. Visual Sanity Pass (MANDATORY — catches what regex can't)
+#### 4c-bis. Visual Sanity Pass on Option A (delegated to Opus sub-agent — Tier 2 of context-optimization, 2026-05-04)
 
-This is the second QA layer. After the deterministic gate passes and you've done the general review, run an EXPLICIT structured pass through every screenshot with the bug-class checklist below. The model is responsible for catching bugs that don't fit a programmatic pattern.
+This is the second QA layer — the visual judgment pass that catches bugs deterministic regex can't. Per Tier 2 of the context-optimization plan, the Visual Sanity Pass is delegated to an Opus sub-agent so the orchestrator never reads the 12–24 screenshots itself. Operational result: 6-page builds drop main-session context from ~600–800K tokens to ~200–300K, comfortably single-session-completable. Model stays Opus — the work moved off main, the model didn't change.
 
-**The protocol**: for EACH page, EACH viewport (desktop + mobile), open the screenshot via Read tool and answer the checklist questions one by one. If any answer is "yes, that looks wrong," log it as a punch-list item and fix in 4e. Do not skip pages, do not skim — visual bugs cluster on the pages we don't look at carefully.
+**The 18-item checklist + JSON output schema live in `/Users/tomasz/WebFactory/skill-stages/visual-sanity-pass.md`** (single source of truth, shared with Stage 6c and Stage 7g). Read that file once if you want to see what the sub-agent will check; the orchestrator does NOT re-state the checklist here.
 
-**The checklist** (every item is here because it shipped to a user as a bug — these are the bug classes we missed before):
+Spawn ONE Opus sub-agent via the `Agent` tool — same dispatch shape as the Stage 3 Sonnet dispatch, but with `model: "opus"` instead of `"sonnet"`:
 
-1. **Mobile experience (review FIRST, on every page)** — open the mobile screenshot before the desktop one. Mobile is more than half of customer traffic and the most likely place for new bugs. For each mobile screenshot ask: does the hamburger work and reveal a real menu? Does any text or image overflow past the viewport edge? Does the hero photo crop cleanly or is it stretched/cut weirdly? Are tap targets generous enough to actually hit with a thumb? Is body text readable without zooming in? Is the phone CTA visible or one tap away? Does any card or section look broken because it didn't restack properly? **Mobile bugs are not "small" — they are half of the experience.**
+- `subagent_type: 'general-purpose'`
+- `model: 'opus'`
+- Prompt template (substitute `{DOMAIN}` and the peer-build screenshot path):
 
-2. **Active nav state** — on every interior page (about, services, contact), is the current nav item visually distinct AND legible? The previous bug shipped 2026-04-25 (morettiscentryautobody.com): active item rendered as black-on-black because `bg-iron text-bone` resolved to two near-identical dark colors. Look at the highlighted nav item with fresh eyes — can you actually read the text? **Check both desktop AND mobile** — active state may render differently between viewports.
+```
+## Charter
 
-3. **Active state shape** — is the active-state styling (underline, pill, panel, etc.) the right SHAPE for the design? A square black box around an item in an otherwise file-cabinet-tabbed nav is a styling bug even if the contrast is technically fine.
+You are running the **Stage 4c-bis Visual Sanity Pass** on Option A for {DOMAIN}. Read /Users/tomasz/WebFactory/skill-stages/visual-sanity-pass.md FIRST for the full 18-item checklist + JSON output schema + brevity contract.
 
-4. **Image quality and content match** — is each image clearly visible? Right orientation? Is the image relevant to the section it's in (driveway photo on driveway service, NOT a pool photo)? Are images repeated across cards within the same section? Is any hero or content image obviously stretched/pixelated? (qa-check programmatically flags both duplicates and resolution problems; this is your sanity check.)
+## What to read
 
-5. **Card grid consistency** — within a single grid (services, testimonials, FAQs), do all cards have the same height? Same padding? Same icon style? Same heading weight? One CTA-styled card mixed with otherwise-neutral cards is OK; otherwise mixed sizes/styles in a grid is a bug. **Check mobile**: do the cards stack to a single column or break into something weird?
+- jobs/{DOMAIN}/qa-option-a/desktop-*.png — desktop screenshots for every page
+- jobs/{DOMAIN}/qa-option-a/mobile-*.png — mobile screenshots for every page
+- ONE peer-build homepage screenshot for the diversity check (item #18). Path: {PEER_BUILD_PNG} — pick a recent build in the same industry where possible.
 
-6. **Empty / placeholder content** — any card showing "Service title here" / "Lorem ipsum" / "Coming soon"? Any image rendered as a gray box? Any section that looks like the worker started building it and stopped halfway?
+## What to return
 
-7. **Hero section** — does the headline read clearly over the background image? Is there visible overlay/scrim? Does the hero feel intentional and brand-aligned, or does it feel like the photo and text were composed by accident? **On mobile**: is the hero text still legible? Is the photo composition still working when cropped to portrait orientation?
+A JSON object matching the schema in visual-sanity-pass.md (stage="4c-bis", option="a"). Keep your reasoning concise — the orchestrator only sees your final JSON, not your scratch work. ~400 tokens of output is the target.
 
-8. **CTA visibility and intent** — every visible CTA button: is it obviously clickable? Does the copy say what it does? "Watch Video" buttons must wire to a real video (qa-check enforces, but verify visually). "Get a Quote" / "Call Now" should have call-out treatment. **On mobile**: are CTAs at least 44px tall? Is there a sticky bottom-bar CTA for trades sites?
+## What you do NOT do
 
-9. **Typography hierarchy** — H1 obviously bigger than H2 obviously bigger than body? No section where the heading is barely distinguishable from body text? No section where two adjacent headings compete for attention? **On mobile**: does typography scale down sensibly or does H1 still take up the entire viewport?
+- DO NOT touch source code. The orchestrator handles fix-loops based on your JSON.
+- DO NOT run the Dramatic Improvement Audit (Stage 4c-tris) — that stays inline in the orchestrator.
+- DO NOT read the manifest, design-brief, industry-tokens, or .astro source files. Only screenshots + the checklist.
+- DO NOT write build-design-decisions.md. The orchestrator writes that file based on your JSON's summary + diversity-check observations.
+```
 
-10. **Whitespace and spacing rhythm** — sections should breathe. Do any sections feel cramped? Are there awkward whitespace gaps in the middle of a layout? Is footer sticking awkwardly to the last content section? **On mobile**: does spacing shrink proportionally or does the page feel either crushed (no breathing room) or sparse (huge empty gaps)?
+Receive the sub-agent's JSON (it's ~400 tokens). Branch on `verdict`:
+- `pass` → continue to Stage 4c-tris (Dramatic Improvement Audit, still orchestrator-inline below).
+- `fix` → run the Stage 4e fix-loop, scoped to the issues listed in the JSON. Pass the JSON's `issues` array forward as the punch list — no need to re-read screenshots.
+- `rebuild` → escalate (re-spec Option A; rare — design-language-level failures the fix-loop can't reach).
 
-11. **Color combinations that look wrong** — even if WCAG passes, do any color pairings look "off"? Yellow on cream, orange on red, two near-identical greens, etc. The text-contrast scan catches the worst, but borderline ugly combinations are visual judgment calls.
+**Mandatory orchestrator output — `build-design-decisions.md`**: regardless of verdict, after Stage 4c-bis returns AND any fix-loop iterations complete, the orchestrator writes `jobs/{domain}/option-a/build-design-decisions.md` (and analogously for B at Stage 6c, C at Stage 7g) documenting:
+- Which inspiration directories were used (`saas-default`, `industrial-trades`, etc.)
+- Specific design moves drawn from each (with citation — e.g., "took the three-layer hero pattern from saas-default but used a hatched-overlay treatment instead of gradient-orbs")
+- What's intentionally unique to this build vs prior builds (lift this from the sub-agent's JSON `summary` + any item-#18 observations in `issues`)
+- Anything deliberately NOT copied from inspiration and why
 
-12. **Off-canvas or overflowing elements** — anything sticking out past the page edge, anything floating awkwardly because of an absolute-position bug, anything where a card extends past its container?
+This file is the audit trail for the inspiration-only architecture. If two builds ever look identical, the design-decisions logs reveal whether it was lazy copying or genuine brand similarity.
 
-13. **Image-to-section mapping** — does the photo on the "Painting" service look like painting? On "Bricklaying" look like brickwork? (Beyond the duplicate check; this is about semantic match.)
-
-14. **Footer completeness** — every social link from the manifest is present in the footer (qa-check enforces), but visually: do the icons line up? Is there a phone number? Address? Hours? Copyright?
-
-15. **The "would I send this to a customer?" check** — final gut-check. If the customer opened this URL right now, would your instinct be "yes, here's the redesign" or would you wince first? If you wince, list what made you wince and add it to the punch list.
-
-16. **The "$80k smell test" (DESIGN QUALITY BAR)** — the vision says A should look like a top-tier studio charged $80k. Look at the homepage screenshot honestly: could you imagine charging $80k for this? If no, what specifically is missing — typography that looks bespoke, hero treatment that earns the photo, a moment of design ambition, generous whitespace, an unexpected detail? List the gaps:
-    - Are headlines using a display-quality font, not just system Inter?
-    - Does the hero have any supporting design element beyond the photo + headline + button?
-    - Is there at least one section per page that the customer would NOT have built themselves (custom card style, unique heading layout, stat strip, editorial pull-quote)?
-    - Are there any micro-interactions (scroll reveal, hover motion, animated counters)?
-    - Does the color palette feel intentional (3 primary + 2 accent, named roles) or random (six colors, no rationale)?
-
-    If any answer is "no" or "barely," the build is below the bar. Add to the punch list. The deterministic gate's `design-quality-fonts` warning catches the font part programmatically; the rest is your judgment.
-
-17. **Editorial-drift check (Option C ONLY)** — C's whole job is industry-anchored design (industrial / garage / food-led / clinical / architectural per the customer's industry). The plugin's default bias is editorial/magazine, so drift toward "generic Medium article" is the #1 C-specific failure mode. Look at C's homepage screenshot and ask: "If a stranger saw this without knowing the customer, would they guess the industry within 3 seconds?" If the answer is "looks like a Medium article" or "looks like any consultancy" or "looks like a generic editorial site" — C drifted. Specifically check:
-    - Is the customer's scraped imagery used aggressively (hero, service tiles, team, work portfolio) OR did C ship a typographic-only design?
-    - Do the colors signal the industry (workwear navy + hi-vis yellow for trades; warm earth tones for food; cool clinical-warm for medical) OR are they generic neutrals?
-    - Does the typography pairing match the industry (industrial sans + mono for trades; editorial serif for food/legal; clean sans for medical/tech) OR is it the plugin's default Inter + serif headline?
-    - Are industry-appropriate ornaments present (chevrons + bracket numbers for trades; texture overlays for food; thin rules for legal) OR is the page bare typography on white?
-
-    If C drifted, the fix is in `industry-tokens.json` (Stage 7b-bis) — re-derive the tokens more aggressively, then rebuild.
-
-18. **Diversity check (cross-build anti-monoculture, ALL options)** — this exists because of the 2026-04-25 template architecture pivot. The old `templates/astro-base/` had baked-in visual defaults (gradient-orb hero, blue+amber palette, Plus Jakarta Sans + Inter); every build that didn't fully override them inherited the same look. The pivot removed those defaults — `templates/scaffold/` provides only structure now, design is built fresh per customer. **This item is the visual defense against regression.**
-
-    Open THIS build's homepage screenshot. Then load 2–3 recent peer builds in the same industry from disk:
-    ```
-    Read: jobs/{some-other-domain}/qa-option-a/desktop-home.png
-    Read: jobs/{another-domain}/qa-option-a/desktop-home.png
-    ```
-
-    Honest check: does THIS site have a hero treatment, color combination, typography pairing, OR distinctive element that the others don't? If everything feels familiar — same hero composition, same palette, same fonts, same card styling — you regressed to template-y defaults despite the scaffold removing them.
-
-    Specifically inspect:
-    - Hero composition: is the photo treatment / overlay style / supporting design element (bracket number, mono caption, accent rule, etc.) different from the peer builds?
-    - Color palette: are the actual hex values different, OR are you using the same "navy + amber" you used last time?
-    - Typography: is the display font different from the peer builds (or at least different weight/treatment)?
-    - One distinctive element per page: is THIS build's distinctive element different from what the peer builds used?
-
-    If none of those are different → REBUILD with more design ambition. List the differences in your `build-design-decisions.md` (see below).
-
-**Mandatory output of the visual sanity pass — `build-design-decisions.md`**: at the end of Stage 4 (and Stage 6 for B, Stage 7 for C), write `jobs/{domain}/option-{a|b|c}/build-design-decisions.md` documenting:
-- Which inspiration directories you read (`saas-default`, `industrial-trades`, etc.)
-- Specific design moves you drew from each (with citation — e.g., "took the three-layer hero pattern from saas-default but used a hatched-overlay treatment instead of gradient-orbs")
-- What's intentionally unique to this build vs prior builds (the answers from item #18)
-- Anything you deliberately did NOT copy from inspiration and why
-
-This file is the audit trail for the inspiration-only architecture. If you ever see two builds looking identical, the design-decisions logs will reveal whether it was lazy copying or genuine brand similarity.
-
-**Logging the pass**: write the punch list directly into your scratch notes for Stage 4e. Each item should reference (page, viewport, what's wrong, suspected fix). Do NOT mark Stage 4 complete until either the punch list is empty OR every item has been fixed and re-screenshotted, AND `build-design-decisions.md` is written.
-
-**Self-improvement loop**: any bug class you find here that wasn't on the checklist above goes into FEEDBACK.md AND becomes either (a) a new item on this checklist OR (b) a new programmatic check in qa-check.js. The deterministic and visual layers are co-evolving — every shipped bug eventually graduates from "the model has to spot it" to "the gate catches it deterministically."
+**Self-improvement loop**: any bug class the sub-agent surfaces that isn't already on the checklist in `visual-sanity-pass.md` goes into FEEDBACK.md AND becomes either (a) a new item on the checklist OR (b) a new programmatic check in qa-check.js. The deterministic and visual layers are co-evolving — every shipped bug eventually graduates from "the model has to spot it" to "the gate catches it deterministically."
 
 #### 4c-tris. Dramatic Improvement Audit (MANDATORY — A must be obviously better than the original)
 

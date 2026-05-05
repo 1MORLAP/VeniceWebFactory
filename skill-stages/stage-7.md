@@ -355,7 +355,7 @@ Pre-deploy completeness check for Option C against `jobs/$DOMAIN/option-c/dist/`
 - No broken Material Symbols
 - **Option-C-specific**: every page has at least one image reference (Rule 1 enforcement) — English always; every active language's pages too
 
-#### 7h. Visual QA — Headless screenshots + design critique
+#### 7h. Visual QA — Headless screenshots + Visual Sanity Pass (delegated to Opus sub-agent — Tier 2 of context-optimization, 2026-05-04) + plugin critique
 
 Option C gets its own port allocated by `init-metrics.cjs` (`metrics.ports.optionC = portA + 2`). Read it via `get-port.cjs`:
 
@@ -379,9 +379,51 @@ mkdir -p jobs/{domain}/qa-option-c
 node scripts/qa.cjs http://localhost:$PORT_C jobs/{domain}/qa-option-c
 ```
 
-**The Visual Sanity Pass from Stage 4c-bis applies here too — run the full 15-item checklist against `jobs/{domain}/qa-option-c/` screenshots.** C uses a plugin-driven design that's the most likely option to produce novel layouts and novel bugs (the active-nav black-on-black bug shipped on a C-style design). The 15-item checklist is your primary defense against "the plugin made something weird."
+**Visual Sanity Pass on Option C — delegated to an Opus sub-agent.** C uses a plugin-driven design that's the most likely option to produce novel layouts and novel bugs (the active-nav black-on-black bug shipped on a C-style design; the holding-co control-plane-reflex stack of bracket numerals + status pills + grid overlays + terminal cursors shipped 2026-04-29). The 18-item checklist is the primary defense against "the plugin made something weird," and it now runs in a sub-agent so the orchestrator never reads C's 12–24 screenshots itself.
 
-Read screenshots, check for broken images / missing hero backgrounds / generic editorial drift (violations of Rule 1 and Rule 2). Invoke the **`frontend-design` skill** for a second-pass design critique (the plugin already authored the build in Stage 7d; this invocation has it review its own output and propose refinements):
+Per Tier 2 of the context-optimization plan, the Visual Sanity Pass is delegated to an Opus sub-agent. **The 18-item checklist + JSON output schema live in `/Users/tomasz/WebFactory/skill-stages/visual-sanity-pass.md`** (single source of truth, shared with Stage 4c-bis and Stage 6c). C-specific extensions: the **editorial-drift check (item #17)** and the **control-plane reflex check** (mirror-failure-mode for B2B tech / SaaS / fintech / holding-co directions). Both extensions are documented in detail under "Stage 7g (Option C)" inside `visual-sanity-pass.md`.
+
+Spawn ONE Opus sub-agent via the `Agent` tool — same dispatch shape as the Stage 3 Sonnet dispatch, but with `model: "opus"` instead of `"sonnet"`:
+
+- `subagent_type: 'general-purpose'`
+- `model: 'opus'`
+- Prompt template (substitute `{DOMAIN}` and the peer C-build screenshot path):
+
+```
+## Charter
+
+You are running the **Stage 7g/7h Visual Sanity Pass** on Option C for {DOMAIN}. Read /Users/tomasz/WebFactory/skill-stages/visual-sanity-pass.md FIRST for the full 18-item checklist + JSON output schema + brevity contract. Pay particular attention to the "Stage 7g (Option C)" section under "Stage extensions" — it documents the editorial-drift check (item #17) AND the control-plane reflex check (mirror failure mode), both of which apply on every C build.
+
+## What to read
+
+- jobs/{DOMAIN}/qa-option-c/desktop-*.png — desktop screenshots for every page
+- jobs/{DOMAIN}/qa-option-c/mobile-*.png — mobile screenshots for every page
+- ONE peer C-build homepage screenshot in the same industry direction for the diversity check (item #18). Path: {PEER_C_BUILD_PNG} — pick a recent C build with the same industry-tokens direction (e.g., another industrial/trades C build for a plumbing customer).
+
+## What to return
+
+A JSON object matching the schema in visual-sanity-pass.md (stage="7g", option="c"). Keep your reasoning concise — the orchestrator only sees your final JSON, not your scratch work. ~400 tokens of output is the target.
+
+Apply BOTH C-specific extensions on every C build:
+- **Editorial-drift check (item #17 expanded)**: would a stranger guess the industry within 3 seconds, or does this look like a Medium article / generic consultancy / typographic-only design? Flag `severity: "fail"` with `suggested_fix: "apply industry-tokens more aggressively (more workwear vocabulary, hi-vis, chevrons, bracket numerals)"` if drift is detected.
+- **Control-plane reflex check (mirror failure mode)**: does this read as a sophisticated brand site, or as an internal tool / SaaS dashboard / admin console? If the page looks like Vercel deploy panel / Linear ticket queue / Stripe API console rather than a brand site, flag `severity: "fail"` with `suggested_fix: "STRIP dashboardy ornaments (status dots, terminal cursors, bracket numerals, grid overlays) and re-execute with refined-modern minimalism — Stripe / Linear / Vercel / Anthropic.com reference"`.
+
+If BOTH drifts fire simultaneously (rare — editorial layout AND dashboard chrome stacked together), recommend `verdict: "rebuild"` because the design-language is incoherent at the systemic level.
+
+## What you do NOT do
+
+- DO NOT touch source code. The orchestrator handles fix-loops + plugin critique invocation based on your JSON.
+- DO NOT read the manifest, design-brief, industry-tokens.json, or .astro source files. Only screenshots + the checklist.
+- DO NOT invoke the frontend-design plugin for critique — that is the orchestrator's job in the next step (it dispatches the plugin's own critique invocation after receiving your JSON).
+- DO NOT write build-design-decisions.md. The orchestrator writes it after Stage 7h returns.
+```
+
+Receive the sub-agent's JSON (~400 tokens). Branch on `verdict`:
+- `pass` → continue to the plugin critique invocation below (a second design-pass from the plugin to refine the build), then the fix-loop only if the plugin critique surfaces issues.
+- `fix` → run the C fix-loop, scoped to the issues listed in the JSON. If item #17 or the control-plane-reflex check fired, the fix may require revisiting `industry-tokens.json` (Stage 7b-bis) before rebuilding.
+- `rebuild` → escalate (re-run Stage 7d with tighter industry-tokens; either editorial drift across the entire build OR both editorial+control-plane drifts firing simultaneously).
+
+After the sub-agent returns (regardless of verdict), invoke the **`frontend-design` skill** for a second-pass design critique. This is a complement to the sub-agent's structural pass — the plugin reviews its own Stage 7d output through its own design lens and proposes refinements. The orchestrator runs this directly (the plugin is invoked as a Skill, not a sub-agent):
 
 ```
 Skill: frontend-design
@@ -415,7 +457,7 @@ Args (free-form prompt):
   photos. Cite concrete code-level changes.
 ```
 
-Fix any industry-drift or image-drop issues and re-run QA. Repeat until clean.
+Merge the sub-agent's JSON `issues` with the plugin's critique recommendations. Fix any industry-drift / control-plane-drift / image-drop issues and re-run QA. Repeat until clean. After the loop completes, the orchestrator writes `jobs/{domain}/option-c/build-design-decisions.md` lifting design notes from the sub-agent's `summary` + the plugin's critique (same pattern as Stage 4c-bis / 6c).
 
 #### 7i. Stop dev server
 
