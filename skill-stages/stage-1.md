@@ -69,3 +69,40 @@ After this stage, every downstream stage (design brief, build A/B/C, QA) reads `
 | `copy-lorem` | Omit; never ship lorem ipsum |
 | `copy-coming-soon` / `copy-edit-placeholder` | Omit section OR replace with real content from elsewhere in manifest |
 | `phone-fiction` / `email-placeholder` / `address-placeholder` | Flag in final report — customer must provide real contact info |
+
+#### Stage 1d: Classify scraped images (MANDATORY — always run)
+
+After placeholder detection, every image record on every page gets a classification tag distinguishing real **content photos** from **chrome** (nav buttons, banner gradients, separator strips, spacer tiles, tracking pixels, decorative ornament). Without this tag, downstream image-pool generation at Stage 2/2.5 risks assigning chrome images to portfolio/catalog/gallery slots — see PORTFOLIO INTEGRITY RULE in SKILL.md.
+
+```bash
+DOMAIN=$(echo "{{url}}" | sed 's|https\?://||; s|www\.||; s|/.*||')
+node scripts/classify-images.cjs $DOMAIN
+```
+
+The script reads `manifest.json`, walks every `pages[*].images[]` record, applies a deterministic 12-rule heuristic classifier (priority-ordered: tracking-pixel → tiny → CSS-bg-extreme-aspect → spacer → placeholder-vocab → line → banner-aspect → nav-vocab → button-shape-low-entropy → logo-thumb → favicon → content default), and writes:
+
+- **Updated manifest.json** with `_class: 'content' | 'nav-button' | 'banner' | 'line' | 'spacer' | 'tracking' | 'tiny' | 'icon'` on every image record
+- **image-classification.json** with summary counts per class + 30 sample non-content records per class for audit/debug
+
+The classifier prefers false-positive `content` (a chrome image misclassified as content) over false-negative `content` (a real photo misclassified as chrome) — false-positive content is caught by the post-build `portfolio-integrity` qa-check, while false-negative content silently removes legitimate photos from the build.
+
+##### Downstream reactions (every later stage MUST honor this)
+
+| Image `_class` | Allowed in… |
+|----------------|-------------|
+| `content` | hero, gallery, portfolio, catalog, service cards, about-the-crew — anywhere |
+| `icon` | nav, footer, decorative UI surface; NOT portfolio sections |
+| `nav-button`, `banner`, `line`, `spacer`, `tracking`, `tiny` | NOT image-pools; NOT portfolio sections; not rendered AT ALL except in deliberately-framed honest contexts (e.g. "From the original site" colophon footer band, where the worker explicitly frames them as historical artifacts) |
+
+When generating `_image-pools.json` at Stage 2/2.5, filter to `_class === 'content'` for every page's `productPhotos` / `gallery` / `portfolio` / `catalog` slot. The Sonnet sub-agents at Stage 3 / 5 / 7d MUST receive only content-class images for portfolio renders. The `qa-check.js` `portfolio-integrity` rule verifies this post-build and fails any leak.
+
+##### When the classifier is too strict
+
+If the customer's site has an unusually high chrome ratio (e.g. >70% chrome — typically 2009-era table-layout sites with extensive button-graphic navigation), the worker should:
+
+1. Inspect `image-classification.json` — read the sample arrays per class
+2. Identify any false-negative `content` records (real photos classified as chrome) by sampling a few from the report
+3. Manually override `_class` on specific records in `manifest.json` if needed (rare — the classifier is conservative)
+4. If portfolio sections genuinely lack enough real photos, OMIT the section (don't fabricate) and flag in `feedback.md`
+
+Stock-photo substitution is allowed ONLY for Option C per the OPTION C IMAGE-QUALITY ESCAPE HATCH — never for A or B.

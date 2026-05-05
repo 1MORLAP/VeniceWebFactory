@@ -79,7 +79,17 @@ For item #18, the verdict is INVERTED relative to A and C: B's design SHOULD mat
 - DO NOT write build-design-decisions.md. The orchestrator writes it after Stage 6c returns.
 ```
 
-Receive the sub-agent's JSON (~400 tokens). Branch on `verdict`:
+Receive the sub-agent's JSON (~400 tokens). The sub-agent MUST write its full JSON to `jobs/{domain}/qa-option-b/visual-pass-verdict.json` AND return a 1-line acknowledgment to the orchestrator.
+
+Then run the hard gate:
+
+```bash
+node scripts/validate-visual-pass.cjs $DOMAIN b
+```
+
+This is the Stage 6c hard gate (added 2026-05-04, same pattern as Stage 4c-bis). Verifies the verdict JSON exists with valid schema and that the verdict isn't `rebuild`. Pass `--allow-inline` only when the orchestrator deliberately ran the visual pass in main session.
+
+Then branch on `verdict`:
 - `pass` → continue to Stage 7 (or, if `--skip-c`, advance to Stage 8a).
 - `fix` → run the Stage 6 fix-loop (analogous to Stage 4e but for B). Pass the JSON's `issues` array forward as the punch list — no need to re-read screenshots.
 - `rebuild` → escalate (re-run Stage 5 with tighter rewrite directives; rare).

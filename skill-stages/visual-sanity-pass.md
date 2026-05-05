@@ -17,6 +17,7 @@ For the option being checked (A, B, or C):
 3. For Stage 4c-bis only: also read 1–2 peer-build homepage screenshots from other `jobs/{some-other-domain}/qa-option-a/desktop-home.png` files for the diversity check (item #18). Pick recent peer builds in the same industry where possible.
 4. For Stage 7g only: in addition to the standard 18 items, apply the Stage-C-specific extensions described under "Stage extensions" — editorial-drift check (item #17 expanded) and control-plane-reflex check.
 5. Return a structured JSON object matching the schema below. ~400 tokens of output is the target. The orchestrator never reads the screenshots — it reads only the JSON.
+6. **MANDATORY (added 2026-05-04): also `Write` the JSON to `jobs/{domain}/qa-option-{a|b|c}/visual-pass-verdict.json` as a side effect.** The orchestrator runs `node scripts/validate-visual-pass.cjs $DOMAIN <option>` immediately after the sub-agent returns; that gate fails if the verdict file is missing. Pre-2026-05-04 the verdict was returned only as a JSON string in the sub-agent's reply — but the orchestrator could (and did) silently fall back to inline screenshot reads with no verdict produced. Writing the file to disk closes the gap: the gate enforces the artifact, not just the chat-return.
 
 ## What the sub-agent does NOT do
 

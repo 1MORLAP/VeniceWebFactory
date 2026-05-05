@@ -62,13 +62,15 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
+const REPO_ROOT = path.resolve(__dirname, '..');
+
 const domain = process.argv[2];
 if (!domain) {
   console.error('Usage: node scripts/smart-resume.cjs <domain>');
   process.exit(2);
 }
 
-const jobDir = path.join('jobs', domain);
+const jobDir = path.join(REPO_ROOT, 'jobs', domain);
 
 // Helper: check if a relative path inside jobDir exists (file or dir).
 function exists(relPath) {
@@ -151,25 +153,35 @@ if (artifactsFound['store-registration.json']) {
 } else if (
   artifactsFound['option-a/dist/'] &&
   artifactsFound['option-b/dist/'] &&
-  // C: built or skipped
-  (artifactsFound['option-c/dist/'] || true)
+  artifactsFound['option-c/dist/']
 ) {
-  // All builds present (or C skipped). Some deploys may be missing — Stage 8b
-  // is idempotent, re-running for already-deployed options is cheap.
+  // All three options built. Some deploys may be missing — Stage 8b is
+  // idempotent, re-running for already-deployed options is cheap.
+  // NOTE: this branch requires option-c/dist EXACTLY (not "C built or
+  // skipped"). The previous version used `(option-c/dist || true)` which
+  // always evaluated true and trapped mid-pipeline builds (A+B built, C in
+  // progress) into "all-built" state — returning stage-8a-qa-gate when the
+  // correct answer was stage-7-build-c. Real bug surfaced 2026-05-04 on
+  // watkinsmonuments.com mid-pipeline.
+  //
+  // The --skip-c case is handled in the next branch (A+B built, no C.dist):
+  // smart-resume returns stage-7-build-c regardless, and the orchestrator's
+  // CLI-flag context decides whether to honor --skip-c on the resume
+  // invocation. smart-resume cannot detect --skip-c from on-disk state.
   if (
     !artifactsFound['metrics.optionA.url'] ||
     !artifactsFound['metrics.optionB.url'] ||
-    (artifactsFound['option-c/dist/'] && !artifactsFound['metrics.optionC.url'])
+    !artifactsFound['metrics.optionC.url']
   ) {
     resumeFrom = 'stage-8a-qa-gate';
-    summary = 'All options built; deploys missing or partial. Resume at Stage 8a (QA gate) → Stage 8b (Deploy missing options).';
+    summary = 'All three options built; deploys missing or partial. Resume at Stage 8a (QA gate) → Stage 8b (Deploy missing options).';
   } else {
     resumeFrom = 'stage-9-verify';
     summary = 'All builds + deploys present, but storefront not registered. Resume at Stage 9 (Verify) → Stage 10 → Stage 10c.';
   }
 } else if (artifactsFound['option-a/dist/'] && artifactsFound['option-b/dist/']) {
   resumeFrom = 'stage-7-build-c';
-  summary = 'Option A and B built; Option C missing. Resume at Stage 7 (Build C). If --skip-c was the original intent, re-pass that flag (smart-resume cannot detect CLI flag history).';
+  summary = 'Option A and B built; Option C missing. Resume at Stage 7 (Build C). If --skip-c was the original intent, re-pass that flag (smart-resume cannot detect CLI flag history) — the orchestrator will then skip Stage 7 and fall through to Stage 8a directly.';
 } else if (artifactsFound['option-a/dist/']) {
   resumeFrom = 'stage-5-build-b';
   summary = 'Option A built; Option B missing. Resume at Stage 5 (Build B).';

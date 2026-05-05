@@ -217,6 +217,29 @@ Args (free-form prompt):
 
 The worker session writes the plugin's output to `jobs/{domain}/option-c/src/`. Then Stage 7e (build check), 7f (content parity), 7g (QA — also invokes the plugin for second-pass critique), 7h (visual QA), 7i (stop dev server) follow.
 
+**Stage 7d hard gate — verify the plugin actually fired** (added 2026-05-04):
+
+```bash
+node scripts/validate-stage7-plugin.cjs $DOMAIN
+```
+
+This script fingerprints plugin invocation by inspecting the richness of `jobs/{domain}/option-c/industry-tokens.json` + `jobs/{domain}/option-c/aesthetic-brief.md`. It runs 10 plugin-quality checks (palette ≥ 5 entries, palette entries with role+rationale, ornament.shapes ≥ 3, ornament.avoid ≥ 3, distinct_from_option_a object, aesthetic-brief ≥ 1500 chars, drift-awareness signal, etc.). Threshold: ≥ 70% must pass. Real plugin output passes 9-10/10; thin inline output (orchestrator fallback) typically passes 3-5/10.
+
+If the gate fails, the orchestrator either (a) re-invokes the plugin properly (preferred), or (b) passes `--allow-inline` to acknowledge that Stage 7 deliberately ran inline. Use `--allow-inline` sparingly — almost always the right answer is to use the plugin.
+
+**Stage 7d ordering — global.css write race** (real bug 2026-05-04 watkinsmonuments.com): the orchestrator's pre-plugin scaffold setup wrote a placeholder `global.css`, then the plugin invocation wrote its own design-token global.css, but mid-Stage-7 the orchestrator noticed C's qa-check failing and discovered "the C global.css never got written — it's still the scaffold default." The plugin's output had been overwritten OR never landed. Workaround: the worker rewrote global.css from scratch.
+
+The fix is ordering: do the plugin invocation BEFORE the per-page Sonnet sub-agent dispatch, AND verify `option-c/src/styles/global.css` contains plugin-quality tokens (CSS variables for the industry palette, font-family declarations matching `industry-tokens.json`) BEFORE Stage 7d-build dispatches workers. If the file is still the scaffold default after plugin invocation, re-invoke the plugin with explicit `Write the design system to src/styles/global.css` instruction OR write the tokens manually from industry-tokens.json (last resort — better to debug the plugin race).
+
+**Tailwind v4 class collision — DO NOT define utility-namespace custom classes in global.css** (real bug 2026-05-04 watkinsmonuments.com): defining `.bg-slate-deep`, `.bg-paper-2`, `.text-brass`, etc. inside `global.css` causes Tailwind v4's JIT to either shadow or strip those classes at build time. The orchestrator burned 5 edit cycles retreating to inline `style="background:#..."` across 6 components.
+
+The fix:
+1. Use `@theme` to define tokens — Tailwind v4 generates real utilities from `@theme` definitions. `@theme { --color-slate-deep: #0F1620; }` produces `.bg-slate-deep` automatically AND it survives JIT.
+2. Or use arbitrary-value bracket utilities inline: `class="bg-[#1A2018]"` — no class definition needed.
+3. Or use namespaced custom names that DON'T match Tailwind prefixes: `.surface-deep` instead of `.bg-deep`. Tailwind ignores classes whose prefix isn't in its utility namespace.
+
+The qa-check `tailwind-v4-class-collision` rule (added 2026-05-04) scans global.css for selectors starting with Tailwind prefixes (`bg-`, `text-`, `border-`, `ring-`, `shadow-`, etc.) and warns. Heed those warnings — they indicate latent shadowing.
+
 **Why we EXPLICITLY invoke at build time** (not just rely on auto-trigger): the plugin auto-engages when "the user asks to build frontend interfaces," which our pipeline does naturally — but auto-trigger doesn't always register cleanly in usage telemetry, and the plugin's depth of engagement varies based on prompt clarity. Explicit invocation with the constraint prompt above guarantees:
 1. The plugin engages, hard, on every C build (not just "maybe, if it auto-fires")
 2. Industry anchoring is a constraint, not a vibe — the plugin doesn't default to its editorial bias
@@ -418,10 +441,20 @@ If BOTH drifts fire simultaneously (rare — editorial layout AND dashboard chro
 - DO NOT write build-design-decisions.md. The orchestrator writes it after Stage 7h returns.
 ```
 
-Receive the sub-agent's JSON (~400 tokens). Branch on `verdict`:
+Receive the sub-agent's JSON (~400 tokens). The sub-agent MUST write its full JSON to `jobs/{domain}/qa-option-c/visual-pass-verdict.json` AND return a 1-line acknowledgment to the orchestrator.
+
+Then run the hard gate:
+
+```bash
+node scripts/validate-visual-pass.cjs $DOMAIN c
+```
+
+This is the Stage 7h hard gate (added 2026-05-04, same pattern as Stage 4c-bis and 6c). Verifies the verdict JSON exists with valid schema and that the verdict isn't `rebuild`. Pass `--allow-inline` only when the orchestrator deliberately ran the visual pass in main session (rare).
+
+Then branch on `verdict`:
 - `pass` → continue to the plugin critique invocation below (a second design-pass from the plugin to refine the build), then the fix-loop only if the plugin critique surfaces issues.
 - `fix` → run the C fix-loop, scoped to the issues listed in the JSON. If item #17 or the control-plane-reflex check fired, the fix may require revisiting `industry-tokens.json` (Stage 7b-bis) before rebuilding.
-- `rebuild` → escalate (re-run Stage 7d with tighter industry-tokens; either editorial drift across the entire build OR both editorial+control-plane drifts firing simultaneously).
+- `rebuild` → escalate (re-run Stage 7d with tighter industry-tokens; either editorial drift across the entire build OR both editorial+control-plane drifts firing simultaneously). The gate exits 2 on `rebuild`, blocking deploy until you address.
 
 After the sub-agent returns (regardless of verdict), invoke the **`frontend-design` skill** for a second-pass design critique. This is a complement to the sub-agent's structural pass — the plugin reviews its own Stage 7d output through its own design lens and proposes refinements. The orchestrator runs this directly (the plugin is invoked as a Skill, not a sub-agent):
 

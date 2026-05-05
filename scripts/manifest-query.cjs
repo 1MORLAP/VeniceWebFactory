@@ -17,6 +17,8 @@
 const fs = require('fs');
 const path = require('path');
 
+const REPO_ROOT = path.resolve(__dirname, '..');
+
 const domain = process.argv[2];
 const query = process.argv[3];
 
@@ -26,7 +28,7 @@ if (!domain || !query) {
   process.exit(1);
 }
 
-const manifestPath = path.join('jobs', domain, 'manifest.json');
+const manifestPath = path.join(REPO_ROOT, 'jobs', domain, 'manifest.json');
 if (!fs.existsSync(manifestPath)) {
   console.error(`Manifest not found: ${manifestPath}`);
   process.exit(1);

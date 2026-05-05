@@ -22,6 +22,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
+const REPO_ROOT = path.resolve(__dirname, '..');
+
 const [, , domain, optionRaw, urlRaw] = process.argv;
 if (!domain || !optionRaw || !urlRaw) {
   console.error('Usage: node scripts/record-deploy-url.cjs <domain> <option:a|b|c> <url>');
@@ -46,7 +48,7 @@ if (!/^https?:\/\//.test(url)) {
   }
 }
 
-const metricsPath = path.join('jobs', domain, 'metrics.json');
+const metricsPath = path.join(REPO_ROOT, 'jobs', domain, 'metrics.json');
 if (!fs.existsSync(metricsPath)) {
   console.error(`✗ ${metricsPath} not found — run scripts/init-metrics.cjs first`);
   process.exit(2);

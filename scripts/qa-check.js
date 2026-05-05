@@ -320,6 +320,31 @@ function isMustReusePhoto(rec) {
   // Only fires when both dimensions are known (h > 0); falls through for
   // CSS background images that don't always carry intrinsic height.
   if (h > 0 && w > 0 && (w / h) >= 2.5 && h < 200) return false;
+  // CSS-background table-chrome: decorative gradient strips, banners, and
+  // solid-fill tiles served as `background-image` on 90s/2000s static-HTML
+  // sites. Scraper downloads CSS-background sources as bg_*.{jpg,png}. When
+  // their aspect ratio is extreme (≥1.5 in either direction) they are
+  // nearly always decorative chrome, NOT content photos — real hero
+  // backgrounds rarely exceed 1.78:1 (16:9) and never reach 1.5:1 in the
+  // tall direction. Real bug 2026-05-04 (watkinsmonuments.com) — vertical
+  // brown gradient (1440×900, AR 1.6) + horizontal banner (157×2344, AR
+  // ~14.9) counted toward must-reuse pool, forcing the modern rebuild to
+  // re-render dated table chrome.
+  const isBgFile = /\/bg[_\-]?\d+\.(jpe?g|png|webp|gif)$/i.test(lp);
+  if (isBgFile && w > 0 && h > 0) {
+    const ar = w >= h ? w / h : h / w;
+    if (ar >= 1.5) return false;
+  }
+  // Uniform-color tile heuristic: very low file-size-per-pixel ratio is a
+  // strong signal of a solid-fill or near-solid-fill image (blank spacer,
+  // single-color gradient stub, dot-pattern tile). Real content photos at
+  // 240×209 are typically 5–30 KB JPEG (≥0.1 bytes/pixel); uniform-fill
+  // tiles are 1–3 KB (≤0.05 bytes/pixel). The 0.04 cutoff is well below
+  // any real-content territory while catching the watkinsmonuments
+  // 240×209 white spacer tile (~2 KB / 50160 px = 0.04 bytes/pixel).
+  // Only fires when the alt is empty (real photos with content captions
+  // get a free pass even if compression is aggressive).
+  if (fileSize > 0 && w > 0 && h > 0 && !alt && (fileSize / (w * h)) < 0.04) return false;
   // Tiny-area filter — same era of bug, second angle.
   if (w > 0 && h > 0 && (w * h) < 50000) return false;
   // Tracking-pixel dimension filter (analytics beacon, 1×1 through 8×8).
@@ -2612,6 +2637,67 @@ function rgbToHexFromComputed(rgb) {
     }
     // ---- FOOTER-AFTER-DARK-CTABANNER ----
     // Footer.astro must rely on internal py-* for spacing. mt-{n} on the
+    // ---- TAILWIND V4 CLASS COLLISION ----
+    // Custom utility-style classes inside global.css whose names match
+    // Tailwind's utility namespace (`bg-*`, `text-*`, `border-*`, `ring-*`,
+    // `shadow-*`, `from-*`, `to-*`, `via-*`, `rounded-*`, etc.) collide
+    // with Tailwind v4's JIT-generated utilities. Result: the custom
+    // class either gets shadowed (utility wins per cascade order) OR
+    // stripped from the build entirely (if Tailwind doesn't see it
+    // referenced). Real bug 2026-05-04 (watkinsmonuments.com Option C):
+    // `.bg-slate-deep`, `.bg-paper-2`, etc. collided with Tailwind
+    // utilities — orchestrator burned 5 edit cycles retreating to inline
+    // `style="background:#..."` across 6 components.
+    //
+    // The fix is to use `@theme` for tokens (which generates real
+    // utilities) OR arbitrary-value bracket utilities (`bg-[#1A2018]`)
+    // OR namespaced custom names that DON'T match Tailwind prefixes
+    // (e.g., `.surface-deep` not `.bg-deep`).
+    if (existsSync(cssPath)) {
+      try {
+        const css = readFileSync(cssPath, 'utf8');
+        // Tailwind utility prefixes — these are the namespaces that
+        // Tailwind v4 generates utilities for. A custom class beginning
+        // with one of these is at risk of collision.
+        const PREFIXES = ['bg', 'text', 'border', 'ring', 'shadow', 'from', 'to', 'via', 'rounded', 'p', 'px', 'py', 'pt', 'pb', 'pl', 'pr', 'm', 'mx', 'my', 'mt', 'mb', 'ml', 'mr', 'gap', 'space', 'flex', 'grid', 'col', 'row', 'w', 'h', 'min-w', 'max-w', 'min-h', 'max-h', 'opacity', 'z'];
+        // Strip @theme blocks (they're allowed to define tokens that
+        // generate utilities — that's the WHOLE POINT of @theme).
+        const stripped = css.replace(/@theme\s*(?:inline\s*)?\{[\s\S]*?\n\}/g, '');
+        // Find class selectors at top-level (or inside @layer ... but
+        // those are harder to parse — keep it simple, top-level only).
+        // Pattern: `.NAME { ... }` where NAME starts with a prefix and
+        // a dash. We don't bother distinguishing @layer-wrapped vs not
+        // — even inside @layer base { .bg-foo {...} } there's a
+        // collision risk. The narrow exception: arbitrary-value
+        // utilities like `.bg-[#hex]` are auto-generated and don't
+        // appear as authored selectors here.
+        const classRe = /(?:^|\s|\}|\n)\.([a-z][a-z0-9_-]*)\s*\{/g;
+        const seen = new Set();
+        let m;
+        while ((m = classRe.exec(stripped)) !== null) {
+          const className = m[1];
+          if (seen.has(className)) continue;
+          seen.add(className);
+          // Check if it starts with a Tailwind prefix + `-`.
+          for (const prefix of PREFIXES) {
+            if (className === prefix) continue;   // exact-match utility?
+            if (className.startsWith(prefix + '-')) {
+              // Allow eyebrow-rule, btn-primary, etc. — not Tailwind prefixes.
+              // The prefix list above is curated to ONLY include real Tailwind
+              // namespaces, so this branch fires correctly.
+              staticIssues.push({
+                severity: 'warn',
+                check: 'tailwind-v4-class-collision',
+                msg: `global.css declares custom class \`.${className}\` which collides with Tailwind v4's '${prefix}-*' utility namespace. Tailwind's JIT may shadow or strip this class. Use \`@theme\` to define tokens that generate real utilities, OR rename to a non-colliding prefix (e.g., \`.surface-deep\` instead of \`.bg-deep\`), OR use arbitrary-value utilities (\`bg-[#1A2018]\`) inline. See TAILWIND V4 CLASS COLLISION rule in SKILL.md.`,
+              });
+              break;   // one match per class is enough
+            }
+          }
+        }
+      } catch { /* swallow */ }
+    }
+    // ---- end TAILWIND V4 CLASS COLLISION ----
+
     // outer Footer wrapper exposes a cream stripe between two dark sections.
     if (existsSync(footerPath)) {
       try {
@@ -2628,6 +2714,182 @@ function rgbToHexFromComputed(rgb) {
       } catch { /* swallow */ }
     }
   }
+
+  // ---- PORTFOLIO INTEGRITY ----
+  // Walk built HTML in dist/. Find sections that claim "from our shop /
+  // actual work / our work / recent work / examples of our X / made by us /
+  // every photo here is real". Within those sections, every <img> MUST
+  // resolve to an image classified as `content` in image-classification.json.
+  // Fails on any non-content image (nav-button, banner, line, spacer,
+  // tracking, tiny, icon).
+  //
+  // Real bug 2026-05-04 (watkinsmonuments.com): /monuments and /markers
+  // catalog galleries captioned "every photo here is an actual monument we
+  // have made" rendered scraped 2009-era nav buttons + banner gradients +
+  // separator strips as portfolio. Fabrication-grade error. Reported by
+  // user during real-time review of deployed Option C.
+  //
+  // Requires: classify-images.cjs ran post-scrape AND --manifest passed
+  // (we derive jobDir + distDir from manifest path + --option flag).
+  // Soft no-op if classification.json is missing — the worker can still
+  // ship; the upstream image-pool filter is the primary defense.
+  if (manifestPath && optionName) {
+    try {
+      const jobDir = dirname(manifestPath);
+      const classifyPath = join(jobDir, 'image-classification.json');
+      const distDir = join(jobDir, `option-${optionName}`, 'dist');
+      if (existsSync(classifyPath) && existsSync(distDir)) {
+        const cls = JSON.parse(readFileSync(classifyPath, 'utf8'));
+        // Build basename → class map. We index by basename only because
+        // the dist path uses /images/foo.jpg while manifest stores
+        // assets/img/foo.jpg — basename is the stable join.
+        const classByBasename = new Map();
+        // Walk ALL pages (each image record has _class on it).
+        // Re-read manifest for the per-image _class tags written by classify-images.
+        try {
+          const mf = JSON.parse(readFileSync(manifestPath, 'utf8'));
+          for (const p of mf.pages || []) {
+            for (const img of p.images || []) {
+              if (img.localPath && img._class) {
+                const bn = img.localPath.split('/').pop();
+                if (bn && !classByBasename.has(bn)) classByBasename.set(bn, img._class);
+              }
+            }
+          }
+        } catch { /* fall through to empty map → no portfolio violations */ }
+
+        const PORTFOLIO_VOCAB = /(from\s+(our|the)\s+shop|actual\s+(work|monument|piece|build|installation|project)|every\s+photo\s+(here\s+)?(is|here)|our\s+(actual\s+)?work|recent\s+work|our\s+catalog|our\s+portfolio|our\s+gallery|examples?\s+of\s+our|these?\s+are.*\s+we\s+(have\s+)?(made|crafted|built|created|produced|installed|finished)|made\s+by\s+us|crafted\s+by\s+us|real\s+work\s+from)/i;
+
+        const htmlFiles = [];
+        walkHtmlFiles(distDir, htmlFiles);
+        for (const htmlPath of htmlFiles) {
+          let html;
+          try { html = readFileSync(htmlPath, 'utf8'); } catch { continue; }
+          // Find every match of portfolio vocab. For each, scan ~4000 chars
+          // forward (within the section claiming portfolio) for <img src="..">.
+          let m;
+          const seen = new Set();   // dedupe per (file, basename)
+          const re = new RegExp(PORTFOLIO_VOCAB.source, 'gi');
+          while ((m = re.exec(html)) !== null) {
+            const start = m.index;
+            const window = html.slice(start, start + 4000);
+            const imgRe = /<img[^>]+src=["']([^"']+)["']/gi;
+            let img;
+            while ((img = imgRe.exec(window)) !== null) {
+              const src = img[1];
+              const basename = src.split('/').pop().split('?')[0];
+              if (!basename) continue;
+              const key = `${htmlPath}::${basename}`;
+              if (seen.has(key)) continue;
+              seen.add(key);
+              const cls = classByBasename.get(basename);
+              if (cls && cls !== 'content' && cls !== 'icon') {
+                const relPath = htmlPath.replace(distDir, '').replace(/\\/g, '/');
+                staticIssues.push({
+                  severity: 'fail',
+                  check: 'portfolio-integrity',
+                  msg: `${relPath}: portfolio/gallery section (matched: "${m[0].trim()}") renders ${basename} which is classified as '${cls}', not 'content'. The customer's actual product photos are the only valid content for "from our shop / actual work / our gallery" sections — nav buttons, banner chrome, separator strips, and spacer tiles are forbidden. See PORTFOLIO INTEGRITY rule in SKILL.md and run scripts/classify-images.cjs <domain> to refresh classifications.`,
+                });
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn(`⚠ portfolio-integrity: failed to run (${e.message}) — skipping. Image-pool filter at Stage 2 is the primary defense.`);
+    }
+  }
+  // ---- end PORTFOLIO INTEGRITY ----
+
+  // ---- INVENTED BRAND GRAPHICS BAN ----
+  // Scan built HTML for inline SVG <path> graphics that look hand-drawn
+  // and figurative (mascot, animal silhouette, decorative organic shape)
+  // placed in or near brand contexts (<header>, .logo, .brand, .wordmark,
+  // .hero). The customer's brand mark is whatever the scraper found — the
+  // builder MAY NOT invent figurative SVG decoration that reads as a
+  // brand element.
+  //
+  // Real bug 2026-05-04 (richstaxidermy.com): builder hand-drew a
+  // deer-head silhouette next to the "Rich's Taxidermy" wordmark in the
+  // header AND a duck/game-bird blob shape in the footer hero. Customer
+  // never had those graphics. Reported by user during real-time review.
+  //
+  // Heuristic: inline <svg> containing a <path d="..."> with a complex
+  // organic shape (>=300 chars in d= attribute OR >=20 path commands like
+  // c|C|s|S|q|Q|t|T which are smooth curves) AND located inside <header>
+  // OR within 500 chars of class hint matching /logo|brand|wordmark|hero/.
+  //
+  // This is a WARN by default — Material Symbols and abstract icon SVGs
+  // legitimately appear in headers. The signal is strong enough to flag
+  // for human review without auto-failing the build.
+  if (manifestPath && optionName) {
+    try {
+      const jobDir = dirname(manifestPath);
+      const distDir = join(jobDir, `option-${optionName}`, 'dist');
+      if (existsSync(distDir)) {
+        const htmlFiles = [];
+        walkHtmlFiles(distDir, htmlFiles);
+        for (const htmlPath of htmlFiles) {
+          let html;
+          try { html = readFileSync(htmlPath, 'utf8'); } catch { continue; }
+          // Match <svg ...> ... </svg>. Greedy enough to capture full SVG.
+          const svgRe = /<svg\b[^>]*>([\s\S]*?)<\/svg>/gi;
+          let s;
+          while ((s = svgRe.exec(html)) !== null) {
+            const full = s[0];
+            const inner = s[1];
+            // Skip Material Symbols and other plain-text icon spans pretending to be SVG
+            // (they're not <svg> at all — won't match the regex).
+            // Find <path d="...">
+            const pathRe = /<path[^>]+d=["']([^"']+)["']/gi;
+            let p;
+            while ((p = pathRe.exec(inner)) !== null) {
+              const d = p[1];
+              const dLen = d.length;
+              const curveCount = (d.match(/[cCsSqQtT]/g) || []).length;
+              const isComplex = dLen >= 300 || curveCount >= 20;
+              if (!isComplex) continue;
+              // Check if this SVG is in a brand context. Look at the 1500
+              // chars BEFORE the <svg> tag — covers headers with verbose
+              // top-bars (timezone strip, eyebrow announcement, etc.)
+              // before the actual logo lockup. Real bug 2026-05-04
+              // (richstaxidermy.com) — header had a 800-char top-bar
+              // before the logo-anchor, so the original 600-char lookback
+              // missed the <header> tag.
+              const start = s.index;
+              const lookback = html.slice(Math.max(0, start - 1500), start).toLowerCase();
+              const inHeader = /<header\b[^>]*>(?![\s\S]*<\/header>)/.test(lookback);
+              const nearBrand = /class=["'][^"']*(\blogo\b|\bbrand\b|\bwordmark\b|\bhero\b|\bsite-?title\b|\bcompany-?name\b)/i.test(lookback);
+              // Logo-anchor pattern: `<a href="/"` immediately before an
+              // SVG is the canonical "logo wraps the home link" pattern.
+              // The link is what the user clicks, the SVG is the brand mark.
+              const lastAnchorIdx = lookback.lastIndexOf('<a ');
+              const lastClosingAnchorIdx = lookback.lastIndexOf('</a>');
+              const insideHomeAnchor = lastAnchorIdx > lastClosingAnchorIdx
+                && /<a [^>]*href=["']\/?["']/i.test(lookback.slice(lastAnchorIdx, lastAnchorIdx + 200));
+              // Aria-label brand pattern: nearest enclosing <a> has an
+              // aria-label that matches brand vocabulary (site name, "home",
+              // "logo", "wordmark"). A `<a aria-label="rich's taxidermy — home">`
+              // around an SVG IS a brand context regardless of class.
+              const ariaBrand = lookback.slice(lastAnchorIdx, lastAnchorIdx + 400)
+                .match(/aria-label=["'][^"']*\b(home|logo|wordmark|brand)\b/i);
+              if (!inHeader && !nearBrand && !insideHomeAnchor && !ariaBrand) continue;
+              const relPath = htmlPath.replace(distDir, '').replace(/\\/g, '/');
+              staticIssues.push({
+                severity: 'fail',
+                check: 'invented-brand-graphic',
+                msg: `${relPath}: inline <svg><path d="..."> with ${dLen} chars / ${curveCount} smooth-curve commands appears in a brand context (${inHeader ? '<header>' : 'near .logo/.brand/.wordmark/.hero'}). This looks like a hand-drawn figurative graphic posing as a logo or brand ornament. The builder MAY NOT invent figurative SVG decoration (mascots, animal silhouettes, branded blobs) — the only allowed brand mark is the customer's scraped logo or, when that is unusable per LOGO RULE, a plain-text wordmark of the verbatim business name. Abstract UI icons (arrows, plus, menu, chevrons) are fine. See INVENTED BRAND GRAPHICS BAN in SKILL.md.`,
+              });
+              break;   // one fail per SVG is enough; don't enumerate every path inside one SVG
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn(`⚠ invented-brand-graphic: failed to run (${e.message}) — skipping.`);
+    }
+  }
+  // ---- end INVENTED BRAND GRAPHICS BAN ----
   // ---- end static source lints ----
 
   // Report — grouped by viewport, with dedupe for issues that fire at both.

@@ -11,6 +11,8 @@
 const fs = require('fs');
 const path = require('path');
 
+const REPO_ROOT = path.resolve(__dirname, '..');
+
 const domain = process.argv[2];
 const option = process.argv[3];
 
@@ -21,7 +23,7 @@ if (!domain || !option || !VALID_OPTIONS.includes(option)) {
   process.exit(1);
 }
 
-const metricsPath = path.join('jobs', domain, 'metrics.json');
+const metricsPath = path.join(REPO_ROOT, 'jobs', domain, 'metrics.json');
 if (!fs.existsSync(metricsPath)) {
   console.error(`Metrics file not found: ${metricsPath}. Run init-metrics.cjs first.`);
   process.exit(1);

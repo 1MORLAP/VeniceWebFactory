@@ -118,6 +118,42 @@ Less capable models default to "ask before acting" because that feels safe. But 
 
 The completion contract above replaces the model's instinct to "check in" with explicit positive guidance: "the URL was the check-in. Now do all 10 stages." Stronger models (Opus, Sonnet 4.7+) follow UNATTENDED MODE bullet #4 ("NEVER ask the user questions") implicitly. Weaker models need this section spelled out.
 
+## 📊 ORCHESTRATION LOGGING CONTRACT (added 2026-05-04)
+
+**Every key decision the orchestrator makes MUST be appended to `jobs/{domain}/orchestration.log` via `scripts/log-decision.cjs`.** This is the audit trail that lets the skill-owner cross-check what the skill prescribed vs what actually happened. Pre-2026-05-04, the only post-build evidence was on-disk artifacts (manifest, specs, dist, screenshots) — major decisions like "did Stage 3 go decomposed or monolithic?" or "did Stage 7d invoke the plugin?" were INVISIBLE. The empty-`specs/` survey on 2026-05-04 found 46 of 53 built jobs had silently bypassed decomposed mode for weeks. The instrumentation closes that gap.
+
+**Pattern**:
+```bash
+node scripts/log-decision.cjs <domain> <stage> <event> [--detail key=val] [--detail key2=val2] ...
+```
+
+The script appends one JSON line per call to `jobs/{domain}/orchestration.log`. It's append-only, structured (JSON Lines), and always exits 0 (logging failure NEVER blocks the pipeline).
+
+**Mandatory instrumentation points** (orchestrator MUST emit at each):
+
+| Stage | Event name | Required details |
+|-------|-----------|------------------|
+| 0 | `smart-resume-report` | `resumeFrom=<value>` |
+| 1d | `images-classified` | `total=<n>`, `content=<n>`, `chrome-pct=<float>` |
+| 2.5 | `mode-chosen` | `mode=decomposed\|monolithic` (which dispatch path) |
+| 2.5b | `validate-specs-pass` | `specCount=<n>` (or `--allow-empty` flag context) |
+| 3 (per page) | `sub-agent-dispatched` | `option=a`, `page=<slug>`, `model=sonnet` |
+| 4c-bis | `visual-pass-dispatched` | `option=a`, `model=opus` |
+| 4c-bis | `visual-pass-verdict` | `option=a`, `verdict=pass\|fix\|rebuild`, `items_passed=<n>` |
+| 4e (each iter) | `fix-loop-iter` | `option=a`, `iter=<n>`, `issuesRemaining=<n>` |
+| 5 (per page) | `sub-agent-dispatched` | `option=b`, `page=<slug>`, `model=sonnet` |
+| 6c | `visual-pass-dispatched` | `option=b`, `model=opus` |
+| 6c | `visual-pass-verdict` | `option=b`, `verdict=pass\|fix\|rebuild`, `items_passed=<n>` |
+| 7d | `plugin-invoked` | `plugin=frontend-design`, `industry=<token>` |
+| 7d | `validate-stage7-plugin-pass` | `richness=<n>/<total>` |
+| 7d-build (per page) | `sub-agent-dispatched` | `option=c`, `page=<slug>`, `model=sonnet` |
+| 7g/h | `visual-pass-dispatched` | `option=c`, `model=opus` |
+| 7g/h | `visual-pass-verdict` | `option=c`, `verdict=pass\|fix\|rebuild`, `items_passed=<n>` |
+| 8b (per option) | `deploy-recorded` | `option=<a\|b\|c>`, `url=<https-url>` |
+| 10c | `storefront-registered` | `slug=<storefront-slug>` |
+
+The skill-owner runs `scripts/audit-orchestration.cjs <domain>` to read the log + cross-reference on-disk artifacts and emit a drift report. Drift means "skill said X, log shows Y" — e.g., the spec said decomposed mode but the log shows no sub-agent-dispatched entries (orchestrator went monolithic silently).
+
 ## 🔒 SKILL LOCKDOWN — DO NOT MODIFY THE SKILL
 
 **You are running the skill. You may NOT modify the skill itself.** This applies to every session invoked via `/webfactory <url>` or any session whose primary task is building a website. If you are reading this paragraph because the user typed `/webfactory`, the answer to "may I edit this file?" is NO.
@@ -229,6 +265,8 @@ Write to: <absolute path to .astro file>
 - **No fabricated availability/pricing/credential claims.** "Free estimates", "24/7 service", "BBB A+", "Licensed and insured", "20+ years experience" — every such phrase must be grounded in `manifest.json` or `design-brief.json`. The Sonnet sub-agent should not invent ANY claim, no matter how natural it sounds. `validate-specs.cjs` enforces this at Stage 2.5b. See `FACT GROUNDING PRINCIPLE`.
 - **No `\uXXXX` JS escape sequences as visible text** and **no `&#NNN;` HTML entity references inside Astro JSX `{...}` expressions.** Use the literal Unicode character or `set:html`. See FEEDBACK.md note `feedback_no_unicode_escapes.md`.
 - **Nested `<h*>` headings inside colored containers MUST set their own color override.** Workers can drop the cascade when adding `font-semibold` etc. via Tailwind. (See "Hard rule learned 2026-04-28" below.)
+- **No chrome images in portfolio / catalog / gallery / "from our shop" / "actual work" sections.** When `_image-pools.json` assigns images to portfolio slots, the orchestrator MUST filter to `_class === 'content'` (per the Stage 1d classification, written by `scripts/classify-images.cjs`). The classifier tags every scraped image as `content | nav-button | banner | line | spacer | tracking | tiny | icon` — only `content` (and `icon` for nav/UI surfaces) is valid in portfolio sections. Nav buttons, banner gradients, separator strips, spacer tiles, and tracking pixels are forbidden in portfolio rendering. qa-check's `portfolio-integrity` rule (added 2026-05-04) verifies post-build and fails any leak. See `PORTFOLIO INTEGRITY RULE`.
+- **No invented figurative SVG decoration in branded contexts.** The only valid brand mark is the customer's scraped logo (per LOGO RULE) OR the plain-text wordmark fallback. Builders MAY NOT inline-draw animal silhouettes, mascots, blob shapes, or hand-drawn "logo treatments" near the wordmark, in `<header>`, or in `.logo|.brand|.wordmark|.hero` slots. Abstract UI icons (arrows, plus, menu, chevrons, social glyphs) remain allowed. qa-check's `invented-brand-graphic` rule (added 2026-05-04) verifies post-build. See `INVENTED BRAND GRAPHICS BAN`.
 
 **`_<type>-template.md`** files (e.g., `_service-template.md`) capture repeating structural patterns across multiple pages. Validated 2026-04-28: 8 service pages can share one template, with each page-spec adding only its specific content (~30-50 lines per page-spec instead of 80+).
 
@@ -915,10 +953,10 @@ Stage 1 (Scrape) → Stage 1b (Fix logo) → Stage 2 (Design Brief)
 
 > **Detail**: see `skill-stages/stage-1.md` (extracted 2026-05-04 as Tier 1a of the context-optimization plan).
 >
-> Run `scripts/scrape.js` (Playwright crawl), then `scripts/fix-logo.js` (1b — recovers high-res logo variants from WordPress favicon-crops), then `scripts/detect-placeholders.cjs` (1c — tags template-default placeholder content from Hibu/Wix/Squarespace/GoDaddy etc. with `_placeholder` so downstream stages drop or substitute). Output: `jobs/{domain}/manifest.json` + `assets/img/` + `assets/screenshots/` + `placeholder-report.json`.
+> Run `scripts/scrape.js` (Playwright crawl), then `scripts/fix-logo.js` (1b — recovers high-res logo variants from WordPress favicon-crops), then `scripts/detect-placeholders.cjs` (1c — tags template-default placeholder content from Hibu/Wix/Squarespace/GoDaddy etc. with `_placeholder` so downstream stages drop or substitute), then `scripts/classify-images.cjs` (1d — tags every image with `_class: 'content' | 'nav-button' | 'banner' | 'line' | 'spacer' | 'tracking' | 'tiny' | 'icon'` so Stage 2/2.5 image-pool generation can filter chrome from portfolio slots — see PORTFOLIO INTEGRITY RULE). Output: `jobs/{domain}/manifest.json` + `assets/img/` + `assets/screenshots/` + `placeholder-report.json` + `image-classification.json`.
 >
 > **Inputs**: customer URL.
-> **Outputs**: enriched `manifest.json` (with logo metadata + per-element `_placeholder` tags), downloaded images (both `<img>` and CSS `background-image`), full-page screenshots per page.
+> **Outputs**: enriched `manifest.json` (with logo metadata + per-element `_placeholder` tags + per-image `_class` tags), downloaded images (both `<img>` and CSS `background-image`), full-page screenshots per page, `image-classification.json` summary report.
 > **Model**: deterministic — Playwright + node scripts. No LLM calls (unless WebFetch fallback is needed for CMS-widget content the scraper missed).
 >
 > Continue to Stage 2 — analyze + write design brief.
@@ -1462,6 +1500,62 @@ The 80% threshold is over the **meaningful image pool** (records with `width >= 
 | Photos < 500px (cherokee old-site) | use as-is, qa **WARN** | use as-is, qa **WARN** | substitute high-quality stock per ESCAPE HATCH |
 
 A/B render the customer's actual inventory (it's what customers recognize as "their site"); C delivers the design-bar by substituting where needed. Both are honest — A/B is "this is your actual site, suddenly expensive given the asset reality"; C is "this is a design language pitch, here's what your site could be with a photo refresh."
+
+---
+
+#### PORTFOLIO INTEGRITY RULE (architectural — applies to all options, all stages)
+
+Real bug shipped 2026-05-04 (watkinsmonuments.com): the `/monuments` and `/markers` catalog pages on Options A, B, AND C all rendered ~70 small-dimension scraped images per page in a gallery captioned **"Every photo here is an actual monument we have made"** — but ~half of those images were actually 2009-era nav-button graphics ("Home / About Us / Location / Email Us / Contact Form"), separator strips (100×8, 196×13), banner gradients (333×73, 240×32), and uniform-color spacer tiles (240×209 white blank). The customer's actual product thumbnails (real granite headstone photos at 100×60-ish) were mixed in with chrome the scraper happened to download. Result: a fabricated claim that nav buttons are customer work. The user's verbatim feedback: *"these are NOT proper work from the shop, it is navigation buttons on the website. This is a big error that cannot happen."*
+
+Root cause: the orchestrator's image-pool generation at Stage 2 / Stage 2.5 produced `_image-pools.json` containing every `<img>` record from the manifest that passed a loose dimension filter. The Sonnet sub-agents at Stage 3 / 5 / 7d then rendered ALL of those images in catalog galleries, with no visibility into which records were content vs chrome. The `image-reuse-A` qa-check uses the same loose filter as the must-reuse pool, so it didn't catch the leak — chrome was both required and rendered, satisfying the 90% threshold while shipping fabrication.
+
+##### The rule
+
+Sections claiming portfolio / catalog / "from our shop" / "actual work" / "made by us" / "every photo here is real" status MUST render only images classified as `content` by `scripts/classify-images.cjs`. Nav buttons, banner gradients, separator strips, spacer tiles, tracking pixels, and decorative chrome are ALL forbidden in portfolio sections regardless of what filter passed them upstream.
+
+This is non-negotiable. Rendering chrome as portfolio is fabrication — a different bug class from "design drift" or "low-quality photo." It claims the customer made things they didn't.
+
+##### How it's enforced
+
+1. **Stage 1 post-scrape** runs `scripts/classify-images.cjs <domain>` which tags every manifest image record with `_class: 'content' | 'nav-button' | 'banner' | 'line' | 'spacer' | 'tracking' | 'tiny' | 'icon'`. The classification is deterministic and runs before any image-pool generation.
+2. **Stage 2 / 2.5 image-pool generation** MUST filter to `_class === 'content'` before assigning images to portfolio / catalog / gallery slots. Icon-class is allowed only for navigation surfaces; the other six classes never reach the page image-pool. Sub-agent prompts at Stage 3/5/7d MUST receive only content-class images for portfolio sections.
+3. **Pre-deploy qa-check** runs the `portfolio-integrity` rule which scans every built dist/*.html file. For each section matching the portfolio vocabulary regex (`from our shop`, `actual work`, `every photo`, `our work`, `recent work`, `our catalog`, `our portfolio`, `our gallery`, `examples of our X`, `made by us`, `crafted by us`, `real work from`, `these are X we (have) (made|crafted|built|created|installed)` — see `qa-check.js` for the canonical list), the rule walks every `<img>` within ~4000 chars forward and looks up its basename in `image-classification.json`. ANY non-content image fails the build with the message naming the offending file + section.
+
+If a customer site genuinely has so few real photos that classification empties the portfolio, the worker MUST drop the portfolio section entirely (omit, don't fabricate) and flag the gap in `feedback.md`. Stock-photo substitution is allowed ONLY for Option C per the OPTION C IMAGE-QUALITY ESCAPE HATCH — never for A or B.
+
+##### Why this is a separate rule from IMAGE REUSE
+
+`image-reuse-A` enforces a floor (≥90% of must-reuse rendered) — it answers "is the rebuild displaying enough customer photos?". `portfolio-integrity` enforces a ceiling (zero chrome in portfolio sections) — it answers "is the rebuild ONLY displaying customer photos?". They're orthogonal: a build can pass image-reuse while failing portfolio-integrity (the watkinsmonuments case — 60+ chrome images shipped alongside the real photos, satisfying the floor while violating the ceiling).
+
+---
+
+#### INVENTED BRAND GRAPHICS BAN (architectural — applies to all options, all stages)
+
+Real bug shipped 2026-05-04 (richstaxidermy.com): the builder hand-drew a deer-head silhouette inline `<svg><path>` next to the "Rich's Taxidermy" wordmark in the page header AND a duck/game-bird blob shape in the footer hero area. The customer never had those graphics in their original site, scraped logo, or design brief. The builder invented figurative SVG decoration thinking it was "on-brand for taxidermy." User's verbatim feedback: *"what are these logos / graphics: did you make them up? That is a no."*
+
+Inventing a figurative brand mark — animal silhouette, mascot, branded blob, hand-drawn ornament that reads as a logo treatment — is a fabrication-class error. It presents a graphic identity to the customer that the customer did not commission and does not own. Same severity class as fabricating customer work photos.
+
+##### The rule
+
+The only valid brand mark on a built page is:
+
+1. The customer's scraped logo image as recorded in `manifest.logo` (preserved by the LOGO RULE), OR
+2. The plain-text wordmark fallback (verbatim business name in the page's display font) when the LOGO RULE escape hatch is invoked because the scraped logo is unusable.
+
+The builder MAY NOT inline-draw figurative SVG decoration that functions as a brand element. This includes:
+
+- Animal silhouettes (deer head, fish, bird, dog, cat, etc.) regardless of styling
+- Mascot-style graphics (anthropomorphized objects, stylized characters)
+- Decorative organic shapes placed adjacent to the wordmark or in branded contexts (header, hero, footer-brand-line)
+- Hand-drawn "logo treatments" (curlicues, crests, monograms invented by the builder)
+
+This rule is independent of the ICON QUALITY RULE. Abstract UI icons (arrows, plus signs, hamburger menu, chevrons, social-platform glyphs that match Material Symbols / Heroicons) are still allowed — those are functional iconography, not brand fabrication. The line is drawn at "would a viewer reasonably read this as part of the customer's brand identity?". If yes → forbidden. If no (purely functional UI) → fine.
+
+##### How it's enforced
+
+`qa-check.js` runs the `invented-brand-graphic` rule which scans every built dist/*.html file for inline `<svg>` containing `<path>` with high complexity (≥300 chars in `d` attribute OR ≥20 smooth-curve commands like `c|C|s|S|q|Q|t|T`) located inside `<header>` OR within 600 chars of class hints matching `/logo|brand|wordmark|hero|site-?title|company-?name/`. Matches fail the build with the offending file path + path complexity stats. Workers should remove the SVG entirely or replace it with the LOGO RULE's plain-text wordmark fallback.
+
+If the customer's scraped logo IS a vector-style graphic that needs to be re-expressed as inline SVG (rare — usually the scraped logo is a raster), the worker should preserve the original asset as a `<img>` reference (not inline-redraw it) so it survives both this rule and any future logo updates.
 
 ---
 

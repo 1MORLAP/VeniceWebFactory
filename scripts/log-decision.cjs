@@ -38,6 +38,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
+const REPO_ROOT = path.resolve(__dirname, '..');
+
 const args = process.argv.slice(2);
 if (args.length < 3) {
   console.error('Usage: log-decision.cjs <domain> <stage> <event> [--detail key=val ...]');
@@ -63,7 +65,7 @@ for (let i = 3; i < args.length; i++) {
   }
 }
 
-const jobDir = path.join('jobs', domain);
+const jobDir = path.join(REPO_ROOT, 'jobs', domain);
 if (!fs.existsSync(jobDir)) {
   // Graceful no-op — orchestrator may call this before Stage 1 creates the dir.
   // Better to silently skip than fail the pipeline on a logging-only step.

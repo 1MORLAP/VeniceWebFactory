@@ -5,19 +5,32 @@
  * Called at the end of a WebFactory run. Measures output sizes,
  * calculates total wall-clock time, and writes the final metrics.json.
  *
- * Usage: node scripts/finalize-metrics.js <domain>
+ * Usage: node scripts/finalize-metrics.cjs <domain>
+ *
+ * IMPORTANT: this script MERGES into metrics.optionX (does NOT overwrite).
+ * Stage 8b's record-deploy-url.cjs writes optionX.url + optionX.deployedAt;
+ * we add files/totalBytes/htmlFiles on top without clobbering. Pre-fix
+ * (before 2026-05-04) this used `metrics.optionX = { ... }` which
+ * silently dropped the url field — surfaced on watkinsmonuments.com
+ * when Stage 10c failed to find URLs after running finalize.
+ *
+ * Path resolution: all jobs/ paths resolve from the repo root
+ * (scripts/.. — i.e. parent of this script's dir), NOT from cwd. This
+ * lets the script run from any directory without breaking.
  */
 
 const fs = require('fs');
 const path = require('path');
 
+const REPO_ROOT = path.resolve(__dirname, '..');
+
 const domain = process.argv[2];
 if (!domain) {
-  console.error('Usage: node scripts/finalize-metrics.js <domain>');
+  console.error('Usage: node scripts/finalize-metrics.cjs <domain>');
   process.exit(1);
 }
 
-const metricsPath = path.join('jobs', domain, 'metrics.json');
+const metricsPath = path.join(REPO_ROOT, 'jobs', domain, 'metrics.json');
 if (!fs.existsSync(metricsPath)) {
   console.error(`Metrics file not found: ${metricsPath}`);
   process.exit(1);
@@ -47,41 +60,26 @@ function walk(dir) {
   return files;
 }
 
-// Measure Option A output (Astro build output in dist/)
-const optADir = path.join('jobs', domain, 'option-a', 'dist');
-if (fs.existsSync(optADir)) {
-  const files = walk(optADir);
-  metrics.optionA = {
+// Per-option size measurement. CRITICAL: spread existing metrics.optionX
+// so the url + deployedAt fields written by record-deploy-url.cjs at
+// Stage 8b survive this step.
+function measureOption(optionDir, key) {
+  if (!fs.existsSync(optionDir)) return;
+  const files = walk(optionDir);
+  metrics[key] = {
+    ...(metrics[key] || {}),
     files: files.length,
     totalBytes: files.reduce((sum, f) => sum + fs.statSync(f).size, 0),
     htmlFiles: files.filter(f => f.endsWith('.html')).length,
   };
 }
 
-// Measure Option B output (canonical conversion-tuned rewrite of A — same design, new copy)
-const optBDir = path.join('jobs', domain, 'option-b', 'dist');
-if (fs.existsSync(optBDir)) {
-  const files = walk(optBDir);
-  metrics.optionB = {
-    files: files.length,
-    totalBytes: files.reduce((sum, f) => sum + fs.statSync(f).size, 0),
-    htmlFiles: files.filter(f => f.endsWith('.html')).length,
-  };
-}
-
-// Measure Option C output (Astro build in dist/)
-const optCDir = path.join('jobs', domain, 'option-c', 'dist');
-if (fs.existsSync(optCDir)) {
-  const files = walk(optCDir);
-  metrics.optionC = {
-    files: files.length,
-    totalBytes: files.reduce((sum, f) => sum + fs.statSync(f).size, 0),
-    htmlFiles: files.filter(f => f.endsWith('.html')).length,
-  };
-}
+measureOption(path.join(REPO_ROOT, 'jobs', domain, 'option-a', 'dist'), 'optionA');
+measureOption(path.join(REPO_ROOT, 'jobs', domain, 'option-b', 'dist'), 'optionB');
+measureOption(path.join(REPO_ROOT, 'jobs', domain, 'option-c', 'dist'), 'optionC');
 
 // Measure manifest input
-const manifestPath = path.join('jobs', domain, 'manifest.json');
+const manifestPath = path.join(REPO_ROOT, 'jobs', domain, 'manifest.json');
 if (fs.existsSync(manifestPath)) {
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
   metrics.input = {

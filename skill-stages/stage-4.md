@@ -135,10 +135,22 @@ A JSON object matching the schema in visual-sanity-pass.md (stage="4c-bis", opti
 - DO NOT write build-design-decisions.md. The orchestrator writes that file based on your JSON's summary + diversity-check observations.
 ```
 
-Receive the sub-agent's JSON (it's ~400 tokens). Branch on `verdict`:
+Receive the sub-agent's JSON (it's ~400 tokens). The sub-agent MUST write its full JSON to `jobs/{domain}/qa-option-a/visual-pass-verdict.json` AND return a 1-line acknowledgment to the orchestrator. The on-disk verdict file is what the hard gate (next step) reads.
+
+Then run the hard gate:
+
+```bash
+node scripts/validate-visual-pass.cjs $DOMAIN a
+```
+
+This script (added 2026-05-04) is the Stage 4c-bis hard gate — it verifies the verdict JSON exists, has a valid schema (verdict ∈ {pass,fix,rebuild}, items_checked ≥ 16, items_passed integer, issues array, summary string), and exits non-zero if the verdict is `rebuild`. Same pattern as `validate-specs.cjs` for Stage 2.5b: ship the architecture WITH the gate so orchestrators can't silently fall back to the lighter inline path. Real bug 2026-05-04 (watkinsmonuments.com) — orchestrator read 2 desktop screenshots inline rather than dispatching the sub-agent. The gate was added in response.
+
+If the gate fails because the orchestrator deliberately ran inline (debug, special case), pass `--allow-inline` to the gate. This logs a warning but proceeds. Use sparingly — the default expectation is sub-agent dispatch.
+
+Then branch on `verdict`:
 - `pass` → continue to Stage 4c-tris (Dramatic Improvement Audit, still orchestrator-inline below).
 - `fix` → run the Stage 4e fix-loop, scoped to the issues listed in the JSON. Pass the JSON's `issues` array forward as the punch list — no need to re-read screenshots.
-- `rebuild` → escalate (re-spec Option A; rare — design-language-level failures the fix-loop can't reach).
+- `rebuild` → escalate (re-spec Option A; rare — design-language-level failures the fix-loop can't reach). The gate will exit 2 on `rebuild`, blocking the deploy until you address.
 
 **Mandatory orchestrator output — `build-design-decisions.md`**: regardless of verdict, after Stage 4c-bis returns AND any fix-loop iterations complete, the orchestrator writes `jobs/{domain}/option-a/build-design-decisions.md` (and analogously for B at Stage 6c, C at Stage 7g) documenting:
 - Which inspiration directories were used (`saas-default`, `industrial-trades`, etc.)

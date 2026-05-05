@@ -201,7 +201,8 @@ function main() {
     process.exit(1);
   }
 
-  const jobDir = path.join('jobs', domain);
+  const REPO_ROOT = path.resolve(__dirname, '..');
+  const jobDir = path.join(REPO_ROOT, 'jobs', domain);
   const manifestPath = path.join(jobDir, 'manifest.json');
   if (!fs.existsSync(manifestPath)) {
     console.error(`Manifest not found: ${manifestPath}`);

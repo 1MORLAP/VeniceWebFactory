@@ -13,6 +13,8 @@
 const fs = require('fs');
 const path = require('path');
 
+const REPO_ROOT = path.resolve(__dirname, '..');
+
 const url = process.argv[2];
 if (!url) {
   console.error('Usage: node scripts/init-metrics.js <url>');
@@ -23,7 +25,7 @@ if (!url) {
 const domain = url.replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '');
 
 // Ensure job directory exists
-const jobDir = path.join('jobs', domain);
+const jobDir = path.join(REPO_ROOT, 'jobs', domain);
 fs.mkdirSync(jobDir, { recursive: true });
 
 // Allocate unique ports based on domain hash (deterministic per domain, avoids collisions in parallel runs)
