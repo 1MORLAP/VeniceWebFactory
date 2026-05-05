@@ -115,9 +115,44 @@ WebFactory ingests one URL and produces three deployed redesigns of the customer
 - `--skip-c` flag
 - TESTIMONIAL & REVIEW PRESERVATION rule + qa-check `testimonial-tampering` (this commit)
 
+### Wave 4 — Fabrication-prevention layer + 4 hard gates + visibility (2026-05-04)
+
+Real bugs from real builds:
+- **watkinsmonuments.com** Options A/B/C all rendered ~70 scraped 2009-era nav buttons + banner gradients + separator strips per page in catalog galleries captioned "every photo here is an actual monument we have made." Cross-build audit subsequently quantified: 54% of all builds have >30% chrome contamination; arkansaswell.com hit 98%.
+- **richstaxidermy.com** builder hand-drew a deer-head silhouette inline-SVG next to the wordmark + a duck/blob shape in the footer hero. Customer never had those graphics.
+
+Shipped this wave:
+
+**Fabrication prevention**
+- `scripts/classify-images.cjs` (Stage 1d) — tags every scraped image as `content | nav-button | banner | line | spacer | tracking | tiny | icon`. Reads file size from disk when manifest missing fileSize. 12-rule heuristic priority-ordered.
+- `qa-check.js portfolio-integrity` rule — fails build on any non-content-class image rendered within ~4000 chars of portfolio-vocab text ("from our shop", "actual work", "every photo", etc.). Caught 339 violations on watkinsmonuments Option C in smoke test.
+- `qa-check.js invented-brand-graphic` rule — fails build on inline `<svg><path>` complexity (≥300 d-chars or ≥20 smooth-curve commands) inside `<header>` / near `.logo|.brand|.wordmark|.hero` / inside `<a href="/">` / near `aria-label` brand vocab. Caught 26 violations on richstaxidermy Option C.
+- `qa-check.js tailwind-v4-class-collision` rule — warns on custom global.css selectors that collide with Tailwind utility namespaces (`bg-*`, `text-*`, etc.).
+- `scripts/validate-image-pool.cjs` — pre-Stage-3 hard gate; checks `_image-pools.json` against image-classification.json before workers dispatch. Catches chrome leak BEFORE wasted compute.
+
+**Hard gates** (validate-specs.cjs pattern — ship architecture WITH gate so orchestrators can't silently bypass)
+- `scripts/validate-visual-pass.cjs` — Stage 4c-bis / 6c / 7g-h: enforces sub-agent dispatch + on-disk verdict JSON. `--allow-inline` opt-out.
+- `scripts/validate-stage7-plugin.cjs` — Stage 7d: fingerprints frontend-design plugin invocation via 10 industry-tokens.json + aesthetic-brief.md richness checks. ≥70% threshold.
+
+**Architectural rules added (top-level in SKILL.md + CLAUDE.md exec-summary)**
+- **PORTFOLIO INTEGRITY RULE** — sections claiming portfolio/catalog/from-our-shop status MAY ONLY render `_class === 'content'` images.
+- **INVENTED BRAND GRAPHICS BAN** — only valid brand mark is the customer's scraped logo OR LOGO-RULE plain-text wordmark fallback. Builder may not inline-draw figurative SVG decoration (mascots, animal silhouettes, blobs).
+
+**Surgical bug fixes**
+- `smart-resume.cjs` `(option-c/dist || true)` short-circuit fixed (mid-pipeline trapped to stage-8a).
+- `finalize-metrics.cjs` URL-clobber fixed (was wiping optionX.url after Stage 8b recorded it).
+- 8 scripts now cwd-robust via `REPO_ROOT = path.resolve(__dirname, '..')`.
+
+**Visibility layer (closes the "what did the orchestrator actually do?" gap)**
+- `SKILL.md ORCHESTRATION LOGGING CONTRACT` — 17 instrumentation points where orchestrator emits `log-decision.cjs` events.
+- Phase 2 wiring: every stage prose now includes the bash call(s). Stages 0/1d/2.5/2.5b/3/4c-bis/4e/5/6c/7d/7d-build/7g/8b/10c are all instrumented.
+- `scripts/audit-orchestration.cjs` — per-build drift report (logged vs on-disk).
+- `scripts/audit-cross-build.cjs` — aggregate report across all builds. Smoke-tested: 24% of Option C builds show plugin-bypass fingerprint, median chrome ratio 34% across 57 builds.
+- `register-with-store.mjs` self-instruments storefront-registered events.
+
 ### Where we stand on QA
-- **26 deterministic checks** in `scripts/qa-check.js` (was ~11 a week ago)
-- **17-item Visual Sanity Pass** checklist
+- **30+ deterministic checks** in `scripts/qa-check.js` (was ~11 a few weeks ago, ~26 last week)
+- **18-item Visual Sanity Pass** checklist (delegated to Opus sub-agent at Stages 4c-bis / 6c / 7g-h since 2026-05-04 — Tier 2 of context-optimization plan)
 - **3 mandatory new stages** added: Stage 1d (placeholder detection), Stage 4c-bis (Visual Sanity Pass), Stage 4c-tris (Dramatic Improvement Audit), Stage 7b-bis (Industry Design Tokens)
 - **5 layers of social-link defense**: scraper raw-HTML fallback → scraper persistence bugfix → build OMIT-if-empty rule → 5-path detector → structural failsafe
 
