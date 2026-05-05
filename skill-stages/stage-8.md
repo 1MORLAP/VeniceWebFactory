@@ -305,6 +305,7 @@ DEPLOY_URL_A=$(npx vercel deploy --prebuilt --yes 2>/dev/null | tail -1)
 echo "Option A deployed: $DEPLOY_URL_A"
 cd /Users/tomasz/WebFactory
 node scripts/record-deploy-url.cjs "$DOMAIN" a "$DEPLOY_URL_A"
+node scripts/log-decision.cjs "$DOMAIN" 8b deploy-recorded --detail option=a --detail url="$DEPLOY_URL_A"
 ```
 
 **Option B** — same pattern (B inherits A's design and outputs to its own Astro build):
@@ -320,6 +321,7 @@ DEPLOY_URL_B=$(npx vercel deploy --prebuilt --yes 2>/dev/null | tail -1)
 echo "Option B deployed: $DEPLOY_URL_B"
 cd /Users/tomasz/WebFactory
 node scripts/record-deploy-url.cjs "$DOMAIN" b "$DEPLOY_URL_B"
+node scripts/log-decision.cjs "$DOMAIN" 8b deploy-recorded --detail option=b --detail url="$DEPLOY_URL_B"
 ```
 
 **Option C** — same pattern (skip ENTIRELY if `$SKIP_C=1` OR if Option C wasn't built because the plugin isn't installed):
@@ -344,6 +346,7 @@ DEPLOY_URL_C=$(npx vercel deploy --prebuilt --yes 2>/dev/null | tail -1)
 echo "Option C deployed: $DEPLOY_URL_C"
 cd /Users/tomasz/WebFactory
 node scripts/record-deploy-url.cjs "$DOMAIN" c "$DEPLOY_URL_C"
+node scripts/log-decision.cjs "$DOMAIN" 8b deploy-recorded --detail option=c --detail url="$DEPLOY_URL_C"
 ```
 
 **Why capture + record the URLs**: Stage 10c (`scripts/register-with-store.mjs`) registers the build with the WebFactory storefront at `tomekgroup.com` and needs all three deploy URLs. Recording them to `metrics.json` here means the Stage 10 invocation needs no extra args. The capture pattern `$(npx vercel deploy ... | tail -1)` works because the Vercel CLI prints the deploy URL as its last stdout line; if any error output goes to stderr (`2>/dev/null` discards it), the URL captured is clean.

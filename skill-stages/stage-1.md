@@ -77,6 +77,11 @@ After placeholder detection, every image record on every page gets a classificat
 ```bash
 DOMAIN=$(echo "{{url}}" | sed 's|https\?://||; s|www\.||; s|/.*||')
 node scripts/classify-images.cjs $DOMAIN
+# Emit the orchestration log entry for the audit trail
+CLS_TOTAL=$(node -e 'console.log(JSON.parse(require("fs").readFileSync("jobs/'$DOMAIN'/image-classification.json","utf8")).totalImages)')
+CLS_CONTENT=$(node -e 'console.log(JSON.parse(require("fs").readFileSync("jobs/'$DOMAIN'/image-classification.json","utf8")).counts.content)')
+CLS_PCT=$(node -e 'const r=JSON.parse(require("fs").readFileSync("jobs/'$DOMAIN'/image-classification.json","utf8"));console.log((r.counts.content/r.totalImages*100).toFixed(0))')
+node scripts/log-decision.cjs "$DOMAIN" 1d images-classified --detail total="$CLS_TOTAL" --detail content="$CLS_CONTENT" --detail contentPct="$CLS_PCT"
 ```
 
 The script reads `manifest.json`, walks every `pages[*].images[]` record, applies a deterministic 12-rule heuristic classifier (priority-ordered: tracking-pixel → tiny → CSS-bg-extreme-aspect → spacer → placeholder-vocab → line → banner-aspect → nav-vocab → button-shape-low-entropy → logo-thumb → favicon → content default), and writes:

@@ -135,12 +135,23 @@ A JSON object matching the schema in visual-sanity-pass.md (stage="4c-bis", opti
 - DO NOT write build-design-decisions.md. The orchestrator writes that file based on your JSON's summary + diversity-check observations.
 ```
 
+**Pre-dispatch instrumentation** — log the dispatch BEFORE spawning so the audit can detect "dispatched but never returned" (sub-agent crash, OOM, etc.):
+
+```bash
+node scripts/log-decision.cjs "$DOMAIN" 4c-bis visual-pass-dispatched --detail option=a --detail model=opus
+```
+
+Then dispatch the Agent above.
+
 Receive the sub-agent's JSON (it's ~400 tokens). The sub-agent MUST write its full JSON to `jobs/{domain}/qa-option-a/visual-pass-verdict.json` AND return a 1-line acknowledgment to the orchestrator. The on-disk verdict file is what the hard gate (next step) reads.
 
-Then run the hard gate:
+Then run the hard gate AND log the verdict:
 
 ```bash
 node scripts/validate-visual-pass.cjs $DOMAIN a
+VERDICT=$(node -e 'console.log(JSON.parse(require("fs").readFileSync("jobs/'$DOMAIN'/qa-option-a/visual-pass-verdict.json","utf8")).verdict)')
+ITEMS_PASSED=$(node -e 'console.log(JSON.parse(require("fs").readFileSync("jobs/'$DOMAIN'/qa-option-a/visual-pass-verdict.json","utf8")).items_passed)')
+node scripts/log-decision.cjs "$DOMAIN" 4c-bis visual-pass-verdict --detail option=a --detail verdict="$VERDICT" --detail items_passed="$ITEMS_PASSED"
 ```
 
 This script (added 2026-05-04) is the Stage 4c-bis hard gate — it verifies the verdict JSON exists, has a valid schema (verdict ∈ {pass,fix,rebuild}, items_checked ≥ 16, items_passed integer, issues array, summary string), and exits non-zero if the verdict is `rebuild`. Same pattern as `validate-specs.cjs` for Stage 2.5b: ship the architecture WITH the gate so orchestrators can't silently fall back to the lighter inline path. Real bug 2026-05-04 (watkinsmonuments.com) — orchestrator read 2 desktop screenshots inline rather than dispatching the sub-agent. The gate was added in response.
@@ -240,6 +251,17 @@ node scripts/qa.cjs http://localhost:$PORT_A jobs/{domain}/qa-option-a
 ```
 
 **Repeat this loop up to 3 times** until no issues remain.
+
+**Per-iteration instrumentation** (per ORCHESTRATION LOGGING CONTRACT) — log each fix-loop iteration with the issue count remaining so the audit can track convergence vs runaway iteration:
+
+```bash
+# Inside the iteration body, after running qa-check.js:
+ITER=1   # increment each pass through the loop
+ISSUES_REMAINING=$(node -e 'try { console.log(JSON.parse(require("fs").readFileSync("jobs/'$DOMAIN'/qa-option-a/qa-check-report.json","utf8")).failures.length || 0) } catch { console.log("?") }')
+node scripts/log-decision.cjs "$DOMAIN" 4e fix-loop-iter --detail option=a --detail iter="$ITER" --detail issuesRemaining="$ISSUES_REMAINING"
+```
+
+If `issuesRemaining` doesn't trend toward 0 across iterations, abort and re-spec the page (the fix-loop is not converging — root-cause is in the spec, not the build).
 
 #### 4f. Beauty Pass
 

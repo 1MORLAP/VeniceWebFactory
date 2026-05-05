@@ -288,10 +288,14 @@ This step is the **HARD GATE between Stage 2.5 (per-page specs) and Stage 3 (par
 **Run** (decomposed mode — DEFAULT):
 
 ```bash
+# Log the mode choice BEFORE running validate-specs (mode-chosen is per ORCHESTRATION LOGGING CONTRACT)
+node scripts/log-decision.cjs "$DOMAIN" 2.5 mode-chosen --detail mode=decomposed
 node scripts/validate-specs.cjs \
-  --manifest jobs/{domain}/manifest.json \
-  --design-brief jobs/{domain}/design-brief.json \
-  --specs jobs/{domain}/specs/
+  --manifest jobs/$DOMAIN/manifest.json \
+  --design-brief jobs/$DOMAIN/design-brief.json \
+  --specs jobs/$DOMAIN/specs/
+SPEC_COUNT=$(ls jobs/$DOMAIN/specs/*.md 2>/dev/null | grep -v '^_' | wc -l | tr -d ' ')
+node scripts/log-decision.cjs "$DOMAIN" 2.5b validate-specs-pass --detail specCount="$SPEC_COUNT" --detail mode=decomposed
 ```
 
 If `specs/` is empty, this **EXITS 2** with a clear error explaining you skipped Stage 2.5. Either run Stage 2.5 properly OR add `--allow-empty` to opt into monolithic mode (see below).
@@ -299,11 +303,13 @@ If `specs/` is empty, this **EXITS 2** with a clear error explaining you skipped
 **Run** (monolithic mode — opt-in only, for 1–2 page sites or when `/webfactory --monolithic` was passed):
 
 ```bash
+node scripts/log-decision.cjs "$DOMAIN" 2.5 mode-chosen --detail mode=monolithic
 node scripts/validate-specs.cjs \
-  --manifest jobs/{domain}/manifest.json \
-  --design-brief jobs/{domain}/design-brief.json \
-  --specs jobs/{domain}/specs/ \
+  --manifest jobs/$DOMAIN/manifest.json \
+  --design-brief jobs/$DOMAIN/design-brief.json \
+  --specs jobs/$DOMAIN/specs/ \
   --allow-empty
+node scripts/log-decision.cjs "$DOMAIN" 2.5b validate-specs-pass --detail specCount=0 --detail mode=monolithic
 ```
 
 `--allow-empty` makes empty `specs/` produce a warning (not a fail) and exits 0. Use this **only** when the orchestrator has explicitly opted into monolithic mode — for 1–2 page sites where decomposition overhead exceeds the parallelism benefit, or when `/webfactory --monolithic` was passed at invocation.
@@ -376,6 +382,18 @@ Only tools: Read (2-3 spec files) + Write (1 output file).
 
 Spawn all N agents in a SINGLE message with multiple Agent tool uses (parallel execution). Wall-clock for the whole batch is dominated by the slowest single page-build (~50-65 sec) regardless of N.
 
+**Per-dispatch instrumentation** (per ORCHESTRATION LOGGING CONTRACT): immediately AFTER spawning the N agents (the Agent calls return Tasks; the actual sub-agent work runs in parallel), log one entry per dispatch. The orchestrator can do this in a single bash chain:
+
+```bash
+for SPEC in jobs/$DOMAIN/specs/*.md; do
+  PAGE=$(basename "$SPEC" .md)
+  case "$PAGE" in _*) continue ;; esac   # skip _shared.md, _category-template.md, etc.
+  node scripts/log-decision.cjs "$DOMAIN" 3 sub-agent-dispatched --detail option=a --detail page="$PAGE" --detail model=sonnet
+done
+```
+
+Run this loop AFTER the parallel dispatch (the loop is fast — a few hundred ms even for 20 pages). It records that each spec was assigned to a worker; the audit script later pairs these entries with `option-a/src/pages/<page>.astro` to detect silent monolithic fallback (specs exist + page files exist + zero log entries = silent bypass).
+
 When all N complete, run `npm run build` from the option directory. If any page fails to compile, dispatch a fix-up sub-agent with the specific compilation error.
 
 ### Stage 4 fix-loop split (decomposed)
@@ -396,6 +414,15 @@ For each `option-b/src/pages/<page>.astro` file (already a fresh copy of option-
 3. Page-specific rewrite directives (which sections to sharpen, what NOT to touch).
 
 Worker uses the `Edit` tool (NOT `Write`) to make targeted text-only changes. **Edit-based rewriting tightens control vs. Write-based rebuilding** (which can drift into design changes). Validated 2026-04-28: 4 Sonnet rewriters preserved A's design markup verbatim while sharpening copy in 9-12 Edits per page.
+
+**Per-dispatch instrumentation** (per ORCHESTRATION LOGGING CONTRACT) — same pattern as Stage 3, but for option=b:
+
+```bash
+for PAGE_FILE in jobs/$DOMAIN/option-b/src/pages/*.astro; do
+  PAGE=$(basename "$PAGE_FILE" .astro)
+  node scripts/log-decision.cjs "$DOMAIN" 5 sub-agent-dispatched --detail option=b --detail page="$PAGE" --detail model=sonnet
+done
+```
 
 ### Architectural constraints — what STAYS Opus-only
 
@@ -876,8 +903,13 @@ Then run the Smart Resume probe — a single invocation of `scripts/smart-resume
 
 ```bash
 DOMAIN=$(echo "{{url}}" | sed 's|https\?://||; s|www\.||; s|/.*||')
-node scripts/smart-resume.cjs "$DOMAIN"
+RESUME_JSON=$(node scripts/smart-resume.cjs "$DOMAIN")
+echo "$RESUME_JSON"
+RESUME_FROM=$(echo "$RESUME_JSON" | node -e 'process.stdin.on("data",d=>console.log(JSON.parse(d).resumeFrom))')
+node scripts/log-decision.cjs "$DOMAIN" 0 smart-resume-report --detail resumeFrom="$RESUME_FROM"
 ```
+
+The `log-decision` call is the FIRST instrumentation point per the ORCHESTRATION LOGGING CONTRACT (top of this file). It records the resume entry point so the audit script can later reconcile what stages were intended to run vs what actually happened.
 
 The script prints a JSON object like:
 

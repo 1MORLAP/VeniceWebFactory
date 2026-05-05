@@ -388,6 +388,18 @@ console.log(`  job_id:     ${bodyJson.job_id}`);
 console.log(`  slug:       ${bodyJson.slug}`);
 if (bodyJson.expires_at) console.log(`  expires_at: ${bodyJson.expires_at}`);
 console.log(`  checkpoint: ${checkpointPath}`);
+
+// Emit orchestration log entry per the ORCHESTRATION LOGGING CONTRACT.
+// Spawn directly so this script stays self-contained (no extra round-trip
+// for the orchestrator). Failure to log is non-fatal — pipeline continues.
+try {
+  spawnSync('node', [
+    join(SCRIPT_DIR, 'log-decision.cjs'),
+    domain, '10c', 'storefront-registered',
+    '--detail', `slug=${bodyJson.slug || 'unknown'}`,
+    '--detail', `job_id=${bodyJson.job_id || 'unknown'}`,
+  ], { stdio: 'inherit' });
+} catch { /* swallow — logging is best-effort */ }
 process.exit(0);
 
 // ---- helpers --------------------------------------------------------------

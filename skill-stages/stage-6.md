@@ -79,12 +79,23 @@ For item #18, the verdict is INVERTED relative to A and C: B's design SHOULD mat
 - DO NOT write build-design-decisions.md. The orchestrator writes it after Stage 6c returns.
 ```
 
+**Pre-dispatch instrumentation** (per ORCHESTRATION LOGGING CONTRACT):
+
+```bash
+node scripts/log-decision.cjs "$DOMAIN" 6c visual-pass-dispatched --detail option=b --detail model=opus
+```
+
+Then dispatch the Agent above.
+
 Receive the sub-agent's JSON (~400 tokens). The sub-agent MUST write its full JSON to `jobs/{domain}/qa-option-b/visual-pass-verdict.json` AND return a 1-line acknowledgment to the orchestrator.
 
-Then run the hard gate:
+Then run the hard gate AND log the verdict:
 
 ```bash
 node scripts/validate-visual-pass.cjs $DOMAIN b
+VERDICT=$(node -e 'console.log(JSON.parse(require("fs").readFileSync("jobs/'$DOMAIN'/qa-option-b/visual-pass-verdict.json","utf8")).verdict)')
+ITEMS_PASSED=$(node -e 'console.log(JSON.parse(require("fs").readFileSync("jobs/'$DOMAIN'/qa-option-b/visual-pass-verdict.json","utf8")).items_passed)')
+node scripts/log-decision.cjs "$DOMAIN" 6c visual-pass-verdict --detail option=b --detail verdict="$VERDICT" --detail items_passed="$ITEMS_PASSED"
 ```
 
 This is the Stage 6c hard gate (added 2026-05-04, same pattern as Stage 4c-bis). Verifies the verdict JSON exists with valid schema and that the verdict isn't `rebuild`. Pass `--allow-inline` only when the orchestrator deliberately ran the visual pass in main session.

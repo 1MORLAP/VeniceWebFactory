@@ -217,10 +217,20 @@ Args (free-form prompt):
 
 The worker session writes the plugin's output to `jobs/{domain}/option-c/src/`. Then Stage 7e (build check), 7f (content parity), 7g (QA — also invokes the plugin for second-pass critique), 7h (visual QA), 7i (stop dev server) follow.
 
+**Plugin-invoked instrumentation** (per ORCHESTRATION LOGGING CONTRACT) — log immediately after the `Skill: frontend-design:frontend-design` invocation returns:
+
+```bash
+INDUSTRY=$(node -e 'try { console.log(JSON.parse(require("fs").readFileSync("jobs/'$DOMAIN'/option-c/industry-tokens.json","utf8")).industry || "unknown") } catch { console.log("unknown") }')
+node scripts/log-decision.cjs "$DOMAIN" 7d plugin-invoked --detail plugin=frontend-design --detail industry="$INDUSTRY"
+```
+
 **Stage 7d hard gate — verify the plugin actually fired** (added 2026-05-04):
 
 ```bash
 node scripts/validate-stage7-plugin.cjs $DOMAIN
+# Log the gate result for the audit trail
+RICHNESS=$(node /Users/tomasz/WebFactory/scripts/validate-stage7-plugin.cjs "$DOMAIN" 2>&1 | grep -oE '[0-9]+/10' | head -1)
+node scripts/log-decision.cjs "$DOMAIN" 7d validate-stage7-plugin-pass --detail richness="$RICHNESS"
 ```
 
 This script fingerprints plugin invocation by inspecting the richness of `jobs/{domain}/option-c/industry-tokens.json` + `jobs/{domain}/option-c/aesthetic-brief.md`. It runs 10 plugin-quality checks (palette ≥ 5 entries, palette entries with role+rationale, ornament.shapes ≥ 3, ornament.avoid ≥ 3, distinct_from_option_a object, aesthetic-brief ≥ 1500 chars, drift-awareness signal, etc.). Threshold: ≥ 70% must pass. Real plugin output passes 9-10/10; thin inline output (orchestrator fallback) typically passes 3-5/10.
@@ -239,6 +249,18 @@ The fix:
 3. Or use namespaced custom names that DON'T match Tailwind prefixes: `.surface-deep` instead of `.bg-deep`. Tailwind ignores classes whose prefix isn't in its utility namespace.
 
 The qa-check `tailwind-v4-class-collision` rule (added 2026-05-04) scans global.css for selectors starting with Tailwind prefixes (`bg-`, `text-`, `border-`, `ring-`, `shadow-`, etc.) and warns. Heed those warnings — they indicate latent shadowing.
+
+**Stage 7d-build per-dispatch instrumentation** (per ORCHESTRATION LOGGING CONTRACT) — same pattern as Stage 3 Sonnet dispatch, but for option=c. After spawning the parallel Sonnet sub-agents:
+
+```bash
+for SPEC in jobs/$DOMAIN/specs-c/*.md; do
+  PAGE=$(basename "$SPEC" .md)
+  case "$PAGE" in _*) continue ;; esac
+  node scripts/log-decision.cjs "$DOMAIN" 7d-build sub-agent-dispatched --detail option=c --detail page="$PAGE" --detail model=sonnet
+done
+```
+
+(If the orchestrator uses a different specs path for C — e.g., re-using `specs/` or generating C-specific specs in `option-c/specs/` — adjust the loop's source dir accordingly. The instrumentation is what matters; the loop's source path is a detail.)
 
 **Why we EXPLICITLY invoke at build time** (not just rely on auto-trigger): the plugin auto-engages when "the user asks to build frontend interfaces," which our pipeline does naturally — but auto-trigger doesn't always register cleanly in usage telemetry, and the plugin's depth of engagement varies based on prompt clarity. Explicit invocation with the constraint prompt above guarantees:
 1. The plugin engages, hard, on every C build (not just "maybe, if it auto-fires")
@@ -441,12 +463,23 @@ If BOTH drifts fire simultaneously (rare — editorial layout AND dashboard chro
 - DO NOT write build-design-decisions.md. The orchestrator writes it after Stage 7h returns.
 ```
 
+**Pre-dispatch instrumentation** (per ORCHESTRATION LOGGING CONTRACT):
+
+```bash
+node scripts/log-decision.cjs "$DOMAIN" 7g visual-pass-dispatched --detail option=c --detail model=opus
+```
+
+Then dispatch the Agent above.
+
 Receive the sub-agent's JSON (~400 tokens). The sub-agent MUST write its full JSON to `jobs/{domain}/qa-option-c/visual-pass-verdict.json` AND return a 1-line acknowledgment to the orchestrator.
 
-Then run the hard gate:
+Then run the hard gate AND log the verdict:
 
 ```bash
 node scripts/validate-visual-pass.cjs $DOMAIN c
+VERDICT=$(node -e 'console.log(JSON.parse(require("fs").readFileSync("jobs/'$DOMAIN'/qa-option-c/visual-pass-verdict.json","utf8")).verdict)')
+ITEMS_PASSED=$(node -e 'console.log(JSON.parse(require("fs").readFileSync("jobs/'$DOMAIN'/qa-option-c/visual-pass-verdict.json","utf8")).items_passed)')
+node scripts/log-decision.cjs "$DOMAIN" 7g visual-pass-verdict --detail option=c --detail verdict="$VERDICT" --detail items_passed="$ITEMS_PASSED"
 ```
 
 This is the Stage 7h hard gate (added 2026-05-04, same pattern as Stage 4c-bis and 6c). Verifies the verdict JSON exists with valid schema and that the verdict isn't `rebuild`. Pass `--allow-inline` only when the orchestrator deliberately ran the visual pass in main session (rare).
