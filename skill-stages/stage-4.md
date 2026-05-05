@@ -135,13 +135,16 @@ A JSON object matching the schema in visual-sanity-pass.md (stage="4c-bis", opti
 - DO NOT write build-design-decisions.md. The orchestrator writes that file based on your JSON's summary + diversity-check observations.
 ```
 
-**Pre-dispatch instrumentation** — log the dispatch BEFORE spawning so the audit can detect "dispatched but never returned" (sub-agent crash, OOM, etc.):
+**Pre-dispatch — resolve model per cost-tier** (Phase D, 2026-05-05):
 
 ```bash
-node scripts/log-decision.cjs "$DOMAIN" 4c-bis visual-pass-dispatched --detail option=a --detail model=opus
+VP_MODEL=$(node scripts/get-model.cjs $DOMAIN visualPass --field model)
+VP_AGENT=$(node scripts/get-model.cjs $DOMAIN visualPass --agent-model)
+VP_EFFORT=$(node scripts/get-model.cjs $DOMAIN visualPass --field effort)
+node scripts/log-decision.cjs "$DOMAIN" 4c-bis visual-pass-dispatched --detail option=a --detail model=$VP_MODEL --detail effort=$VP_EFFORT
 ```
 
-Then dispatch the Agent above.
+Default per `cost-tier=baseline`: `opus` (medium effort). `balanced` and `aggressive` drop visualPass to `sonnet` — the gates downstream catch quality regressions. Agent tool dispatch uses `model: '$VP_AGENT'`.
 
 Receive the sub-agent's JSON (it's ~400 tokens). The sub-agent MUST write its full JSON to `jobs/{domain}/qa-option-a/visual-pass-verdict.json` AND return a 1-line acknowledgment to the orchestrator. The on-disk verdict file is what the hard gate (next step) reads.
 
@@ -151,7 +154,7 @@ Then run the hard gate AND log the verdict:
 node scripts/validate-visual-pass.cjs $DOMAIN a
 VERDICT=$(node -e 'console.log(JSON.parse(require("fs").readFileSync("jobs/'$DOMAIN'/qa-option-a/visual-pass-verdict.json","utf8")).verdict)')
 ITEMS_PASSED=$(node -e 'console.log(JSON.parse(require("fs").readFileSync("jobs/'$DOMAIN'/qa-option-a/visual-pass-verdict.json","utf8")).items_passed)')
-node scripts/log-decision.cjs "$DOMAIN" 4c-bis visual-pass-verdict --detail option=a --detail verdict="$VERDICT" --detail items_passed="$ITEMS_PASSED"
+node scripts/log-decision.cjs "$DOMAIN" 4c-bis visual-pass-verdict --detail option=a --detail verdict="$VERDICT" --detail items_passed="$ITEMS_PASSED" --detail model=$VP_MODEL --detail effort=$VP_EFFORT
 ```
 
 This script (added 2026-05-04) is the Stage 4c-bis hard gate — it verifies the verdict JSON exists, has a valid schema (verdict ∈ {pass,fix,rebuild}, items_checked ≥ 16, items_passed integer, issues array, summary string), and exits non-zero if the verdict is `rebuild`. Same pattern as `validate-specs.cjs` for Stage 2.5b: ship the architecture WITH the gate so orchestrators can't silently fall back to the lighter inline path. Real bug 2026-05-04 (watkinsmonuments.com) — orchestrator read 2 desktop screenshots inline rather than dispatching the sub-agent. The gate was added in response.
@@ -173,44 +176,85 @@ This file is the audit trail for the inspiration-only architecture. If two build
 
 **Self-improvement loop**: any bug class the sub-agent surfaces that isn't already on the checklist in `visual-sanity-pass.md` goes into FEEDBACK.md AND becomes either (a) a new item on the checklist OR (b) a new programmatic check in qa-check.js. The deterministic and visual layers are co-evolving — every shipped bug eventually graduates from "the model has to spot it" to "the gate catches it deterministically."
 
-#### 4c-tris. Dramatic Improvement Audit (MANDATORY — A must be obviously better than the original)
+#### 4c-tris. Dramatic Improvement Audit (delegated to a sub-agent — Phase D of context-optimization, 2026-05-05)
 
 **The vision says A is "same site, suddenly expensive" — a dramatic transformation, not a polish.** If A ships as "same layout, slightly nicer fonts, a touch more padding" — that's a polish, not an $80k rebuild. The customer's reaction should be "wait, is that the same site?" not "oh, that's nice."
 
-Before completing Stage 4, run this audit explicitly:
+**Pre-2026-05-05** this audit ran inline in the orchestrator (the carve-out from Tier 2). With Phase D enabling tiered model selection — including Sonnet orchestrator builds — this is now the LAST subjective taste call that needs a sub-agent so quality stays Opus regardless of orchestrator tier.
 
-1. **Open the original homepage screenshot** captured during Stage 1:
-   ```
-   Read: jobs/{domain}/assets/screenshots/home.png
-   ```
-   (If the path is different, find it — the scraper writes one full-page screenshot per page during Stage 1.)
+Read the per-stage model assignment first:
 
-2. **Open A's homepage screenshots** (both viewports):
-   ```
-   Read: jobs/{domain}/qa-option-a/desktop-home.png
-   Read: jobs/{domain}/qa-option-a/mobile-home.png
-   ```
+```bash
+MODEL=$(node scripts/get-model.cjs $DOMAIN fourCtris --field model)
+THINK=$(node scripts/get-model.cjs $DOMAIN fourCtris --field thinkingBudget)
+```
 
-3. **Articulate, in writing, three SPECIFIC dramatic improvements**. Not abstract ("looks more modern") — concrete and visual. Examples of what counts:
-   - "Original hero was a flat green box with the company name; A's hero is a full-bleed photo of a finished landscape installation with a Fraunces display headline overlay and a labeled '01 // RESIDENTIAL' section number — earns the photo, signals a designed brand."
-   - "Original navigation was a centered horizontal list of 9 links in Comic Sans-ish font; A's nav is a sticky 4-item nav with a yellow CTA pill, mono section indices, and a clean Inter typography pairing."
-   - "Original services were 12 stacked text paragraphs; A's services are a 3-column grid of cards with icons, hover scale, and consistent treatment — 60-second skim now possible."
+Default for `fourCtris` is `opus` with `thinkingBudget=5000` across every cost-tier preset (baseline / balanced / aggressive). This stage is the one place where Opus + thinking is non-negotiable — it's the canonical taste call.
 
-4. **If you cannot articulate three specific dramatic improvements** — if the answers are vague ("better fonts," "more spacing") OR if the differences are merely cosmetic (typography swap with no design ambition) — **A failed the dramatic-improvement bar**. Add to the punch list and rebuild with more ambition. Specifically:
-   - Heroes: redesign the hero treatment with new layered elements (overlay + section number + mono caption + accent rule), not just "photo + headline."
-   - Sections: introduce at least one section per page with a layout pattern the original doesn't have (stat strip, process steps, editorial quote, comparison table).
-   - Typography: confirm a display-quality font is loaded and used at scale (not just system Inter).
-   - Spacing: audit section padding — 96px+ desktop, 48px+ mobile, no exceptions.
-   - Color: confirm 3 primary + 2 accent palette with named roles (per DESIGN QUALITY BAR).
+Spawn ONE sub-agent via the `Agent` tool — same dispatch shape as Tier 2 visual-pass:
 
-5. **Log the three improvements to a new file**:
-   ```
-   Write: jobs/{domain}/dramatic-improvement-audit.md
-   Content: brief markdown documenting the original-vs-A comparison, the 3 specific improvements, screenshot references.
-   ```
-   This file is for the skill-owner to review later — it's how we learn whether the bar is holding across builds.
+- `subagent_type: 'general-purpose'`
+- `model: '$MODEL'`  (resolves to opus per default)
+- Prompt template (substitute `{DOMAIN}`):
 
-**Why this exists**: too many shipped builds were "merely better than original." The customer's $80k expectation was set by the vision tagline; the build needs to deliver on it. This audit forces the worker session to honestly compare and either certify the dramatic improvement OR rebuild with more ambition. No "fine, ship it" without articulating WHY.
+```
+## Charter
+
+You are running the **Stage 4c-tris Dramatic Improvement Audit** on Option A for {DOMAIN}. The vision is "same site, suddenly expensive" — a dramatic transformation, not a polish. Your job is to certify or reject A's dramatic-improvement bar.
+
+## What to read
+
+- jobs/{DOMAIN}/assets/screenshots/home.png — the ORIGINAL site's homepage
+- jobs/{DOMAIN}/qa-option-a/desktop-home.png — A's rebuilt homepage (desktop)
+- jobs/{DOMAIN}/qa-option-a/mobile-home.png — A's rebuilt homepage (mobile)
+- /Users/tomasz/WebFactory/SKILL.md "DESIGN QUALITY BAR" section — the bar A must clear
+
+## What to do
+
+Articulate, in writing, three SPECIFIC dramatic improvements from the original to A's rebuild. Not abstract ("looks more modern") — concrete and visual:
+- "Original hero was a flat green box; A's hero is a full-bleed photo with Fraunces display headline and labeled '01 // RESIDENTIAL' section number"
+- "Original nav was a centered horizontal list of 9 links; A's nav is a sticky 4-item with yellow CTA pill and mono section indices"
+- "Original services were 12 stacked paragraphs; A's services are a 3-column grid with icons, hover scale, and consistent treatment"
+
+If you CANNOT articulate three specific dramatic improvements — if the differences are vague ("better fonts," "more spacing") OR merely cosmetic — A FAILED the bar. Recommend `verdict: "rebuild"` with specific guidance on which axes need more ambition (hero layering, section variety, typography, spacing, palette).
+
+## Output
+
+Write your full report to:
+- jobs/{DOMAIN}/dramatic-improvement-audit.md (markdown — original-vs-A comparison + 3 specific improvements + screenshot references; or rebuild guidance if the bar isn't met)
+
+Then return a JSON object to the orchestrator:
+
+{
+  "verdict": "pass | rebuild",
+  "improvements": [
+    "specific concrete improvement #1",
+    "specific concrete improvement #2",
+    "specific concrete improvement #3"
+  ],
+  "rebuild_axes": ["hero" | "sections" | "typography" | "spacing" | "palette" | ...],   // only if verdict=rebuild
+  "summary": "1-line takeaway"
+}
+
+~300 tokens of output is the target. Keep prose concise — the dramatic-improvement-audit.md file holds the longform.
+
+## What you do NOT do
+
+- DO NOT touch source code. Verdict-only role.
+- DO NOT re-run the Stage 4c-bis 18-item Visual Sanity Pass — that's a separate sub-agent, already complete.
+- DO NOT spawn further sub-agents.
+```
+
+**Hard gate** (added 2026-05-05 alongside Phase D):
+
+```bash
+node scripts/log-decision.cjs $DOMAIN 4c-tris dramatic-improvement-audit-verdict --detail verdict=$VERDICT --detail model=$MODEL --detail thinkingBudget=$THINK
+test -f jobs/$DOMAIN/dramatic-improvement-audit.md   # gate: file MUST exist post-dispatch
+```
+
+If the verdict is `rebuild`, escalate — don't proceed to Stage 5. The orchestrator must address the named `rebuild_axes` and re-spawn the build before B/C derive from A.
+
+**Why this exists**: too many shipped builds were "merely better than original." The customer's $80k expectation was set by the vision tagline; the build needs to deliver on it. This audit forces an explicit "yes the bar is met, here are the three reasons" OR a rebuild — no silent "fine, ship it."
 
 #### 4d. ~~Plugin critique~~ — REMOVED 2026-04-26 (Option A is intentionally plugin-free)
 

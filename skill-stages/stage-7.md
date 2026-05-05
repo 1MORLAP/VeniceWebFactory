@@ -250,15 +250,20 @@ The fix:
 
 The qa-check `tailwind-v4-class-collision` rule (added 2026-05-04) scans global.css for selectors starting with Tailwind prefixes (`bg-`, `text-`, `border-`, `ring-`, `shadow-`, etc.) and warns. Heed those warnings — they indicate latent shadowing.
 
-**Stage 7d-build per-dispatch instrumentation** (per ORCHESTRATION LOGGING CONTRACT) — same pattern as Stage 3 Sonnet dispatch, but for option=c. After spawning the parallel Sonnet sub-agents:
+**Stage 7d-build per-dispatch instrumentation** (per ORCHESTRATION LOGGING CONTRACT) — same pattern as Stage 3 dispatch, but for option=c. Resolve per-page model first:
 
 ```bash
+PER_PAGE_MODEL=$(node scripts/get-model.cjs $DOMAIN perPage --field model)
+PER_PAGE_AGENT=$(node scripts/get-model.cjs $DOMAIN perPage --agent-model)
+PER_PAGE_EFFORT=$(node scripts/get-model.cjs $DOMAIN perPage --field effort)
 for SPEC in jobs/$DOMAIN/specs-c/*.md; do
   PAGE=$(basename "$SPEC" .md)
   case "$PAGE" in _*) continue ;; esac
-  node scripts/log-decision.cjs "$DOMAIN" 7d-build sub-agent-dispatched --detail option=c --detail page="$PAGE" --detail model=sonnet
+  node scripts/log-decision.cjs "$DOMAIN" 7d-build sub-agent-dispatched --detail option=c --detail page="$PAGE" --detail model=$PER_PAGE_MODEL --detail effort=$PER_PAGE_EFFORT
 done
 ```
+
+Agent tool dispatches use `model: '$PER_PAGE_AGENT'`. Per `cost-tier=balanced` and `aggressive` this stays on `sonnet` per 2026-05-05 user direction (Haiku codegen quality is medium-risk; reserved for translation/report/scaffold).
 
 (If the orchestrator uses a different specs path for C — e.g., re-using `specs/` or generating C-specific specs in `option-c/specs/` — adjust the loop's source dir accordingly. The instrumentation is what matters; the loop's source path is a detail.)
 
@@ -428,10 +433,10 @@ node scripts/qa.cjs http://localhost:$PORT_C jobs/{domain}/qa-option-c
 
 Per Tier 2 of the context-optimization plan, the Visual Sanity Pass is delegated to an Opus sub-agent. **The 18-item checklist + JSON output schema live in `/Users/tomasz/WebFactory/skill-stages/visual-sanity-pass.md`** (single source of truth, shared with Stage 4c-bis and Stage 6c). C-specific extensions: the **editorial-drift check (item #17)** and the **control-plane reflex check** (mirror-failure-mode for B2B tech / SaaS / fintech / holding-co directions). Both extensions are documented in detail under "Stage 7g (Option C)" inside `visual-sanity-pass.md`.
 
-Spawn ONE Opus sub-agent via the `Agent` tool — same dispatch shape as the Stage 3 Sonnet dispatch, but with `model: "opus"` instead of `"sonnet"`:
+Spawn ONE sub-agent via the `Agent` tool — same dispatch shape as Stage 4c-bis. **Resolve the model per cost-tier first** (Phase D, see top of this file's pre-dispatch block — `VP_MODEL`, `VP_AGENT`, `VP_EFFORT` are already resolved):
 
 - `subagent_type: 'general-purpose'`
-- `model: 'opus'`
+- `model: '$VP_AGENT'`
 - Prompt template (substitute `{DOMAIN}` and the peer C-build screenshot path):
 
 ```
@@ -463,13 +468,16 @@ If BOTH drifts fire simultaneously (rare — editorial layout AND dashboard chro
 - DO NOT write build-design-decisions.md. The orchestrator writes it after Stage 7h returns.
 ```
 
-**Pre-dispatch instrumentation** (per ORCHESTRATION LOGGING CONTRACT):
+**Pre-dispatch — resolve model per cost-tier** (Phase D, 2026-05-05):
 
 ```bash
-node scripts/log-decision.cjs "$DOMAIN" 7g visual-pass-dispatched --detail option=c --detail model=opus
+VP_MODEL=$(node scripts/get-model.cjs $DOMAIN visualPass --field model)
+VP_AGENT=$(node scripts/get-model.cjs $DOMAIN visualPass --agent-model)
+VP_EFFORT=$(node scripts/get-model.cjs $DOMAIN visualPass --field effort)
+node scripts/log-decision.cjs "$DOMAIN" 7g visual-pass-dispatched --detail option=c --detail model=$VP_MODEL --detail effort=$VP_EFFORT
 ```
 
-Then dispatch the Agent above.
+Then dispatch the Agent above with `model: '$VP_AGENT'`.
 
 Receive the sub-agent's JSON (~400 tokens). The sub-agent MUST write its full JSON to `jobs/{domain}/qa-option-c/visual-pass-verdict.json` AND return a 1-line acknowledgment to the orchestrator.
 
@@ -479,7 +487,7 @@ Then run the hard gate AND log the verdict:
 node scripts/validate-visual-pass.cjs $DOMAIN c
 VERDICT=$(node -e 'console.log(JSON.parse(require("fs").readFileSync("jobs/'$DOMAIN'/qa-option-c/visual-pass-verdict.json","utf8")).verdict)')
 ITEMS_PASSED=$(node -e 'console.log(JSON.parse(require("fs").readFileSync("jobs/'$DOMAIN'/qa-option-c/visual-pass-verdict.json","utf8")).items_passed)')
-node scripts/log-decision.cjs "$DOMAIN" 7g visual-pass-verdict --detail option=c --detail verdict="$VERDICT" --detail items_passed="$ITEMS_PASSED"
+node scripts/log-decision.cjs "$DOMAIN" 7g visual-pass-verdict --detail option=c --detail verdict="$VERDICT" --detail items_passed="$ITEMS_PASSED" --detail model=$VP_MODEL --detail effort=$VP_EFFORT
 ```
 
 This is the Stage 7h hard gate (added 2026-05-04, same pattern as Stage 4c-bis and 6c). Verifies the verdict JSON exists with valid schema and that the verdict isn't `rebuild`. Pass `--allow-inline` only when the orchestrator deliberately ran the visual pass in main session (rare).

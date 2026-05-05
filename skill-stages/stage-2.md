@@ -91,10 +91,18 @@ A weak brief produces a "merely better than original" build. Strong brief = stro
 
 Per Tier 3 of the context-optimization plan, the orchestrator MAY (and by default SHOULD) delegate Stage 2 to an Opus sub-agent so the brief generation's screenshot reads + manifest walk happen off the main session. Tier 1a (skill-stages split) + Tier 1b (smart-resume) + Tier 2 (visual-pass dispatch) shipped 2026-05-04 brought main-session context for a 6-page build from ~600-800K to ~250-350K. Tier 3 takes another ~80-120K off main when the customer has more than 4-5 pages.
 
-Spawn ONE Opus sub-agent via the `Agent` tool — same dispatch shape as Tier 2 visual-pass:
+Spawn ONE sub-agent via the `Agent` tool. **Resolve the model per cost-tier first** (Phase D):
+
+```bash
+BRIEF_MODEL=$(node scripts/get-model.cjs $DOMAIN brief --field model)
+BRIEF_AGENT=$(node scripts/get-model.cjs $DOMAIN brief --agent-model)
+BRIEF_EFFORT=$(node scripts/get-model.cjs $DOMAIN brief --field effort)
+```
+
+Default per `cost-tier=baseline`: `opus-1m` (high effort). `cost-tier=balanced` and `aggressive` drop this to `sonnet` (high effort) — validate-design-brief.cjs gate enforces brief richness regardless of model.
 
 - `subagent_type: 'general-purpose'`
-- `model: 'opus'`
+- `model: '$BRIEF_AGENT'`
 - Prompt template (substitute `{DOMAIN}`):
 
 ```
@@ -126,7 +134,7 @@ After the sub-agent returns, run the hard gate:
 
 ```bash
 node scripts/validate-design-brief.cjs $DOMAIN
-node scripts/log-decision.cjs "$DOMAIN" 2 design-brief-written --detail dispatcher=opus-sub-agent
+node scripts/log-decision.cjs "$DOMAIN" 2 design-brief-written --detail dispatcher=sub-agent --detail model=$BRIEF_MODEL --detail effort=$BRIEF_EFFORT
 ```
 
 The gate verifies the brief has the required fields (typography, palette, hero, distinctive-elements, micro-interactions, mobile-first, brand-signature) per the DESIGN QUALITY BAR. Soft no-op if the file is missing — that's a separate failure mode handled by Stage 2.5b's dependency check.
@@ -135,10 +143,18 @@ If the orchestrator deliberately runs Stage 2 inline (smaller sites, debugging),
 
 #### Stage 2.5 sub-agent dispatch (Tier 3 — paired with Stage 2 above)
 
-Same pattern for per-page spec generation. Spawn ONE Opus sub-agent (NOT N parallel — the spec-author needs holistic understanding to produce coherent specs across pages):
+Same pattern for per-page spec generation. Spawn ONE sub-agent (NOT N parallel — the spec-author needs holistic understanding to produce coherent specs across pages). **Resolve the model per cost-tier**:
+
+```bash
+SPECS_MODEL=$(node scripts/get-model.cjs $DOMAIN specs --field model)
+SPECS_AGENT=$(node scripts/get-model.cjs $DOMAIN specs --agent-model)
+SPECS_EFFORT=$(node scripts/get-model.cjs $DOMAIN specs --field effort)
+```
+
+Default per `cost-tier=baseline`: `opus-1m` (high effort). `cost-tier=balanced` and `aggressive` drop this to `sonnet`. Validate-specs + validate-image-pool gates enforce quality regardless.
 
 - `subagent_type: 'general-purpose'`
-- `model: 'opus'`
+- `model: '$SPECS_AGENT'`
 - Prompt template (substitute `{DOMAIN}`):
 
 ```
@@ -174,7 +190,7 @@ After the sub-agent returns, run BOTH hard gates:
 ```bash
 node scripts/validate-specs.cjs --manifest jobs/$DOMAIN/manifest.json --design-brief jobs/$DOMAIN/design-brief.json --specs jobs/$DOMAIN/specs/
 node scripts/validate-image-pool.cjs $DOMAIN
-node scripts/log-decision.cjs "$DOMAIN" 2.5 specs-written --detail dispatcher=opus-sub-agent --detail specCount=$(ls jobs/$DOMAIN/specs/*.md 2>/dev/null | grep -v '^_' | wc -l | tr -d ' ')
+node scripts/log-decision.cjs "$DOMAIN" 2.5 specs-written --detail dispatcher=sub-agent --detail model=$SPECS_MODEL --detail effort=$SPECS_EFFORT --detail specCount=$(ls jobs/$DOMAIN/specs/*.md 2>/dev/null | grep -v '^_' | wc -l | tr -d ' ')
 ```
 
 If either gate fails, the orchestrator either re-dispatches the Stage 2.5 sub-agent with the gate's error message as input OR falls back to inline curation. The gates are the safety net.

@@ -166,39 +166,87 @@ The skill-owner runs `scripts/audit-orchestration.cjs <domain>` to read the log 
 | 2.5 | `specs-written` | `dispatcher=opus-sub-agent\|orchestrator-inline`, `model=opus`, `specCount=<n>` |
 | 2.5c | `validate-image-pool-pass` | `mode=clean\|chrome-leak` |
 
-## 🎯 TIERED MODEL ARCHITECTURE (codified 2026-05-05)
+## 🎯 TIERED MODEL ARCHITECTURE (revised 2026-05-05 with corrected model lineup + cost-tier presets)
 
-The pipeline runs across multiple model tiers. **The default for every stage is documented below — orchestrator and sub-agents follow this assignment unless an explicit `--monolithic` or other override flag changes it.**
+### Available models (verified against Anthropic docs 2026-05-05)
+
+| Model | Alias | Input $/M | Output $/M | Context | Thinking |
+|---|---|---|---|---|---|
+| Claude Opus 4.7 | `opus` (resolves to `claude-opus-4-7`) | $5 | $25 | **1M default** | Adaptive (automatic) — NO budget-controllable extended thinking |
+| Claude Sonnet 4.6 | `sonnet` (resolves to `claude-sonnet-4-6`) | $3 | $15 | **1M default** | Extended (budget) + adaptive |
+| Claude Haiku 4.5 | `haiku` (resolves to `claude-haiku-4-5`) | $1 | $5 | 200K | Extended only (no adaptive) |
+
+Note: there is **NO Sonnet 4.7** — only 4.6. Both Opus 4.7 and Sonnet 4.6 default to 1M context — the previous "1M premium tier" no longer exists. Opus is 1.67× Sonnet across both axes (not 5× as older Opus 4.1 pricing implied).
+
+### Cost-tier presets (the orchestrator's main lever)
+
+Pick ONE preset at Stage 0 via `node scripts/configure-model.cjs $DOMAIN --cost-tier=<preset>`. Per-stage overrides allowed for fine control. **Haiku is reserved for LOW-quality-risk stages only** (multilingual translation, report formatting, scaffold) per user direction 2026-05-05 — never for per-page builds, fix-loops, brief, specs, or visual passes.
+
+| Preset | Brief / Specs | Per-page | Visual pass | 4c-tris | Orchestrator | Multilingual / Scaffold / Report | Cost vs baseline | Quality risk |
+|---|---|---|---|---|---|---|---|---|
+| `baseline` (today) | **Opus 4.7 1M** (high effort) | Sonnet 4.6 (low) | Opus (medium) | Opus (high) | Opus 4.7 1M (max) | Sonnet (low) | 1.0× | Lowest |
+| `balanced` | **Sonnet 4.6** (high) | Sonnet (low) | **Sonnet** (medium) | Opus (high) | Opus 4.7 1M (high) | Sonnet (low) | ~0.7× (~30% cut) | Low — gates protect (validate-design-brief / specs / image-pool / visual-pass / 4c-tris stays Opus) |
+| `aggressive` | Sonnet (high) | Sonnet (low) | Sonnet (medium) | Opus (high) | **Sonnet** (high) | **Haiku 4.5** (low) | ~0.55× (~45% cut) | Medium — Sonnet orchestrator is the unproven dial; Haiku stays out of medium-risk stages |
+| `opus-everywhere` | Opus 1M (max) | **Opus** (medium) | Opus (high) | Opus (max) | Opus 1M (max) | Opus (medium) | ~3× | Highest / showcase only |
+
+**Why Haiku is restricted**: Haiku codegen quality is genuinely weaker than Sonnet for non-trivial tasks. Per-page rendering looks mechanical but the Sonnet sub-agent is interpreting a multi-section spec with image-pool curation, design-decision documentation, and component composition — that's where Haiku stumbles. Translation / report / scaffold are pure pattern application — Haiku is fine there.
+
+### Per-stage default behavior table (the `baseline` preset above, expanded)
 
 | Stage | Sub-stage | Model | Dispatch shape | Why this tier |
 |---|---|---|---|---|
-| 0 | Smart Resume | Opus | orchestrator inline | Decision logic on resume point — needs holistic context |
-| 1 | Scrape + post-scrape | Opus | orchestrator inline | Scripts run deterministically; orchestrator just sequences them |
-| 2 | Design Brief | **Opus** | orchestrator inline OR Opus sub-agent (Tier 3 default since 2026-05-05) | Holistic understanding of customer's industry + visual taste required. Brief quality determines all downstream worker quality |
-| 2.5 | Per-page specs + image-pool | **Opus** | orchestrator inline OR Opus sub-agent (Tier 3) | Specs need cross-page coherence + filter image-pool to content-class only. Bigger sites benefit from sub-agent dispatch |
-| 2.6 | Shared scaffold | Opus | orchestrator inline | Small task; no benefit to delegating |
-| 3 | Build A per-page | **Sonnet** | N parallel Sonnet sub-agents | Mechanical translation of spec → .astro. Spec carries the design judgment |
-| 4b | qa-check.js | (deterministic) | shell command | No model |
-| 4c-bis | Visual Sanity Pass A | **Opus** | Opus sub-agent (Tier 2) | Vision-capability + design taste. Sub-agent for context savings |
-| 4c-tris | Dramatic Improvement Audit | **Opus** | orchestrator inline | Subjective taste call — orchestrator confirms directly before B/C derive |
-| 4e | Fix loop (per-page) | **Sonnet** | Sonnet sub-agent per affected page | Mechanical fix per qa-check report |
-| 4e | Fix loop (shared) | Opus | orchestrator inline | One Opus edit benefits all pages |
-| 5 | Build B per-page | **Sonnet** | N parallel Sonnet sub-agents | Edit-mode rewrite, structure preserved |
-| 6c | Visual Sanity Pass B | **Opus** | Opus sub-agent (Tier 2) | Same shape as 4c-bis |
-| 7d | Frontend Design plugin | **Opus** | orchestrator invokes plugin via Skill tool | Plugin output is the design system |
-| 7d-build | Build C per-page | **Sonnet** | N parallel Sonnet sub-agents | Mechanical rendering of B's text in C's components |
-| 7g | Visual Sanity Pass C | **Opus** | Opus sub-agent (Tier 2) | Same shape as 4c-bis + editorial-drift / control-plane reflex checks |
-| 8a | QA gate | (deterministic) | shell command | No model |
-| 8b | Vercel deploy | (deterministic) | shell command | No model |
-| 9 | Verify | Opus | orchestrator inline | Light HTTP probes |
-| 10 | Report | Opus | orchestrator inline | Final report formatting + storefront registration. Could move to Sonnet sub-agent if main session is full |
-| AL1-6 | Multilingual add-language | **Sonnet** | N parallel Sonnet sub-agents per language | Translation is mechanical |
+| 0 | Smart Resume | Opus orchestrator | inline | Decision logic on resume point |
+| 1 | Scrape + post-scrape | Opus orchestrator | runs scripts | Deterministic scripts; orchestrator sequences |
+| 1d | Image classification | (script) | deterministic | No model |
+| 1e | Video classification | (script) | deterministic | No model |
+| 2 | Design Brief | **Opus** | inline OR sub-agent (Tier 3) | Holistic understanding + visual taste. Validate-design-brief gate enforces 70% richness threshold |
+| 2.5 | Per-page specs + image-pool | **Opus** | inline OR sub-agent (Tier 3) | Cross-page coherence; image-pool curation to content-class. Validate-specs + validate-image-pool gates |
+| 2.6 | Shared scaffold | Sonnet | inline | Component scaffolding from spec |
+| 3 / 5 / 7d-build | Per-page render | **Sonnet** | N parallel sub-agents | Mechanical: spec → .astro file. Spec carries design judgment |
+| 4b / 6b / 7e | qa-check | (script) | deterministic | No model |
+| 4c-bis / 6c / 7g | Visual Sanity Pass | **Opus** | sub-agent (Tier 2) | Vision + structured 18-item checklist |
+| 4c-tris | Dramatic Improvement Audit | **Opus** | sub-agent (Phase D delegated 2026-05-05) | Subjective taste call — kept on Opus + thinking budget regardless of cost-tier |
+| 4e / 6e / 7f | Fix loop (per-page) | **Sonnet** | sub-agent per affected page | Mechanical fix per qa-check directive. Validate-fix-loop-classification gate |
+| 4e / 6e / 7f | Fix loop (shared component) | Sonnet | inline | One Edit benefits all pages |
+| 7d | Frontend Design plugin | **Opus** | Skill tool invocation | Plugin owns the design system |
+| 8 / 9 | Deploy + verify | Sonnet | inline | Shell + light HTTP |
+| 10 | Report | Sonnet | inline | Formatting only |
+| AL1-6 | Multilingual add-language | **Sonnet** | N parallel sub-agents | Translation is mechanical |
 
-**Cost-tracking**: every stage's `log-decision.cjs` event SHOULD include `--detail model=<opus\|sonnet\|haiku>` and ideally `--detail tokensApprox=<N>` so `scripts/audit-cost.cjs` can roll up cost-per-build. Without these, audit-orchestration can verify control flow but cannot quantify spend.
+### Configuration mechanism
 
-**Override**: a build can run any stage on a different tier if the orchestrator has a documented reason (e.g. small 1-page customer where decomposition overhead exceeds parallelism benefit). Document the override in `jobs/{domain}/build-design-decisions.md` AND log via `--detail model=<actual> --detail tier-override=true`.
+Stage 0 invocation chain (after init-metrics):
 
-**What's NOT tiered down**: the orchestrator role itself. Tier 4 of the original context-optimization plan (Sonnet orchestration) is deferred indefinitely. The orchestrator's job is most sensitive to model quality — missing a stage transition or skipping a QA gate compounds across every downstream stage. Stay on Opus.
+```bash
+DOMAIN=<from URL>
+node scripts/init-metrics.cjs "{{url}}"
+# Pick a preset (default: baseline). Per-stage overrides override the preset.
+node scripts/configure-model.cjs $DOMAIN --cost-tier=baseline
+# Optional: per-stage override examples (used by A/B test harness):
+#   node scripts/configure-model.cjs $DOMAIN --cost-tier=balanced --4c-tris-model=opus --brief-effort=max
+```
+
+Every dispatch template reads the stored assignment:
+
+```bash
+MODEL=$(node scripts/get-model.cjs $DOMAIN brief --field model)
+EFFORT=$(node scripts/get-model.cjs $DOMAIN brief --field effort)
+AGENT_MODEL=$(node scripts/get-model.cjs $DOMAIN brief --agent-model)  # collapses opus-1m → opus
+# ... Agent dispatch with model: $AGENT_MODEL, then log:
+node scripts/log-decision.cjs $DOMAIN 2 design-brief-written --detail model=$MODEL --detail effort=$EFFORT
+```
+
+**The Agent tool only accepts `opus | sonnet | haiku` — not the 1M / Legacy variants** (those are Claude Code session-level UI selections). When dispatching, use `--agent-model` flag of get-model.cjs to collapse the 5-model vocabulary (`opus`, `opus-1m`, `sonnet`, `haiku`, `opus-legacy`) down to the 3-alias Agent vocabulary. The 1M-vs-standard and Legacy distinctions are recorded in the log for audit/cost attribution but propagate to sub-agents via session inheritance, not via Agent param.
+
+**Effort labels** (`low`, `medium`, `high`, `extra-high`, `max`) match the Claude Code effort picker UI. Sub-agents inherit session-level effort — the orchestrator should set its session effort to the highest stage requirement so sub-agents have the budget when they need it.
+
+### Cost-tracking detail (for audit-cost.cjs)
+
+Every dispatch event SHOULD include `--detail model=<full-id>` (REQUIRED — `opus | opus-1m | sonnet | haiku | opus-legacy`) and `--detail effort=<label>` (REQUIRED — `low | medium | high | extra-high | max`). `tokensApprox=<N>` opt-in where the orchestrator has a measurable proxy.
+
+### What's still NOT tiered down
+
+The orchestrator runs Sonnet under `cost-tier=aggressive` but Tier 4 (Haiku orchestration) is permanently deferred — the completion-contract enforcement (no mid-pipeline pauses, correct stage transitions) is too sensitive for Haiku-class models. Stage 4c-tris stays on Opus regardless of cost-tier; that's the one taste call we won't compromise. The plugin invocation at Stage 7d uses whatever model the plugin itself selects — outside our control.
 
 ## 🔒 SKILL LOCKDOWN — DO NOT MODIFY THE SKILL
 
@@ -419,9 +467,16 @@ Before dispatching workers, Opus must lint its own scaffold:
 
 This shifts the QA cost from "Stage 4 cleanup × N pages" to "one upfront lint pass." For an N-page build the savings is N×.
 
-### Stage 3 (decomposed): Spawn N Sonnet sub-agents in parallel
+### Stage 3 (decomposed): Spawn N sub-agents in parallel
 
-For each spec in `jobs/{domain}/specs/`, spawn a Sonnet sub-agent via the `Agent` tool with `model: "sonnet"`. The prompt template:
+For each spec in `jobs/{domain}/specs/`, spawn a per-page sub-agent via the `Agent` tool. **The model is resolved per-build via the cost-tier preset** (Phase D, 2026-05-05) — read it before dispatch:
+
+```bash
+PER_PAGE_MODEL=$(node scripts/get-model.cjs $DOMAIN perPage --agent-model)   # opus | sonnet | haiku
+PER_PAGE_EFFORT=$(node scripts/get-model.cjs $DOMAIN perPage --field effort)
+```
+
+Default per `cost-tier=baseline`: `sonnet` (low effort). `cost-tier=aggressive` keeps it on `sonnet` per 2026-05-05 user direction (Haiku codegen quality is medium-risk for non-trivial spec interpretation; reserved for translation/report/scaffold only). Agent tool dispatch with `model: '$PER_PAGE_MODEL'`. The prompt template:
 
 ```
 Per-page builder for WebFactory decomposed pipeline. Build ONE Astro page from a fully-specified spec.
@@ -443,10 +498,12 @@ Spawn all N agents in a SINGLE message with multiple Agent tool uses (parallel e
 **Per-dispatch instrumentation** (per ORCHESTRATION LOGGING CONTRACT): immediately AFTER spawning the N agents (the Agent calls return Tasks; the actual sub-agent work runs in parallel), log one entry per dispatch. The orchestrator can do this in a single bash chain:
 
 ```bash
+PER_PAGE_MODEL=$(node scripts/get-model.cjs $DOMAIN perPage --field model)
+PER_PAGE_EFFORT=$(node scripts/get-model.cjs $DOMAIN perPage --field effort)
 for SPEC in jobs/$DOMAIN/specs/*.md; do
   PAGE=$(basename "$SPEC" .md)
   case "$PAGE" in _*) continue ;; esac   # skip _shared.md, _category-template.md, etc.
-  node scripts/log-decision.cjs "$DOMAIN" 3 sub-agent-dispatched --detail option=a --detail page="$PAGE" --detail model=sonnet
+  node scripts/log-decision.cjs "$DOMAIN" 3 sub-agent-dispatched --detail option=a --detail page="$PAGE" --detail model=$PER_PAGE_MODEL --detail effort=$PER_PAGE_EFFORT
 done
 ```
 
@@ -476,9 +533,11 @@ Worker uses the `Edit` tool (NOT `Write`) to make targeted text-only changes. **
 **Per-dispatch instrumentation** (per ORCHESTRATION LOGGING CONTRACT) — same pattern as Stage 3, but for option=b:
 
 ```bash
+PER_PAGE_MODEL=$(node scripts/get-model.cjs $DOMAIN perPage --field model)
+PER_PAGE_EFFORT=$(node scripts/get-model.cjs $DOMAIN perPage --field effort)
 for PAGE_FILE in jobs/$DOMAIN/option-b/src/pages/*.astro; do
   PAGE=$(basename "$PAGE_FILE" .astro)
-  node scripts/log-decision.cjs "$DOMAIN" 5 sub-agent-dispatched --detail option=b --detail page="$PAGE" --detail model=sonnet
+  node scripts/log-decision.cjs "$DOMAIN" 5 sub-agent-dispatched --detail option=b --detail page="$PAGE" --detail model=$PER_PAGE_MODEL --detail effort=$PER_PAGE_EFFORT
 done
 ```
 

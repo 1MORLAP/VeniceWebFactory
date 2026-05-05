@@ -2,26 +2,26 @@
 /**
  * audit-cost.cjs — roll up cost-per-stage cost-per-build from orchestration.log
  *
- * Built 2026-05-05 alongside Phase C of the tiered model architecture
- * shipment. Reads `jobs/{domain}/orchestration.log` (JSON Lines per
- * ORCHESTRATION LOGGING CONTRACT in SKILL.md), groups events by stage +
- * model, and emits a markdown report.
+ * Built 2026-05-05 alongside Phase C; CORRECTED 2026-05-05 with real
+ * Anthropic pricing (Opus 4.7 is $5/$25, not the older $15/$75 from
+ * Opus 4.1) and full 5-model vocabulary matching the Claude Code UI.
  *
- * Cost model uses approximate per-million-token rates (USD, output tokens):
- *   Opus:   $75 / M tokens
- *   Sonnet: $15 / M tokens
- *   Haiku:  $1.25 / M tokens
+ * Reads `jobs/{domain}/orchestration.log` (JSON Lines per ORCHESTRATION
+ * LOGGING CONTRACT in SKILL.md), groups events by stage + model, and
+ * emits a markdown report.
+ *
+ * Pricing (verified against Anthropic docs 2026-05-05):
+ *   Model        Input $/M    Output $/M
+ *   opus         $5           $25         (Claude Opus 4.7 standard)
+ *   opus-1m      $5+premium   $25+premium (Claude Opus 4.7 1M tier; ~2× standard
+ *                                          for prompts > 200K — modeled here as
+ *                                          1.5× since most events are short-input)
+ *   sonnet       $3           $15         (Claude Sonnet 4.6, 1M default)
+ *   haiku        $1           $5          (Claude Haiku 4.5)
+ *   opus-legacy  $5           $25         (Claude Opus 4.6 — same price as 4.7)
  *
  * The `tokensApprox` detail on each event is the rough output-token
- * count — orchestrators emit it where they have a measurable proxy
- * (JSON byte count / 4, HTML byte count / 4, etc.). Where missing, this
- * script estimates from event semantics:
- *   - sub-agent-dispatched (Sonnet per page): ~3000 tokens/page
- *   - visual-pass-verdict (Opus): ~600 tokens (the ~400-token JSON + ~200 reasoning)
- *   - plugin-invoked (Opus): ~2000 tokens (industry-tokens.json + components scaffold)
- *   - design-brief-written (Opus): ~5000 tokens (per Stage 2 brief size)
- *   - specs-written (Opus): ~specCount × 1500 tokens
- *   - everything else: ~200 tokens (logging-only events)
+ * count. Where missing, defaults below kick in.
  *
  * Usage:
  *   node scripts/audit-cost.cjs <domain>           # single-build report
@@ -53,7 +53,17 @@ if (!domain && !allMode) {
   process.exit(1);
 }
 
-const PRICES_PER_M_TOKENS = { opus: 75, sonnet: 15, haiku: 1.25 };
+// Output-token prices per million tokens (USD). Per Anthropic docs 2026-05-05.
+// opus-1m premium modeled as 1.5× standard Opus (most events have short
+// inputs that don't trigger the >200K premium tier — adjust upward if a
+// stage routinely sees long-context input).
+const PRICES_PER_M_TOKENS = {
+  'opus':         25,
+  'opus-1m':      25 * 1.5,   // ~37.5
+  'sonnet':       15,
+  'haiku':         5,
+  'opus-legacy':  25,
+};
 
 // Default token estimates per event type when tokensApprox is missing.
 const TOKEN_DEFAULTS = {
@@ -98,12 +108,15 @@ function tokensFor(event) {
 function modelFor(event) {
   const d = event.details || {};
   if (d.model && PRICES_PER_M_TOKENS[d.model]) return d.model;
-  // Fallback: infer from stage-event pair
+  // Fallback: infer from stage-event pair. Conservative — unknowns charged
+  // at the highest applicable rate.
   if (event.event === 'visual-pass-dispatched' || event.event === 'visual-pass-verdict') return 'opus';
   if (event.event === 'plugin-invoked' || event.event === 'design-brief-written' || event.event === 'specs-written') return 'opus';
   if (event.event === 'sub-agent-dispatched') return 'sonnet';
   if (event.event === 'fix-loop-iter') return 'sonnet';
-  return 'opus';   // conservative — unknowns charged at orchestrator rate
+  if (event.event === 'storefront-registered' || event.event === 'deploy-recorded') return 'sonnet';
+  if (event.event === 'dramatic-improvement-audit-verdict') return 'opus';
+  return 'opus';   // conservative
 }
 
 function dollars(tokens, model) {
