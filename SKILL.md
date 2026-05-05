@@ -236,15 +236,18 @@ Write to: <absolute path to .astro file>
 
 **Hard rule learned 2026-04-28 (accelwindows experiment)**: when a spec describes a colored container ("dark variant card with `color: bone-50`"), it MUST also explicitly state that nested `<h*>` headings need their own color override. Workers can drop the cascade when adding `font-semibold` etc. via Tailwind classes. Add this to `_shared.md` for every decomposed-mode build.
 
-#### Stage 2.5b: Auto-spec-validation (MANDATORY — added after plumbers build 2026-04-29)
+#### Stage 2.5b: Auto-spec-validation + decomposed-mode hard gate (MANDATORY)
 
-Before dispatching workers in Stage 3, run `scripts/validate-specs.cjs` to catch fact-grounding bugs that the spec author (Opus) may have introduced into the per-page specs.
+This step is the **HARD GATE between Stage 2.5 (per-page specs) and Stage 3 (parallel Sonnet workers)**. Two purposes:
 
-**Why it exists**: real bug 2026-04-29 (twoirishplumbers build). I (Opus) seeded "Free estimates" into 4 separate per-page specs as a CTA closer. The customer's manifest does NOT claim free estimates — that was my fabrication. 5 Sonnet workers faithfully copied. Stage 4 QA caught it on every page (4 fact-grounding fails). 4× the fix work it should have been.
+1. **Decomposed-mode gate (added 2026-05-04 after the empty-`specs/` survey).** Survey of `jobs/` on 2026-05-04 found **46 of 53 built jobs had empty `specs/` directories** — orchestrators were silently bypassing Stage 2.5 and going monolithic without explicitly opting in. Cost projections + wallclock estimates in this doc assume decomposed mode; silent monolithic was the root cause of "painfully slow" feedback on 6+-page sites (e.g. arkansaswell.com 6 pages → 40 min wallclock; richstaxidermy.com 14 pages → halted before deploy). The new hard gate makes the mode choice **explicit**.
+2. **Fact-grounding lint (the original purpose, after the plumbers build 2026-04-29)**: catch unsupported claims the spec author (Opus) may have introduced into per-page specs.
 
-The fix: catch unsupported claims at Stage 2.5 (1 author, 1 work session) instead of Stage 4 (N workers × N pages of fail messages). Linear cost reduction with N pages.
+**Why the empty-specs gate exists**: in decomposed mode, Stage 3/5/7 dispatch parallel Sonnet sub-agents that each read their own `specs/<page>.md`. Without specs on disk, decomposition is impossible — the orchestrator falls back to monolithic Opus per-page work, which is 3–5× slower wallclock and burns Opus tokens at the per-page rate instead of Sonnet's. This hides as a silent regression: the build COMPLETES with seemingly-fine output, but the cost and wallclock are way over budget, and on small/sparse customer inputs the lack of decomposition can also leak into thinner output (no spec → no per-page rigor).
 
-**Run**:
+**Why the fact-grounding check exists**: real bug 2026-04-29 (twoirishplumbers build). I (Opus) seeded "Free estimates" into 4 separate per-page specs as a CTA closer. The customer's manifest does NOT claim free estimates — that was my fabrication. 5 Sonnet workers faithfully copied. Stage 4 QA caught it on every page (4 fact-grounding fails). 4× the fix work it should have been. The fix: catch unsupported claims at Stage 2.5 (1 author, 1 work session) instead of Stage 4 (N workers × N pages of fail messages). Linear cost reduction with N pages.
+
+**Run** (decomposed mode — DEFAULT):
 
 ```bash
 node scripts/validate-specs.cjs \
@@ -252,6 +255,20 @@ node scripts/validate-specs.cjs \
   --design-brief jobs/{domain}/design-brief.json \
   --specs jobs/{domain}/specs/
 ```
+
+If `specs/` is empty, this **EXITS 2** with a clear error explaining you skipped Stage 2.5. Either run Stage 2.5 properly OR add `--allow-empty` to opt into monolithic mode (see below).
+
+**Run** (monolithic mode — opt-in only, for 1–2 page sites or when `/webfactory --monolithic` was passed):
+
+```bash
+node scripts/validate-specs.cjs \
+  --manifest jobs/{domain}/manifest.json \
+  --design-brief jobs/{domain}/design-brief.json \
+  --specs jobs/{domain}/specs/ \
+  --allow-empty
+```
+
+`--allow-empty` makes empty `specs/` produce a warning (not a fail) and exits 0. Use this **only** when the orchestrator has explicitly opted into monolithic mode — for 1–2 page sites where decomposition overhead exceeds the parallelism benefit, or when `/webfactory --monolithic` was passed at invocation.
 
 **What it checks**: every per-page spec is scanned for fact-shaped claims (years experience, since-year, BBB / awards / star ratings / licensed-bonded / X-owned / review counts / 24-7 / free estimates) using the same regex patterns as `scripts/qa-check.js` fact-grounding rule. Each match is verified against the manifest + design-brief corpus. Unsupported claims fail the script (exit 1) with file + line number.
 

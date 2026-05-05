@@ -32,20 +32,22 @@ const path = require('node:path');
 let manifestPath = null;
 let designBriefPath = null;
 let specsDir = null;
+let allowEmpty = false;   // opt-in for monolithic mode (added 2026-05-04)
 const args = process.argv.slice(2);
 for (let i = 0; i < args.length; i++) {
   const a = args[i];
   if (a === '--manifest' && args[i+1]) { manifestPath = args[++i]; continue; }
   if (a === '--design-brief' && args[i+1]) { designBriefPath = args[++i]; continue; }
   if (a === '--specs' && args[i+1]) { specsDir = args[++i]; continue; }
+  if (a === '--allow-empty') { allowEmpty = true; continue; }
 }
 
 if (!manifestPath) {
-  console.error('Usage: validate-specs.cjs --manifest <path> [--design-brief <path>] --specs <dir>');
+  console.error('Usage: validate-specs.cjs --manifest <path> [--design-brief <path>] --specs <dir> [--allow-empty]');
   process.exit(2);
 }
 if (!specsDir) {
-  console.error('Usage: validate-specs.cjs --manifest <path> [--design-brief <path>] --specs <dir>');
+  console.error('Usage: validate-specs.cjs --manifest <path> [--design-brief <path>] --specs <dir> [--allow-empty]');
   process.exit(2);
 }
 
@@ -248,8 +250,56 @@ const specFiles = fs.readdirSync(specsDir)
   .sort();
 
 if (specFiles.length === 0) {
-  console.warn(`⚠ No per-page specs found in ${specsDir} (expected non-underscore-prefixed .md files)`);
-  process.exit(0);
+  // BEHAVIORAL CHANGE 2026-05-04: empty specs is now a HARD GATE in
+  // decomposed mode (the default). Without per-page specs, Stage 3/5/7 cannot
+  // dispatch parallel Sonnet sub-agents — there's nothing for the workers to
+  // read. Stage 2.5 was either skipped or didn't persist its output to disk.
+  //
+  // Survey of jobs/ directories on 2026-05-04 showed 46 of 53 built jobs had
+  // empty specs/ — orchestrators were silently bypassing decomposed mode.
+  // SKILL.md's cost projections + wallclock estimates assume decomposed mode;
+  // silent monolithic was the root cause of "painfully slow" feedback on
+  // 6+-page sites.
+  //
+  // Pass --allow-empty to opt into monolithic mode (orchestrator does
+  // per-page work itself instead of dispatching sub-agents). The /webfactory
+  // --monolithic flag should map to this. Hard error otherwise so the choice
+  // is EXPLICIT rather than IMPLICIT.
+  if (allowEmpty) {
+    console.warn(`⚠ No per-page specs in ${specsDir} — proceeding in MONOLITHIC mode per --allow-empty.`);
+    console.warn(`  Cost will be higher than decomposed mode for 3+-page sites; wallclock will be ~3-5× slower.`);
+    console.warn(`  Use this only when the orchestrator has explicitly opted into monolithic via /webfactory --monolithic.`);
+    process.exit(0);
+  }
+  console.error('');
+  console.error('═══════════════════════════════════════════════════════════════════════');
+  console.error('  ✗ STAGE 2.5 GATE FAILED — empty specs/ directory');
+  console.error('═══════════════════════════════════════════════════════════════════════');
+  console.error(`  No per-page .md spec files found in ${specsDir}`);
+  console.error(`  (looked for non-underscore-prefixed *.md — found ${fs.readdirSync(specsDir).length} total entries)`);
+  console.error('');
+  console.error('  Decomposed mode (DEFAULT since 2026-04-29) requires Stage 2.5 to write');
+  console.error('  one self-contained spec per page so Stage 3/5/7 can dispatch parallel');
+  console.error('  Sonnet sub-agents. Without specs, decomposed dispatch is impossible.');
+  console.error('');
+  console.error('  Two ways to resolve:');
+  console.error('');
+  console.error('  1) RUN STAGE 2.5 PROPERLY (recommended for 3+-page sites)');
+  console.error('     - Read SKILL.md / skill-stages/stage-2.md Stage 2.5 instructions');
+  console.error('     - Write _shared.md + one <page>.md per manifest page into specs/');
+  console.error('     - Re-run validate-specs.cjs to confirm');
+  console.error('');
+  console.error('  2) OPT INTO MONOLITHIC MODE (only for 1-2 page sites or genuine fallback)');
+  console.error('     - Re-run with: validate-specs.cjs ... --allow-empty');
+  console.error('     - Orchestrator must then do per-page work inline (no sub-agents)');
+  console.error('     - Wallclock will be 3-5× slower than decomposed for 3+-page sites');
+  console.error('     - This should map to /webfactory --monolithic flag if user-requested');
+  console.error('');
+  console.error('  Real cause survey 2026-05-04: 46 of 53 jobs/ dirs had empty specs/,');
+  console.error('  meaning orchestrators silently bypassed Stage 2.5. This gate makes the');
+  console.error('  choice between modes EXPLICIT.');
+  console.error('═══════════════════════════════════════════════════════════════════════');
+  process.exit(2);
 }
 
 console.log(`Validating ${specFiles.length} spec(s) against corpus...\n`);
