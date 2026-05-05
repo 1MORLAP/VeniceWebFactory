@@ -842,7 +842,46 @@ async function main() {
       // Logo check — the first <img> in a <nav> or <header>
       const logo = document.querySelector('nav img, header img');
       if (!logo) {
-        report.issues.push({ severity: 'warn', check: 'logo', msg: 'No <img> found in nav/header' });
+        // Wordmark-fallback awareness (added 2026-05-04 — arkansaswell.com
+        // case): per LOGO RULE in SKILL.md, when the original logo is
+        // unusable (opaque + corner-disagreement, or no logo at all), the
+        // documented escape hatch is "Plain-text fallback to verbatim
+        // business name in page font." Detect that pattern and accept it
+        // as valid instead of warning.
+        //
+        // Canonical pattern: <nav> or <header> contains an anchor with
+        // aria-label matching /home/i AND non-empty text content
+        // (e.g., <a aria-label="Arkansas Well Supply — home"><span>...</span></a>).
+        // This is the standard a11y pattern Astro/Tailwind builds emit.
+        //
+        // Fallback secondary detection: an anchor in nav/header whose text
+        // content is ≥ 3 chars (covers builds without explicit aria-label).
+        const wordmarkPrimary = document.querySelector(
+          'nav a[aria-label*="home" i], header a[aria-label*="home" i]'
+        );
+        const wordmarkSecondary = document.querySelector('nav a[href="/"], header a[href="/"]');
+        const wordmarkLink = wordmarkPrimary || wordmarkSecondary;
+        const wordmarkText = wordmarkLink ? (wordmarkLink.innerText || '').trim() : '';
+
+        if (wordmarkLink && wordmarkText && wordmarkText.length >= 3) {
+          // Valid LOGO-RULE wordmark fallback — record it, don't warn
+          report.logo = {
+            src: null,
+            naturalW: 0,
+            naturalH: 0,
+            displayedW: 0,
+            displayedH: 0,
+            navBackground: null,
+            wordmarkFallback: true,
+            wordmarkText,
+          };
+        } else {
+          report.issues.push({
+            severity: 'warn',
+            check: 'logo',
+            msg: 'No <img> found in nav/header AND no text-wordmark fallback detected. Per LOGO RULE: nav/header MUST contain either a real logo <img> OR a plain-text wordmark (an <a> in nav/header with aria-label matching /home/i and the business name as text content). One of those two is required.',
+          });
+        }
       } else {
         const rect = logo.getBoundingClientRect();
         const displayedW = rect.width;
@@ -2057,10 +2096,32 @@ function rgbToHexFromComputed(rgb) {
       // ---- Tap target size audit (mobile only) ----
       // WCAG 2.5.5: interactive elements should be ≥ 44×44 CSS px on touch devices.
       // Only runs at narrow viewport (the touch context).
+      //
+      // Skip-link exemption (added 2026-05-04 — arkansaswell.com case):
+      // visually-hidden skip-links (e.g., "Skip to content") are an a11y
+      // pattern, not a real touch target. Their unfocused state is intentionally
+      // ~1×1 / clipped; they expand to a properly-sized button only on focus.
+      // WCAG 2.5.5 doesn't apply because the user reaches them via keyboard
+      // navigation, not touch. Exempt them from the tap-target check.
+      function isSkipLink(el) {
+        if (el.tagName !== 'A') return false;
+        const href = el.getAttribute('href') || '';
+        if (!href.startsWith('#')) return false;
+        const text = ((el.innerText || el.getAttribute('aria-label') || '') + '').toLowerCase().trim();
+        if (/^skip\b/.test(text)) return true;
+        if (text.includes('to content') || text.includes('to main')) return true;
+        const className = (el.className || '').toString().toLowerCase();
+        if (className.includes('skip-link') || className.includes('skip-to')) return true;
+        // sr-only / visually-hidden anchors with hash-href are almost always skip-links
+        if ((className.includes('sr-only') || className.includes('visually-hidden')) && href.startsWith('#')) return true;
+        return false;
+      }
+
       if (window.innerWidth < 600) {
         const tapTargets = Array.from(document.querySelectorAll('a[href], button, input[type="submit"], input[type="button"], [role="button"]'));
         const tapSeen = new Set();
         for (const t of tapTargets) {
+          if (isSkipLink(t)) continue;  // a11y skip-links exempt — see comment above
           const rect = t.getBoundingClientRect();
           if (rect.width === 0 || rect.height === 0) continue;  // hidden
           if (rect.width < 44 || rect.height < 44) {
@@ -2618,9 +2679,14 @@ function rgbToHexFromComputed(rgb) {
     const mobileR  = byPath[path].mobile  || { issues: [] };
 
     if (desktopR.logo) {
-      console.log(`  logo (desktop): natural=${desktopR.logo.naturalW}x${desktopR.logo.naturalH}, displayed=${desktopR.logo.displayedW}x${desktopR.logo.displayedH}`);
+      if (desktopR.logo.wordmarkFallback) {
+        const txt = (desktopR.logo.wordmarkText || '').slice(0, 40);
+        console.log(`  logo (desktop): TEXT WORDMARK fallback — "${txt}" (LOGO RULE escape hatch; image logo unavailable or unusable)`);
+      } else {
+        console.log(`  logo (desktop): natural=${desktopR.logo.naturalW}x${desktopR.logo.naturalH}, displayed=${desktopR.logo.displayedW}x${desktopR.logo.displayedH}`);
+      }
     }
-    if (mobileR.logo && (mobileR.logo.displayedW !== (desktopR.logo && desktopR.logo.displayedW))) {
+    if (mobileR.logo && !mobileR.logo.wordmarkFallback && (mobileR.logo.displayedW !== (desktopR.logo && desktopR.logo.displayedW))) {
       console.log(`  logo (mobile):  natural=${mobileR.logo.naturalW}x${mobileR.logo.naturalH}, displayed=${mobileR.logo.displayedW}x${mobileR.logo.displayedH}`);
     }
 
