@@ -208,6 +208,17 @@ You are running the **Stage 4c-tris Dramatic Improvement Audit** on Option A for
 - jobs/{DOMAIN}/qa-option-a/desktop-home.png — A's rebuilt homepage (desktop)
 - jobs/{DOMAIN}/qa-option-a/mobile-home.png — A's rebuilt homepage (mobile)
 - /Users/tomasz/WebFactory/SKILL.md "DESIGN QUALITY BAR" section — the bar A must clear
+- (OPTIONAL — Phase E benchmark axis) Refero references: query
+  `mcp__refero__refero_search_screens` with platform="web" and a query like
+  "{industry} services homepage" or "{industry} contractor brand site" to
+  pull 3-5 industry-leading benchmark examples. Get screen content via
+  `mcp__refero__refero_get_screen_content` for the most relevant 1-2.
+  These are the "industry top 5" benchmark — A doesn't need to BEAT them,
+  but it should be in the same league. **Filter Refero results aggressively**
+  — its dataset skews B2B SaaS / fintech / productivity, which is the wrong
+  aesthetic for most WebFactory customers (small-business contractors). If
+  all top results are Stripe/Linear/Notion clones, skip the benchmark axis
+  and audit on original-vs-A only. See REFERO REFERENCES rule in SKILL.md.
 
 ## What to do
 
@@ -233,7 +244,8 @@ Then return a JSON object to the orchestrator:
     "specific concrete improvement #3"
   ],
   "rebuild_axes": ["hero" | "sections" | "typography" | "spacing" | "palette" | ...],   // only if verdict=rebuild
-  "summary": "1-line takeaway"
+  "summary": "1-line takeaway",
+  "industry_benchmark": "1-line note on whether A is in the same league as the Refero industry-top references — or 'skipped — Refero results not industry-relevant' if the dataset bias prevented a useful comparison"
 }
 
 ~300 tokens of output is the target. Keep prose concise — the dramatic-improvement-audit.md file holds the longform.

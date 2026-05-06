@@ -2035,6 +2035,56 @@ CLI flag changes:
 
 ---
 
+#### REFERO REFERENCES (architectural — applies to Option C, Stage 4c-tris, and visual-pass diversity check ONLY)
+
+Refero is an MCP-installed semantic search database of UI screens from real shipped products. Available tools: `mcp__refero__refero_search_screens`, `mcp__refero__refero_get_similar_screens`, `mcp__refero__refero_get_screen_content`, `mcp__refero__refero_search_flows`, `mcp__refero__refero_get_flow`. Sub-agents at Stage 7d (plugin invocation), Stage 4c-tris (Dramatic Improvement Audit), and the visual sanity passes (Stage 4c-bis / 6c / 7g) MAY query it for industry-relevant references. Added 2026-05-05 as Phase E.
+
+##### When to use
+
+- **Stage 7d (Option C plugin invocation)** — query 5-10 references in the customer's industry direction, identify 2-3 that match the `industry-tokens.json → direction`, incorporate STRUCTURAL ideas (section order, hero composition, spacing rhythm) into C's design.
+- **Stage 4c-tris (Dramatic Improvement Audit)** — query "industry top 5" as a third comparison axis alongside original-vs-A. The audit asks "is A in the same league as the industry top?" — not "does A look like Stripe."
+- **Stage 4c-bis / 6c / 7g visual-pass diversity check (item #18)** — pull 2-3 industry-relevant Refero references in addition to (or instead of) hardcoded peer-build PNGs.
+
+##### When NOT to use — the dataset bias caveat
+
+**Refero's dataset skews heavily toward B2B SaaS, fintech, productivity tools, marketplaces, and consumer apps.** WebFactory's customers are predominantly small-business contractors (tree services, monument shops, taxidermists, plumbers, HVAC, landscapers, auto body, dental). Those customers' websites are largely ABSENT from Refero's dataset.
+
+This matters because the failure mode WebFactory has been fighting for months is **editorial drift** — Option A drifting toward Stripe/Linear/Notion aesthetics when the customer is a small-business contractor. Naive Refero integration would AMPLIFY that drift. Hence the explicit don't-use-here list:
+
+- **NEVER use Refero in Stage 2 Design Brief for Option A** — A's design must be grounded in the customer's actual brand and industry. Refero references would pull A toward SaaS aesthetics, violating IMAGE REUSE RULE / DESIGN QUALITY BAR / NUMBERED SECTION LABELS RULE.
+- **NEVER use Refero in Stage 3 / 5 / 7d-build per-page renders** — workers translate specs to .astro mechanically. They don't need design references at this layer.
+- **NEVER use Refero for Option B** — B inherits A's design verbatim. Querying Refero for B is meaningless; the design contract is "match A."
+
+##### How to filter
+
+When querying Refero for a small-business contractor industry:
+
+1. Start with the most specific query: `"{industry} services landing page"` or `"premium {industry} brand site"`.
+2. Get 5-10 results. Identify the 2-3 most industry-relevant.
+3. **REJECT results from these category prefixes** unless the customer is in that category: AI Tool, SaaS, Productivity, Marketplace, Project Management, Scheduling Tools, Telehealth.
+4. Prefer results from: Home & Decor (for trades-adjacent industries), Health & Wellness (for medical/dental), Travel & Booking (for hospitality), Food & Drink (for restaurants), Finance (for fintech-adjacent customers only).
+5. If ALL top results are SaaS-clone aesthetics, **abort the Refero axis entirely** for this build. Fall back to `templates/inspiration/<directory>/` and the customer's own scraped screenshots. Document the abort in `jobs/{domain}/option-c/build-design-decisions.md` ("Refero references rejected — dataset returned only SaaS aesthetics, used local inspiration directory instead").
+
+##### What "incorporating" Refero references means
+
+- **Structure**: section order, hero layout pattern, spacing rhythm, typographic hierarchy, content density. Steal these.
+- **Visual style**: typography choices, color decisions, ornament/decoration. **Do NOT steal these verbatim** — those are industry-specific and would create editorial drift if borrowed across industries. The `industry-tokens.json` file is the canonical source for visual style.
+- **Conversion patterns**: hero CTA placement, social proof patterns, FAQ structure. Useful when industry-relevant.
+- **Reject**: anything that looks like generic SaaS chrome (status pills, dashboardy ornament, control-plane reflexes — see `skill-stages/visual-sanity-pass.md` Stage 7g extensions).
+
+##### MCP server installation
+
+```bash
+claude mcp add --transport http refero https://api.refero.design/mcp \
+  --header "Authorization: Bearer <REFERO_API_KEY>"
+```
+
+The API key lives in `~/.claude.json` after install. Sub-agents inherit MCP servers from the parent session — no additional plumbing needed for Stage 4c-tris / 7d / visual-pass dispatches to call `mcp__refero__*` tools.
+
+If the MCP server is NOT installed, all the Refero-using stages MUST gracefully degrade: Stage 7d falls back to `templates/inspiration/<directory>/` only; Stage 4c-tris drops the third comparison axis; visual-pass diversity check uses peer-build PNGs as before. None of the Refero-using stages should HARD-FAIL when the MCP is absent — Refero is a quality-of-evidence enhancement, not a dependency.
+
+---
+
 #### NUMBERED SECTION LABELS RULE (architectural — applies to Option A; rare in B; OK in blog/article only)
 
 Real bug shipped 2026-04-29 (giffins.net Option A rebuild): every section sprouted a numbered eyebrow — `01 — WHAT WE DO`, `02 ── RECENT WORK`, `[ 03 ] · NEW: PROPERTY MANAGEMENT`, the Hero `01 │ SE OHIO · 30+ YRS`. The pattern was inherited from `templates/inspiration/industrial-trades/`'s editorial vocabulary AND from the new `industrial-trades-photo-led/` inspiration's `01 / SECTION` mono caption. Customer feedback verbatim: *"what are these numbers, NO!!! I do not want that ever unless a blog or an article section. So VERY rarely."*

@@ -197,6 +197,25 @@ Args (free-form prompt):
      the whole point — but the customer's eye should still be able to compare
      B vs C side-by-side and see "same site, different design." Inventing new
      sections breaks the comparison.
+  6. REFERO REFERENCES (added 2026-05-05, Phase E — Option C only). Before
+     committing the final design language, query the Refero MCP server for
+     industry-relevant references to anchor C's aesthetic. Use the
+     `mcp__refero__refero_search_screens` tool with platform="web". Sample
+     queries:
+       - "{industry} services landing page hero"
+       - "{industry-direction} brand site"
+       - "premium {industry} portfolio gallery"
+     Get 5-10 results, identify 2-3 that match `industry-tokens.json →
+     direction` (NOT generic SaaS aesthetics). For each chosen reference,
+     fetch its content via `mcp__refero__refero_get_screen_content` and
+     incorporate the structural ideas — section order, hero composition,
+     spacing rhythm, typographic hierarchy. **DO NOT copy visual style
+     verbatim** — Refero's dataset is heavy on B2B SaaS / fintech /
+     productivity, which is the WRONG aesthetic for trades/contractor
+     customers. Filter aggressively. If the references all look like
+     Stripe/Linear/Notion clones, reject them and rely on
+     `industry-tokens.json` + `templates/inspiration/<directory>/` instead.
+     See REFERO REFERENCES rule in SKILL.md for the full caveat.
 
   WHAT TO BUILD:
   - Astro 5 + Tailwind v4 (template scaffold already copied to option-c/ in 7c)
