@@ -629,10 +629,31 @@ async function scrape(startUrl) {
 function normalizeUrl(url, origin) {
   try {
     const parsed = new URL(url, origin);
-    // Stay on primary domain only
-    if (parsed.origin !== origin) return null;
+    // Stay on primary domain only — match HOSTNAME, not full origin.
+    // Real bug 2026-05-06 (cindysantiqueart.com): start URL was http://;
+    // the page's nav had links to http://www.cindysantiqueart.com/cat-...
+    // for the main nav AND https://www.cindysantiqueart.com/info-completed-*
+    // for the dropdown sub-pages (all 7). The strict origin check
+    // (`parsed.origin !== origin`) rejected EVERY https:// link as
+    // "different origin" because http://X and https://X have different
+    // origins per the URL spec. Result: scraper got 3 pages instead of 30+.
+    // The fix is to compare hostnames (with www/non-www folded together)
+    // and accept either http or https on the same hostname.
+    const startHost = new URL(origin).hostname.replace(/^www\./, '');
+    const linkHost  = parsed.hostname.replace(/^www\./, '');
+    if (linkHost !== startHost) return null;
     // Skip anchors, file downloads, etc.
     if (parsed.pathname.match(/\.(pdf|zip|doc|docx|xls|xlsx|ppt|pptx|jpg|jpeg|png|gif|svg|mp4|mp3)$/i)) return null;
+    // Normalize protocol to whatever the start URL used so the visited-set
+    // dedupes correctly (otherwise http://X/foo and https://X/foo are
+    // treated as two separate pages even though they resolve to the same
+    // canonical content).
+    const startProto = new URL(origin).protocol;
+    parsed.protocol = startProto;
+    // Fold www/non-www: rewrite hostname to match origin's form so
+    // e.g. www.example.com and example.com don't dedupe as different.
+    const startHostnameFull = new URL(origin).hostname;
+    parsed.hostname = startHostnameFull;
     // Remove hash and trailing slash
     let normalized = parsed.origin + parsed.pathname.replace(/\/$/, '');
     if (normalized === parsed.origin) normalized = parsed.origin + '/';
