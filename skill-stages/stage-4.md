@@ -72,6 +72,17 @@ This auto-discovers all pages from the nav and for each page:
 - Captures console errors and failed network requests (404s, etc.)
 - Writes `report.json` with all findings
 
+**Phase L.1 (2026-05-07): compress screenshots before the visual pass reads them.** PNGs are 100-300KB each; the Visual Sanity Pass reads 18+ files per stage at full resolution = ~50-100K vision tokens per pass. Pre-compressing to JPEG-Q75 at 1280px wide cuts ~96% of the bytes (real measurement: 30.7MB → 1.24MB on bigdaddysdumpers qa-option-b/) with no perceptible quality loss for design review.
+
+```bash
+node scripts/compress-screenshots.cjs jobs/{domain}/qa-option-a
+node scripts/compress-screenshots.cjs jobs/{domain}/assets/screenshots
+```
+
+The first call compresses A's just-captured screenshots for the upcoming 4c-bis Visual Sanity Pass. The second compresses the original-site screenshots (captured at Stage 1) for the 4c-tris Dramatic Improvement Audit.
+
+Both produce `*.jpg` sidecars next to each `*.png`. Sub-agents in 4c-bis (visual-sanity-pass.md) and 4c-tris prefer `*.jpg` over `*.png` — see those prompt templates. PNGs are preserved on disk for human inspection / debugging.
+
 #### 4c. Review Screenshots
 
 Read each screenshot PNG using the Read tool (it renders images visually):
@@ -204,9 +215,11 @@ You are running the **Stage 4c-tris Dramatic Improvement Audit** on Option A for
 
 ## What to read
 
-- jobs/{DOMAIN}/assets/screenshots/home.png — the ORIGINAL site's homepage
-- jobs/{DOMAIN}/qa-option-a/desktop-home.png — A's rebuilt homepage (desktop)
-- jobs/{DOMAIN}/qa-option-a/mobile-home.png — A's rebuilt homepage (mobile)
+**Phase L.1 (2026-05-07): prefer the `*.jpg` sidecars over `*.png`** — the orchestrator runs `compress-screenshots.cjs` on both `assets/screenshots/` (original-site shots) and `qa-option-a/` (A's shots) before this audit, producing 1280px JPEG-Q75 versions next to each PNG. Read JPG; PNG is the larger fallback when a sidecar is missing.
+
+- jobs/{DOMAIN}/assets/screenshots/home.{jpg,png} — the ORIGINAL site's homepage
+- jobs/{DOMAIN}/qa-option-a/desktop-home.{jpg,png} — A's rebuilt homepage (desktop)
+- jobs/{DOMAIN}/qa-option-a/mobile-home.{jpg,png} — A's rebuilt homepage (mobile)
 - /Users/tomasz/WebFactory/SKILL.md "DESIGN QUALITY BAR" section — the bar A must clear
 - (OPTIONAL — Phase E benchmark axis) Refero references: query
   `mcp__refero__refero_search_screens` with platform="web" and a query like

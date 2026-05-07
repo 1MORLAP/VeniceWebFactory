@@ -27,6 +27,8 @@ node scripts/qa-check.js http://localhost:$PORT_A_PLUS --manifest jobs/$DOMAIN/m
 PORT_A_PLUS=$(node scripts/get-port.cjs "$DOMAIN" a-plus)
 mkdir -p jobs/{domain}/qa-option-b
 node scripts/qa.cjs http://localhost:$PORT_A_PLUS jobs/{domain}/qa-option-b
+# Phase L.1 (2026-05-07) — compress screenshots before visual pass (~96% vision-token cut)
+node scripts/compress-screenshots.cjs jobs/{domain}/qa-option-b
 ```
 
 #### 6b. B-specific content checks (orchestrator-inline)

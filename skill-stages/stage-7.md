@@ -446,6 +446,8 @@ node scripts/qa-check.js http://localhost:$PORT_C --manifest jobs/$DOMAIN/manife
 PORT_C=$(node scripts/get-port.cjs "$DOMAIN" c)
 mkdir -p jobs/{domain}/qa-option-c
 node scripts/qa.cjs http://localhost:$PORT_C jobs/{domain}/qa-option-c
+# Phase L.1 (2026-05-07) — compress screenshots before visual pass (~96% vision-token cut)
+node scripts/compress-screenshots.cjs jobs/{domain}/qa-option-c
 ```
 
 **Visual Sanity Pass on Option C — delegated to an Opus sub-agent.** C uses a plugin-driven design that's the most likely option to produce novel layouts and novel bugs (the active-nav black-on-black bug shipped on a C-style design; the holding-co control-plane-reflex stack of bracket numerals + status pills + grid overlays + terminal cursors shipped 2026-04-29). The 18-item checklist is the primary defense against "the plugin made something weird," and it now runs in a sub-agent so the orchestrator never reads C's 12–24 screenshots itself.
