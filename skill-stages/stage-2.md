@@ -194,7 +194,7 @@ The customer's industry + brand + scraped color/font signals are the spec inputs
 - DO NOT modify manifest.json.
 ```
 
-After the sub-agent returns, run the hard gate AND extract brief essentials:
+After the sub-agent returns, run the hard gate, extract brief essentials, AND re-run the refero-styles selector against the now-richer brief:
 
 ```bash
 node scripts/validate-design-brief.cjs $DOMAIN
@@ -208,11 +208,26 @@ node scripts/log-decision.cjs "$DOMAIN" 2 design-brief-written --detail dispatch
 # top layout patterns + style. Slim version: ~3-5KB. Reduces Phase 2.5b
 # input by ~25KB × N parallel calls.
 node scripts/extract-brief-essentials.cjs $DOMAIN
+
+# Phase N.5 (2026-05-07): re-run the refero-styles selector against the
+# now-explicit design-brief.json for richer industry-relevant inspiration
+# picks. The pre-Stage-2 selector run (orchestrator pre-step) used
+# manifest.json fallback to derive a rough industry direction; this re-run
+# uses the brief's explicit business.industry + business.subIndustry +
+# design.style + design.inspiration fields, typically producing better-
+# matched picks. Idempotent: overwrites jobs/{DOMAIN}/refero-style-priors-a.json
+# with the higher-quality selection. Stage 2.5b per-page workers + Stage 3
+# per-page workers + Stage 4c-tris audit + Stage 4c-bis/6c/7g visual-pass
+# diversity check all read this file — they'll get the upgraded priors
+# automatically.
+node scripts/select-refero-styles.cjs $DOMAIN --for=a --n=5
 ```
 
 The gate verifies the brief has the required fields (typography, palette, hero, distinctive-elements, micro-interactions, mobile-first, brand-signature) per the DESIGN QUALITY BAR. Soft no-op if the file is missing — that's a separate failure mode handled by Stage 2.5b's dependency check.
 
 `extract-brief-essentials.cjs` self-instruments via Phase F (`2-post/brief-essentials-extracted` event with full + slim byte counts). The full brief stays on disk for audit + skill-owner review; only the slim version reaches per-page workers.
+
+`select-refero-styles.cjs` re-run also self-instruments via Phase F (`1-post/refero-styles-selected` event with `forOption=a` and the brief-driven keyword set). Two events fire per build for Option A's priors — the orchestrator pre-step (manifest-derived) and this post-brief upgrade. Audit can compare the two events to verify the upgrade improved match quality.
 
 If the orchestrator deliberately runs Stage 2 inline (smaller sites, debugging), pass `--allow-inline` to the gate. Use sparingly.
 

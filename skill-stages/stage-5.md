@@ -32,6 +32,17 @@ npm install
 
 For each `.astro` file in `jobs/{domain}/option-b/src/pages/`, identify the text-content sections (between tags, in `<Hero text=…>`, in `<Section>` body, etc.) and rewrite them.
 
+**MANDATORY pre-rewrite reads (Phase N.4, 2026-05-07)**: before sharpening any line of copy, read the Refero copywriting taxonomy at `~/.claude/skills/refero-design/references/copywriting.md`. It's the conversion-rewrite analog to `anti-ai-slop.md` for design — codifies what world-class B2B/SMB copy looks like:
+
+- "People do not read copy. They make decisions." — start every section with the decision the user is making, not background context.
+- Lead with action: "Get a Quote" beats "We Offer Free Quotes" beats "About Our Quote Process". Imperative > declarative > narrative.
+- The Copy test (from anti-ai-slop.md): if deleting 30% of copy improves the page, keep deleting. AI over-writes; real designers edit down. Apply this to every paragraph as you go — sharpen by subtraction.
+- Microcopy with personality: button text, error states, empty states, helper text are where brand voice lives most concentrated. Don't waste them on "Submit" / "Click here" / "Loading...".
+- Headlines decide vs describe: a headline either makes the user pick the next action or tells them what the section is about. Decide-headlines are the higher form. Use them where the user needs to commit (CTAs, hero, pricing). Describe-headlines are fine where the user is just orienting (about, FAQ, services overview).
+- Specificity beats vagueness: "30+ years" beats "decades of experience"; "2-hour response" beats "fast response"; "Lancaster, Wilmington, Circleville" beats "service area." Pull specifics from manifest facts only — never invent.
+
+The copywriting reference is **inspiration / methodology, not specification** — same rule as the design references: extract principles + apply them to the customer's voice; never lift Refero's example sentences verbatim into the customer's site.
+
 **RULES for the rewrite:**
 
 **DO:**

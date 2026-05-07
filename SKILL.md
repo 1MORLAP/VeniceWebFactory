@@ -544,6 +544,7 @@ For each `option-b/src/pages/<page>.astro` file (already a fresh copy of option-
 1. The shared rewrite directives at `jobs/{domain}/specs/_rewrite-shared.md` (preservation rules — touch only TEXT, not structure/classes/imports/components/hrefs/phone/address/email/form-action; sharpen CTAs; lead with action; no fabricated claims; preserve testimonials verbatim).
 2. The path to its specific page (`option-b/src/pages/<page>.astro`).
 3. Page-specific rewrite directives (which sections to sharpen, what NOT to touch).
+4. **Phase N.4 (2026-05-07)** — `~/.claude/skills/refero-design/references/copywriting.md` (the Refero copywriting taxonomy: lead with action, no over-writing, the Copy test from anti-ai-slop.md — "if deleting 30% of copy improves the page, keep deleting", microcopy with personality, headlines that decide vs describe). The copywriting reference is the conversion-tuned-rewrite analog to anti-ai-slop.md for design — it codifies what world-class B2B/SMB copy looks like. NOT a script to copy verbatim — a methodology for HOW to rewrite.
 
 Worker uses the `Edit` tool (NOT `Write`) to make targeted text-only changes. **Edit-based rewriting tightens control vs. Write-based rebuilding** (which can drift into design changes). Validated 2026-04-28: 4 Sonnet rewriters preserved A's design markup verbatim while sharpening copy in 9-12 Edits per page.
 
