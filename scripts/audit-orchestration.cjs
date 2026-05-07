@@ -216,6 +216,28 @@ rows.push(check(
   visualPassC.length > 0 ? `verdict=${visualPassC[0].details?.verdict}` : ''
 ));
 
+// Stage 8a: validate-pre-deploy gate ran. Three possible events emitted by
+// the gate self-instrumentation (Phase F.2): pass / override / fail. Any of
+// them proves the chokepoint executed. Absence means the deploy bypassed
+// the gate entirely — the failure mode the gate exists to prevent. There's
+// no on-disk artifact for this check (the gate's effect is "did the deploys
+// happen?"); we treat metrics.optionA.url's presence as a coarse proxy.
+const preDeployPass     = eventsByEvent.get('validate-pre-deploy-pass')     || [];
+const preDeployOverride = eventsByEvent.get('validate-pre-deploy-override') || [];
+const preDeployFail     = eventsByEvent.get('validate-pre-deploy-fail')     || [];
+const preDeployRan = preDeployPass.length + preDeployOverride.length + preDeployFail.length > 0;
+const preDeployVerdict = preDeployPass.length     ? 'pass'
+                       : preDeployOverride.length ? 'override'
+                       : preDeployFail.length     ? 'fail'
+                       : '(gate did not run)';
+rows.push(check(
+  'Stage 8a: validate-pre-deploy ran',
+  true,
+  preDeployRan,
+  !!artifacts.metrics?.optionA?.url || !!artifacts.metrics?.optionB?.url,
+  `verdict=${preDeployVerdict}`
+));
+
 // Stage 8b: deploy-recorded per option
 const deployA = (eventsByEvent.get('deploy-recorded') || []).filter(e => e.details?.option === 'a');
 const deployB = (eventsByEvent.get('deploy-recorded') || []).filter(e => e.details?.option === 'b');

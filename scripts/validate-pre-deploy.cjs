@@ -165,14 +165,32 @@ for (const r of results) {
 }
 console.log('');
 
+// Phase F self-instrumentation: emit a pass/override event so the chokepoint
+// gate's own execution is auditable from the log, not just inferred from
+// "did the deploys happen?". Without this we can't distinguish (a) gate ran
+// and passed from (b) gate was skipped entirely. Both leave deploys to
+// proceed if everything else is fine — only the log can tell us which.
+const { logDecision } = require('./_log-helper.cjs');
+
 if (missingCount === 0) {
   console.log(`✓ PRE-DEPLOY GATE PASSED — all required events present. Stage 8b deploy may proceed.`);
+  logDecision(domain, '8a', 'validate-pre-deploy-pass', {
+    eventsRead: events.length,
+    requiredChecks: REQUIRED.length,
+    skipped: results.filter(r => r.status === 'skipped').length,
+    optionCBuilt,
+  });
   process.exit(0);
 }
 
 if (allowMissing) {
   console.warn(`⚠ ${missingCount} required event(s) missing — proceeding per --allow-missing-events.`);
   console.warn('  Document the override in the build prose. Deploy is at your own risk.');
+  logDecision(domain, '8a', 'validate-pre-deploy-override', {
+    missingCount,
+    missingLabels: results.filter(r => r.status === 'fail').map(r => r.label).join('|'),
+    optionCBuilt,
+  });
   process.exit(0);
 }
 
@@ -192,5 +210,13 @@ console.error('     Smart Resume can pick up from the right stage.');
 console.error('  2. (escape hatch) Pass --allow-missing-events to override. Use sparingly — this is the');
 console.error('     gate that was added specifically because un-QA\'d deploys keep slipping through.');
 console.error('');
+// Self-instrument the failure case too — even though exit(2) blocks the
+// deploy, we still want a log trail showing the gate ran and rejected.
+logDecision(domain, '8a', 'validate-pre-deploy-fail', {
+  missingCount,
+  missingLabels: results.filter(r => r.status === 'fail').map(r => r.label).join('|'),
+  optionCBuilt,
+});
+
 console.error('See SKILL.md "ORCHESTRATION LOGGING CONTRACT" + Phase F notes.');
 process.exit(2);

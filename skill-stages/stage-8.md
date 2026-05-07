@@ -328,7 +328,7 @@ npx vercel build --yes
 
 ```bash
 cd jobs/{domain}/option-a/
-DEPLOY_URL_A=$(npx vercel deploy --prebuilt --yes 2>/dev/null | tail -1)
+DEPLOY_URL_A=$(npx vercel deploy --prebuilt --yes 2>/dev/null | grep -oE 'https://[^[:space:]]+\.vercel\.app' | tail -1)
 echo "Option A deployed: $DEPLOY_URL_A"
 cd /Users/tomasz/WebFactory
 node scripts/record-deploy-url.cjs "$DOMAIN" a "$DEPLOY_URL_A"
@@ -344,7 +344,7 @@ npx vercel build --yes
 
 ```bash
 cd jobs/{domain}/option-b/
-DEPLOY_URL_B=$(npx vercel deploy --prebuilt --yes 2>/dev/null | tail -1)
+DEPLOY_URL_B=$(npx vercel deploy --prebuilt --yes 2>/dev/null | grep -oE 'https://[^[:space:]]+\.vercel\.app' | tail -1)
 echo "Option B deployed: $DEPLOY_URL_B"
 cd /Users/tomasz/WebFactory
 node scripts/record-deploy-url.cjs "$DOMAIN" b "$DEPLOY_URL_B"
@@ -369,14 +369,16 @@ npx vercel build --yes
 
 ```bash
 cd jobs/{domain}/option-c/
-DEPLOY_URL_C=$(npx vercel deploy --prebuilt --yes 2>/dev/null | tail -1)
+DEPLOY_URL_C=$(npx vercel deploy --prebuilt --yes 2>/dev/null | grep -oE 'https://[^[:space:]]+\.vercel\.app' | tail -1)
 echo "Option C deployed: $DEPLOY_URL_C"
 cd /Users/tomasz/WebFactory
 node scripts/record-deploy-url.cjs "$DOMAIN" c "$DEPLOY_URL_C"
 node scripts/log-decision.cjs "$DOMAIN" 8b deploy-recorded --detail option=c --detail url="$DEPLOY_URL_C"
 ```
 
-**Why capture + record the URLs**: Stage 10c (`scripts/register-with-store.mjs`) registers the build with the WebFactory storefront at `tomekgroup.com` and needs all three deploy URLs. Recording them to `metrics.json` here means the Stage 10 invocation needs no extra args. The capture pattern `$(npx vercel deploy ... | tail -1)` works because the Vercel CLI prints the deploy URL as its last stdout line; if any error output goes to stderr (`2>/dev/null` discards it), the URL captured is clean.
+**Why capture + record the URLs**: Stage 10c (`scripts/register-with-store.mjs`) registers the build with the WebFactory storefront at `tomekgroup.com` and needs all three deploy URLs. Recording them to `metrics.json` here means the Stage 10 invocation needs no extra args.
+
+**The capture pattern is `... | grep -oE 'https://[^[:space:]]+\.vercel\.app' | tail -1`** — extract the LAST line matching the Vercel deploy-URL shape. The previous pattern `... | tail -1` broke around 2026-05-06 when the Vercel CLI started emitting JSON-shaped trailing output: `tail -1` then captured a literal `}` instead of the URL (real bug observed on lisastephenscpa.com). The robust fix is to extract by URL shape, not by line position. If the CLI ever changes again, this still works: any line containing `https://....vercel.app` gets captured. If `2>/dev/null` discards stderr, the captured URL is clean.
 
 **Verify after first deploy** (one-time sanity check per pipeline change): the build logs in the Vercel dashboard for any of these deployments should NOT contain the lines `"Running build in ... (Turbo Build Machine)"` or `"Running 'vercel build'"`. Instead they should jump straight to `"Deploying outputs..."`. If you see remote-build lines, `--prebuilt` is being ignored — re-check that `.vercel/output/` exists in the option's root directory after `vercel build`, and that you're NOT passing `./dist` (or any path) to `vercel deploy`.
 

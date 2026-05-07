@@ -153,6 +153,7 @@ The script appends one JSON line per call to `jobs/{domain}/orchestration.log`. 
 | 7d-build (per page) | `sub-agent-dispatched` | `option=c`, `page=<slug>`, `model=sonnet` |
 | 7g/h | `visual-pass-dispatched` | `option=c`, `model=opus` |
 | 7g/h | `visual-pass-verdict` | `option=c`, `verdict=pass\|fix\|rebuild`, `items_passed=<n>` |
+| 8a | `validate-pre-deploy-pass` | `eventsRead=<n>`, `requiredChecks=<n>`, `optionCBuilt=<bool>` (or `validate-pre-deploy-override` / `-fail` per branch — emitted by `validate-pre-deploy.cjs` itself, NOT by the orchestrator) |
 | 8b (per option) | `deploy-recorded` | `option=<a\|b\|c>`, `url=<https-url>` |
 | 10c | `storefront-registered` | `slug=<storefront-slug>` |
 
