@@ -37,9 +37,13 @@
  *                                                                  alias (opus / sonnet / haiku),
  *                                                                  collapsing opus-1m → opus etc.
  *
- * Stage names recognized: orchestrator, brief, specs, perPage, visualPass,
- *                         fourCtris, fixLoop, plugin, multilingual,
- *                         scaffold, report
+ * Stage names recognized: orchestrator, brief, specs, perPage, visualPassA,
+ *                         visualPassB, visualPassC, fourCtris, fixLoop,
+ *                         plugin, multilingual, scaffold, report
+ *
+ * Legacy alias: `visualPass` (no suffix) returns visualPassA — the most
+ * conservative (Opus-default) of the three. Phase K-narrow split the
+ * single `visualPass` field into per-option keys 2026-05-07.
  *
  * Defaults if metrics.modelAssignment is missing:
  *   Mirrors the `baseline` preset in configure-model.cjs (today's pre-Phase-D
@@ -77,12 +81,18 @@ if (!domain || !stage) {
 // Default per-stage assignment — the `baseline` cost-tier preset.
 // Effort defaults are CONSERVATIVE (lean toward higher effort on judgment-heavy
 // stages, lower on mechanical stages) to match today's Opus-everywhere quality.
+//
+// Phase K-narrow split (2026-05-07): visualPass is now per-option. A stays
+// Opus (canonical first read of Option A); B and C drop to Sonnet (post-A
+// QA already established baseline). See FEEDBACK.md Phase K-narrow entry.
 const DEFAULTS = {
   orchestrator: { model: 'opus-1m', effort: 'max'        },  // session-level; current user runs this
   brief:        { model: 'opus-1m', effort: 'high'       },
   specs:        { model: 'opus-1m', effort: 'high'       },
   perPage:      { model: 'sonnet',  effort: 'low'        },
-  visualPass:   { model: 'opus',    effort: 'medium'     },
+  visualPassA:  { model: 'opus',    effort: 'medium'     },
+  visualPassB:  { model: 'sonnet',  effort: 'medium'     },
+  visualPassC:  { model: 'sonnet',  effort: 'medium'     },
   fourCtris:    { model: 'opus',    effort: 'high'       },
   fixLoop:      { model: 'sonnet',  effort: 'medium'     },
   plugin:       { model: 'opus',    effort: 'medium'     }, // plugin-controlled
@@ -91,8 +101,15 @@ const DEFAULTS = {
   report:       { model: 'sonnet',  effort: 'low'        },
 };
 
+// Legacy alias: `visualPass` (no suffix) → returns visualPassA (most
+// conservative, Opus-default). Pre-2026-05-07 a single `visualPass` field
+// applied to all three options. The Phase K-narrow split kept this alias
+// so old callsites don't break — they get the safest behavior. New
+// callsites should use the option-specific keys.
+if (stage === 'visualPass') stage = 'visualPassA';
+
 if (!DEFAULTS[stage]) {
-  console.error(`✗ Unknown stage "${stage}". Valid: ${Object.keys(DEFAULTS).join(', ')}`);
+  console.error(`✗ Unknown stage "${stage}". Valid: ${Object.keys(DEFAULTS).join(', ')} (or legacy 'visualPass' aliased to visualPassA)`);
   process.exit(1);
 }
 

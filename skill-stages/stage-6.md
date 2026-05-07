@@ -84,11 +84,13 @@ For item #18, the verdict is INVERTED relative to A and C: B's design SHOULD mat
 **Pre-dispatch — resolve model per cost-tier** (Phase D, 2026-05-05):
 
 ```bash
-VP_MODEL=$(node scripts/get-model.cjs $DOMAIN visualPass --field model)
-VP_AGENT=$(node scripts/get-model.cjs $DOMAIN visualPass --agent-model)
-VP_EFFORT=$(node scripts/get-model.cjs $DOMAIN visualPass --field effort)
+VP_MODEL=$(node scripts/get-model.cjs $DOMAIN visualPassB --field model)
+VP_AGENT=$(node scripts/get-model.cjs $DOMAIN visualPassB --agent-model)
+VP_EFFORT=$(node scripts/get-model.cjs $DOMAIN visualPassB --field effort)
 node scripts/log-decision.cjs "$DOMAIN" 6c visual-pass-dispatched --detail option=b --detail model=$VP_MODEL --detail effort=$VP_EFFORT
 ```
+
+Default per `cost-tier=baseline`: **`sonnet`** (medium effort) — Phase K-narrow validated 2026-05-07 that Sonnet visual-pass on B is acceptable since A's qa-check + visual-pass already established the design baseline (B inherits A's design verbatim, only text changes). Saves ~$0.20/build vs Opus on this stage. See FEEDBACK.md Phase K-narrow entry for the bigdaddys verdict-downgrade concern (one customer-shaped risk: Sonnet may downgrade `fix` → `pass` ~20% of the time). If Option B's customer is high-stakes (large account, brand-critical), override with `--visualpassb-model=opus`.
 
 Then dispatch the Agent above with `model: '$VP_AGENT'`.
 

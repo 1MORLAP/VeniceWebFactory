@@ -149,13 +149,13 @@ A JSON object matching the schema in visual-sanity-pass.md (stage="4c-bis", opti
 **Pre-dispatch — resolve model per cost-tier** (Phase D, 2026-05-05):
 
 ```bash
-VP_MODEL=$(node scripts/get-model.cjs $DOMAIN visualPass --field model)
-VP_AGENT=$(node scripts/get-model.cjs $DOMAIN visualPass --agent-model)
-VP_EFFORT=$(node scripts/get-model.cjs $DOMAIN visualPass --field effort)
+VP_MODEL=$(node scripts/get-model.cjs $DOMAIN visualPassA --field model)
+VP_AGENT=$(node scripts/get-model.cjs $DOMAIN visualPassA --agent-model)
+VP_EFFORT=$(node scripts/get-model.cjs $DOMAIN visualPassA --field effort)
 node scripts/log-decision.cjs "$DOMAIN" 4c-bis visual-pass-dispatched --detail option=a --detail model=$VP_MODEL --detail effort=$VP_EFFORT
 ```
 
-Default per `cost-tier=baseline`: `opus` (medium effort). `balanced` and `aggressive` drop visualPass to `sonnet` — the gates downstream catch quality regressions. Agent tool dispatch uses `model: '$VP_AGENT'`.
+Default per `cost-tier=baseline`: `opus` (medium effort) — Phase K-narrow validated 2026-05-07 that A's visual pass benefits from Opus (canonical first read; Sonnet missed customer-specific bugs at ~57% rate; see FEEDBACK.md). `balanced` and `aggressive` cost-tiers DO drop A to `sonnet` — accept the quality risk for those tiers. Agent tool dispatch uses `model: '$VP_AGENT'`. Note: B and C visual passes are on `sonnet` by default (Phase K-narrow result — A's pass already established the design baseline, so B/C can run cheaper without quality drop).
 
 Receive the sub-agent's JSON (it's ~400 tokens). The sub-agent MUST write its full JSON to `jobs/{domain}/qa-option-a/visual-pass-verdict.json` AND return a 1-line acknowledgment to the orchestrator. The on-disk verdict file is what the hard gate (next step) reads.
 

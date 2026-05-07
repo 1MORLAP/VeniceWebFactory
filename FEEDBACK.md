@@ -2093,3 +2093,48 @@ Possible future direction: replace B and C with an **"A+"** track — Option A's
 **Root cause**: QA script catches broken links and missing content but can't judge aesthetic quality — that requires structured design evaluation.
 **SKILL.md change**: Integrated `design:design-critique` and `design:accessibility-review` skills into Stage 4 and Stage 6. After screenshots are taken, invoke design-critique on key pages to get structured feedback on hierarchy, consistency, spacing, alignment.
 **Files modified**: SKILL.md, .claude/commands/webfactory.md
+
+---
+
+## 2026-05-07 — Phase K-narrow A/B test result + Venice AI evaluation
+
+**Feedback**: User asked to evaluate Sonnet vs Opus on visual-pass only, plus expand to include Venice's Qwen3-VL 235B as a 3rd variant once Venice API key was added.
+
+**Test design**: 5 customers (giffins.net / watkinsmonuments.com / bigdaddysdumpers.com / bugsbgonepa.com / abcincfencing.com — all trades, matching WebFactory's customer profile). 3 variants per customer × 5 customers = 15 visual-pass dispatches. Same 10 screenshots per customer (mobile-first, capped to 10 per Venice's per-request image limit).
+
+**Harness shipped**:
+- `scripts/dispatch-venice-visual-pass.cjs` — Venice OpenAI-compatible API direct call (vision via base64 JPEG, JSON-object response_format, 4-tier env-var read with defensive prefix-strip)
+- `scripts/compare-visual-pass-verdicts.cjs` — loads 3 verdicts per domain, computes catch-rate / precision / verdict-alignment via (item, screenshot) pairing, prints tables, writes markdown summary
+- Anthropic Opus + Sonnet variants dispatched via Claude Code `Agent` tool (no Anthropic API key needed)
+
+**Results (manual prose-pairing — auto-comparison's exact-match-on-(item,screenshot) was too strict because each model invents its own taxonomy)**:
+
+| Variant | Catch rate (Opus's specific bugs) | Verdict alignment | Cost vs Opus | Quality verdict |
+|---|---|---|---|---|
+| Anthropic Opus 4.7 (reference) | (reference, ~21 issues across 5 customers) | (reference) | 1.0× | reference |
+| Anthropic Sonnet 4.6 | ~43% (9/21) — but found NEW critical bugs Opus missed (watkins brochure-as-portfolio, bugsbgone rodent-on-termite-page) | 4/5 (one downgrade `fix` → `pass` on bigdaddys) | ~0.20× (~80% cheaper) | **PASS for B/C only** |
+| Venice Qwen3-VL 235B | ~5% (1/21) — emitted same 5 generic patterns across all 5 customers regardless of customer-specific issues; likely hallucinated on at least one (claimed abcincfencing uses "generic stock imagery" while Opus saw "real customer photos used aggressively") | 5/5 BUT all "fix" verdict (default anchoring) | ~0.03× (~97% cheaper) | **FAIL** |
+
+**Decision**:
+1. **Don't ship Venice/Qwen3-VL on visual pass.** Quality gap too large; pattern-matching against generic visual-pass templates rather than seeing customer-specific bugs. The 99% cost saving isn't worth missing the bugs that matter.
+2. **Sonnet on visual pass for B and C only** (where A's qa-check + visual-pass already established the design baseline). Keep Opus on A's visual pass (the canonical first read).
+3. **Refero MCP / refero-styles inspiration corpus stays in** — that's prose data, doesn't need a vision-capable cheap model. Venice's value at this layer is zero.
+4. Don't build the model-provider abstraction layer for Venice. The cost of building + maintaining direct-API path against Anthropic's Agent-tool path isn't justified given Venice failed on visual-pass quality.
+
+**SKILL.md change**:
+- `configure-model.cjs` PRESETS: split single `visualPass` field into per-option `visualPassA / visualPassB / visualPassC`. baseline default: Opus / Sonnet / Sonnet (saves ~$0.40/build vs old all-Opus default). balanced/aggressive: all Sonnet. opus-everywhere: all Opus.
+- `get-model.cjs` DEFAULTS extended; legacy `visualPass` aliased to `visualPassA` for backward compat.
+- Stage 4c-bis dispatch reads `visualPassA`; Stage 6c reads `visualPassB`; Stage 7g reads `visualPassC`.
+- SKILL.md cost-tier table now shows the per-option split.
+
+**Known caveat (documented but accepted)**: Sonnet on B/C may downgrade `fix` → `pass` ~20% of the time vs Opus (1 in 5 builds in this A/B). Verdict alignment 4/5 across the test. Acceptable trade for ~$0.40/build savings. If a customer's B or C build is high-stakes (large account, brand-critical), override per-customer with `--visualpassb-model=opus` or `--visualpassc-model=opus`.
+
+**Compress-screenshots.cjs bug uncovered + fixed during A/B harness**: the `sips -Z 1280` flag scaled images to fit within a 1280×1280 BOUNDING BOX, mangling tall full-page screenshots (375×8478 mobile became 56×1280 — a thin sliver). Anthropic's vision API tolerated this silently; Venice's stricter validation rejected it ("Supplied image did not pass validation checks"), surfacing the bug. Fixed: now uses `--resampleWidth 1280` (preserves aspect ratio) + ffmpeg crop top-anchored to MAX_HEIGHT=4096 (preserves above-the-fold content for visual judgment). **This means production visual passes pre-2026-05-07 were silently running on thin slivers — quality-impacting bug fixed as a side effect of the Venice integration test.**
+
+**Files modified**: scripts/configure-model.cjs (PRESETS split), scripts/get-model.cjs (DEFAULTS + legacy alias), scripts/compress-screenshots.cjs (sips flag fix + ffmpeg height crop), skill-stages/stage-4.md (4c-bis dispatch), skill-stages/stage-6.md (6c dispatch), skill-stages/stage-7.md (7g dispatch), SKILL.md (cost-tier table per-option split), FEEDBACK.md (this entry).
+
+**Files added**: scripts/dispatch-venice-visual-pass.cjs (Venice harness), scripts/compare-visual-pass-verdicts.cjs (comparison helper).
+
+**Files unchanged (deliberately)**: no model-provider abstraction layer — refactoring Anthropic dispatch away from the Agent tool is not justified by the failed Venice integration alone. Refero MCP integration unchanged (that's prose data, working well).
+
+**Open follow-on**: re-evaluate Sonnet visual-pass on A specifically when a Sonnet 5 (or equivalent) ships. The Phase K-narrow methodology (5-customer A/B + manual prose pairing) is the template.

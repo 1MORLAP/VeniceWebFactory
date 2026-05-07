@@ -47,6 +47,16 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const MAX_WIDTH = Number(process.env.SCREENSHOT_MAX_WIDTH) || 1280;
+// Phase K-narrow fix 2026-05-07: cap full-page screenshot HEIGHT to avoid
+// rejecting at vision-API validation. Venice's per-image dimension cap
+// rejects images > ~8K pixels on either axis; full-page screenshots can
+// be 25K+ pixels tall. We crop top-anchored (preserve hero + first content
+// section + maybe testimonials — i.e. the above-the-fold content that
+// matters most for visual sanity pass) instead of central crop (loses
+// hero entirely). 4096 captures ~3 mobile viewport heights or ~4 desktop
+// viewport heights — enough for the visual judgment without bloating
+// vision tokens.
+const MAX_HEIGHT = Number(process.env.SCREENSHOT_MAX_HEIGHT) || 4096;
 const JPEG_QUALITY = Number(process.env.SCREENSHOT_JPEG_QUALITY) || 75;
 
 const inputDir = process.argv[2];
@@ -102,8 +112,19 @@ for (const png of pngs) {
     }
   }
 
+  // BUG FIX 2026-05-07 (Phase K-narrow Venice integration): the previous
+  // `-Z 1280` flag scaled images to fit within a 1280×1280 BOUNDING BOX,
+  // which mangled tall full-page screenshots. A 375×8478 mobile full-page
+  // capture became 56×1280 — a thin sliver Venice rejected with
+  // "Supplied image did not pass validation checks." The correct flag is
+  // `--resampleWidth N` which sets the width to N and scales height
+  // proportionally (aspect ratio preserved). Anthropic's vision API
+  // tolerated the mangled aspect ratio (returning verdicts on near-empty
+  // slivers) so the bug went unnoticed until Venice's stricter validation
+  // surfaced it. Production visual passes pre-2026-05-07 were silently
+  // running on thin slivers — quality-impacting bug.
   const r = spawnSync('sips', [
-    '-Z', String(MAX_WIDTH),
+    '--resampleWidth', String(MAX_WIDTH),
     '-s', 'format', 'jpeg',
     '-s', 'formatOptions', String(JPEG_QUALITY),
     pngPath,
@@ -114,6 +135,34 @@ for (const png of pngs) {
     console.error(`  ✗ sips failed on ${png}: ${(r.stderr || '').toString().slice(0, 200)}`);
     errors++;
     continue;
+  }
+
+  // Step 2 (Phase K-narrow fix): full-page mobile screenshots can be
+  // 28K+ pixels tall after the width-resample. Most vision APIs cap at
+  // ~8K pixels per dimension. Crop top-anchored to MAX_HEIGHT if needed
+  // — preserves hero + first content section (the highest-signal portion
+  // for visual judgment).
+  const heightProbe = spawnSync('sips', ['-g', 'pixelHeight', jpgPath], { stdio: 'pipe' });
+  const heightMatch = (heightProbe.stdout || '').toString().match(/pixelHeight:\s*(\d+)/);
+  const height = heightMatch ? parseInt(heightMatch[1], 10) : 0;
+  if (height > MAX_HEIGHT) {
+    const tmpPath = jpgPath.replace(/\.jpg$/i, '.tmp.jpg');
+    try { fs.renameSync(jpgPath, tmpPath); } catch { /* ignore */ }
+    const cropResult = spawnSync('ffmpeg', [
+      '-y',
+      '-i', tmpPath,
+      '-vf', `crop=${MAX_WIDTH}:${MAX_HEIGHT}:0:0`,
+      '-q:v', '5',
+      jpgPath,
+    ], { stdio: 'pipe' });
+    if (cropResult.status === 0) {
+      try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }
+    } else {
+      // Fallback: ffmpeg failed → restore the un-cropped tall version (Venice may
+      // reject it but at least we don't lose data). Log a warning.
+      console.error(`  ⚠ ffmpeg crop failed on ${png} (tall ${height}px → uncropped fallback)`);
+      try { fs.renameSync(tmpPath, jpgPath); } catch { /* ignore */ }
+    }
   }
 
   bytesIn += fs.statSync(pngPath).size;

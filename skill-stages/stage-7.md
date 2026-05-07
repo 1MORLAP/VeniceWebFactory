@@ -511,11 +511,13 @@ If BOTH drifts fire simultaneously (rare — editorial layout AND dashboard chro
 **Pre-dispatch — resolve model per cost-tier** (Phase D, 2026-05-05):
 
 ```bash
-VP_MODEL=$(node scripts/get-model.cjs $DOMAIN visualPass --field model)
-VP_AGENT=$(node scripts/get-model.cjs $DOMAIN visualPass --agent-model)
-VP_EFFORT=$(node scripts/get-model.cjs $DOMAIN visualPass --field effort)
+VP_MODEL=$(node scripts/get-model.cjs $DOMAIN visualPassC --field model)
+VP_AGENT=$(node scripts/get-model.cjs $DOMAIN visualPassC --agent-model)
+VP_EFFORT=$(node scripts/get-model.cjs $DOMAIN visualPassC --field effort)
 node scripts/log-decision.cjs "$DOMAIN" 7g visual-pass-dispatched --detail option=c --detail model=$VP_MODEL --detail effort=$VP_EFFORT
 ```
+
+Default per `cost-tier=baseline`: **`sonnet`** (medium effort) — Phase K-narrow validated 2026-05-07. Like Stage 6c (Option B), Stage 7g for Option C runs Sonnet because the design language is plugin-driven + industry-anchored (the plugin's structural decisions are the canonical design call, the visual pass is a sanity check). Saves ~$0.20/build vs Opus. The 4c-tris World-Class Audit on A still happens at Opus regardless (canonical taste call); 7g is the lighter sanity check on C. Override with `--visualpassc-model=opus` for high-stakes customer C builds. See FEEDBACK.md Phase K-narrow entry for the verdict-downgrade-risk caveat.
 
 Then dispatch the Agent above with `model: '$VP_AGENT'`.
 

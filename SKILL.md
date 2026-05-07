@@ -193,12 +193,12 @@ The `balanced` preset still exists for opt-in experimentation (`--cost-tier=bala
 
 **Lesson captured**: cost-tier default flips MUST run a human-eyes-on quality A/B BEFORE flipping production. Audit numbers and gate-pass status don't capture design-grade quality. Always require visual review.
 
-| Preset | Brief / Specs | Per-page | Visual pass | 4c-tris | Orchestrator | Multilingual / Scaffold / Report | Cost vs baseline | Quality risk |
+| Preset | Brief / Specs | Per-page | Visual pass A / B / C | 4c-tris | Orchestrator | Multilingual / Scaffold / Report | Cost vs baseline | Quality risk |
 |---|---|---|---|---|---|---|---|---|
-| `baseline` (**default since Phase K rollback, 2026-05-07**) | **Opus 4.7 1M** (high effort) | Sonnet 4.6 (low) | Opus (medium) | Opus (high) | Opus 4.7 1M (max) | Sonnet (low) | 1.0× | Lowest |
-| `balanced` (Phase K, NOT default — opt-in only after manual quality review) | **Sonnet 4.6** (high) | Sonnet (low) | **Sonnet** (medium) | Opus (high) | Opus 4.7 1M (high) | Sonnet (low) | ~0.74× (~26% cut empirical) | **Confirmed below quality bar 2026-05-07 on johnsepticservice.com** — gates pass, but visible design drop. Use only for non-customer-facing experimentation. |
-| `aggressive` | Sonnet (high) | Sonnet (low) | Sonnet (medium) | Opus (high) | **Sonnet** (high) | **Haiku 4.5** (low) | ~0.55× (~45% cut) | Medium — Sonnet orchestrator is the unproven dial; Haiku stays out of medium-risk stages |
-| `opus-everywhere` | Opus 1M (max) | **Opus** (medium) | Opus (high) | Opus (max) | Opus 1M (max) | Opus (medium) | ~3× | Highest / showcase only |
+| `baseline` (**default since Phase K rollback, 2026-05-07; Phase K-narrow split applied 2026-05-07**) | **Opus 4.7 1M** (high effort) | Sonnet 4.6 (low) | **Opus / Sonnet / Sonnet** (medium) — A stays Opus per Phase K-narrow A/B (A's canonical first read benefits from Opus); B and C drop to Sonnet (post-A QA already established design baseline). Saves ~$0.40/build vs old all-Opus default. | Opus (high) | Opus 4.7 1M (max) | Sonnet (low) | ~0.92× (~8% cut from old baseline; B+C visual pass) | Lowest. Phase K-narrow validated 5-customer A/B 2026-05-07. Known caveat: Sonnet on B/C may downgrade `fix` → `pass` ~20% of the time vs Opus; offset by per-build verdict alignment of 4/5. |
+| `balanced` (Phase K, NOT default — opt-in only after manual quality review) | **Sonnet 4.6** (high) | Sonnet (low) | **Sonnet / Sonnet / Sonnet** (medium) | Opus (high) | Opus 4.7 1M (high) | Sonnet (low) | ~0.74× (~26% cut empirical) | **Confirmed below quality bar 2026-05-07 on johnsepticservice.com** — gates pass, but visible design drop. Use only for non-customer-facing experimentation. |
+| `aggressive` | Sonnet (high) | Sonnet (low) | Sonnet / Sonnet / Sonnet (medium) | Opus (high) | **Sonnet** (high) | **Haiku 4.5** (low) | ~0.55× (~45% cut) | Medium — Sonnet orchestrator is the unproven dial; Haiku stays out of medium-risk stages |
+| `opus-everywhere` | Opus 1M (max) | **Opus** (medium) | Opus / Opus / Opus (high) | Opus (max) | Opus 1M (max) | Opus (medium) | ~3× | Highest / showcase only |
 
 **Why Haiku is restricted**: Haiku codegen quality is genuinely weaker than Sonnet for non-trivial tasks. Per-page rendering looks mechanical but the Sonnet sub-agent is interpreting a multi-section spec with image-pool curation, design-decision documentation, and component composition — that's where Haiku stumbles. Translation / report / scaffold are pure pattern application — Haiku is fine there.
 
@@ -215,7 +215,8 @@ The `balanced` preset still exists for opt-in experimentation (`--cost-tier=bala
 | 2.6 | Shared scaffold | Sonnet | inline | Component scaffolding from spec |
 | 3 / 5 / 7d-build | Per-page render | **Sonnet** | N parallel sub-agents | Mechanical: spec → .astro file. Spec carries design judgment |
 | 4b / 6b / 7e | qa-check | (script) | deterministic | No model |
-| 4c-bis / 6c / 7g | Visual Sanity Pass | **Opus** | sub-agent (Tier 2) | Vision + structured 18-item checklist |
+| 4c-bis | Visual Sanity Pass (Option A) | **Opus** | sub-agent (Tier 2) | Vision + structured 18-item checklist. CANONICAL FIRST READ — stays Opus per Phase K-narrow 2026-05-07 (A/B test on 5 customers showed Sonnet missed customer-specific bugs at ~57% rate; verdict alignment 4/5 but Sonnet downgraded one `fix` → `pass`) |
+| 6c / 7g | Visual Sanity Pass (Option B / C) | **Sonnet** | sub-agent (Tier 2) | Phase K-narrow 2026-05-07: B/C visual pass dropped to Sonnet — post-A QA already established design baseline; saves ~$0.40/build at the per-build batch level. Override per-customer: `--visualpassb-model=opus` for high-stakes builds. |
 | 4c-tris | World-Class Audit | **Opus** | sub-agent (Phase D delegated 2026-05-05; reshaped 2026-05-07) | World-class-bar taste call — design.md taxonomy + inspiration library + Refero industry top. Kept on Opus + thinking budget regardless of cost-tier |
 | 4e / 6e / 7f | Fix loop (per-page) | **Sonnet** | sub-agent per affected page | Mechanical fix per qa-check directive. Validate-fix-loop-classification gate |
 | 4e / 6e / 7f | Fix loop (shared component) | Sonnet | inline | One Edit benefits all pages |

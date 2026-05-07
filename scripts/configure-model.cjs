@@ -134,12 +134,27 @@ const PRESETS = {
   // (matching what most operators have selected in their Claude Code UI).
   // Brief/specs lean on the 1M tier because they read large input sets
   // (manifest + REQUIRED-PATTERNS + screenshots).
+  // Today's defaults. The orchestrator runs Opus 4.7 1M Max (matching what
+  // most operators have selected in their Claude Code UI). Brief/specs lean
+  // on the 1M tier because they read large input sets (manifest +
+  // REQUIRED-PATTERNS + screenshots).
+  //
+  // Phase K-narrow split (2026-05-07): visualPass is now per-option since
+  // the A/B test proved Sonnet visual-pass is acceptable on B and C (where
+  // A's qa-check + visual-pass already established the design baseline)
+  // BUT NOT on A (the canonical first read — Opus catches the customer-
+  // specific bugs Sonnet's pattern-matching misses). See Phase K-narrow
+  // result in FEEDBACK.md (2026-05-07): Sonnet caught ~43% of Opus's
+  // specific bugs but ALSO caught new ones; verdict alignment 4/5.
+  // Acceptable for B/C; risky for A.
   'baseline': {
     orchestrator: { model: 'opus-1m', effort: 'max'    },
     brief:        { model: 'opus-1m', effort: 'high'   },
     specs:        { model: 'opus-1m', effort: 'high'   },
     perPage:      { model: 'sonnet',  effort: 'low'    },
-    visualPass:   { model: 'opus',    effort: 'medium' },
+    visualPassA:  { model: 'opus',    effort: 'medium' },   // canonical first read — STAYS OPUS
+    visualPassB:  { model: 'sonnet',  effort: 'medium' },   // Phase K-narrow validated 2026-05-07
+    visualPassC:  { model: 'sonnet',  effort: 'medium' },   // Phase K-narrow validated 2026-05-07
     fourCtris:    { model: 'opus',    effort: 'high'   },
     fixLoop:      { model: 'sonnet',  effort: 'medium' },
     plugin:       { model: 'opus',    effort: 'medium' },
@@ -147,17 +162,22 @@ const PRESETS = {
     scaffold:     { model: 'sonnet',  effort: 'low'    },
     report:       { model: 'sonnet',  effort: 'low'    },
   },
-  // Sonnet for brief/specs/visual-pass; Opus only for 4c-tris (subjective
-  // taste — cannot tier down) + plugin orchestration. Per-page stays Sonnet.
-  // Estimated ~30% cost cut. LOW quality risk because the gates
-  // (validate-design-brief, validate-specs, validate-image-pool, visual-pass)
-  // catch quality regressions deterministically.
+  // Sonnet for brief/specs; Opus only for 4c-tris (subjective taste —
+  // cannot tier down) + plugin orchestration. Per-page stays Sonnet.
+  // Visual-pass: Phase K-narrow precedent is "Sonnet OK on B/C, A stays
+  // Opus" — but for `balanced` we accept Sonnet on A as the "more
+  // aggressive than baseline" trade. Customer should review A's verdict
+  // before shipping. Estimated ~30% cost cut. LOW quality risk because
+  // the gates (validate-design-brief, validate-specs, validate-image-pool,
+  // visual-pass) catch quality regressions deterministically.
   'balanced': {
     orchestrator: { model: 'opus-1m', effort: 'high'   },
     brief:        { model: 'sonnet',  effort: 'high'   },
     specs:        { model: 'sonnet',  effort: 'high'   },
     perPage:      { model: 'sonnet',  effort: 'low'    },
-    visualPass:   { model: 'sonnet',  effort: 'medium' },
+    visualPassA:  { model: 'sonnet',  effort: 'medium' },   // balanced trades A→Sonnet too
+    visualPassB:  { model: 'sonnet',  effort: 'medium' },
+    visualPassC:  { model: 'sonnet',  effort: 'medium' },
     fourCtris:    { model: 'opus',    effort: 'high'   },
     fixLoop:      { model: 'sonnet',  effort: 'medium' },
     plugin:       { model: 'opus',    effort: 'medium' },
@@ -178,7 +198,9 @@ const PRESETS = {
     brief:        { model: 'sonnet',  effort: 'high'   },
     specs:        { model: 'sonnet',  effort: 'high'   },
     perPage:      { model: 'sonnet',  effort: 'low'    },   // STAYS SONNET — not Haiku
-    visualPass:   { model: 'sonnet',  effort: 'medium' },
+    visualPassA:  { model: 'sonnet',  effort: 'medium' },
+    visualPassB:  { model: 'sonnet',  effort: 'medium' },
+    visualPassC:  { model: 'sonnet',  effort: 'medium' },
     fourCtris:    { model: 'opus',    effort: 'high'   },   // never tiered down
     fixLoop:      { model: 'sonnet',  effort: 'medium' },   // STAYS SONNET — judgment + edits
     plugin:       { model: 'opus',    effort: 'medium' },
@@ -192,7 +214,9 @@ const PRESETS = {
     brief:        { model: 'opus-1m', effort: 'max'    },
     specs:        { model: 'opus-1m', effort: 'max'    },
     perPage:      { model: 'opus',    effort: 'medium' },
-    visualPass:   { model: 'opus',    effort: 'high'   },
+    visualPassA:  { model: 'opus',    effort: 'high'   },
+    visualPassB:  { model: 'opus',    effort: 'high'   },
+    visualPassC:  { model: 'opus',    effort: 'high'   },
     fourCtris:    { model: 'opus',    effort: 'max'    },
     fixLoop:      { model: 'opus',    effort: 'medium' },
     plugin:       { model: 'opus',    effort: 'medium' },
