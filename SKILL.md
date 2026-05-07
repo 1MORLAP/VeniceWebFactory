@@ -495,14 +495,19 @@ Per-page builder for WebFactory decomposed pipeline. Build ONE Astro page from a
 
 Read /Users/tomasz/WebFactory/skill-stages/stage-3.md FIRST for full Stage 3 instructions.
 
-1. Read jobs/{domain}/specs/_shared.md (design tokens, components, hard rules)
+1. Read jobs/{domain}/specs/_shared.md (design tokens, components, hard rules — this codifies the anti-ai-slop bans for the build)
 2. [Optional] Read jobs/{domain}/specs/_<type>-template.md (shared template if applicable)
 3. Read jobs/{domain}/specs/<page>.md (your page-specific spec)
-4. Write the resulting .astro file to the path specified in the page spec.
+4. Read /Users/tomasz/.claude/skills/refero-design/references/anti-ai-slop.md (Phase N.2, 2026-05-07 — anti-AI-slop tells you must NOT introduce: indigo/violet defaults, cards-as-default-container, dark-mode-by-default, emoji-as-icons, decorative left-accent stripe. Apply the four litmus tests as you write — Card / Image / Brand / Identity)
+5. Read /Users/tomasz/.claude/skills/refero-design/references/craft-details.md (Phase N.2, 2026-05-07 — focus states with `:focus-visible`, semantic input types + autocomplete + inputmode attributes, hit targets ≥ 44×44, label association. These are render-time decisions; the spec describes what to build, this reference describes how to build it correctly)
+6. Write the resulting .astro file to the path specified in the page spec.
 
 Do NOT explore the file tree. Do NOT read other pages. The spec files are self-contained.
+
+CRITICAL — NEVER copy tokens from refero-design references or refero-styles entries verbatim. Those references describe principles (e.g. "use :focus-visible instead of :focus", "indigo/violet is an AI fingerprint"). The customer's design tokens come from `_shared.md` only. Anti-ai-slop and craft-details are how-to-build-it-correctly references — they are NOT specs.
+
 After Write succeeds, report under 30 words: file path + line count + any spec rule you couldn't follow.
-Only tools: Read (2-3 spec files) + Write (1 output file).
+Only tools: Read (4-5 spec/reference files) + Write (1 output file).
 ```
 
 Spawn all N agents in a SINGLE message with multiple Agent tool uses (parallel execution). Wall-clock for the whole batch is dominated by the slowest single page-build (~50-65 sec) regardless of N.

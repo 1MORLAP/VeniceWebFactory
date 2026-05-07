@@ -11,9 +11,9 @@
 
 Build a complete Astro website preserving 100% of the original text content.
 
-#### 3-pre. Read the typed scaffold + inspiration (MANDATORY before designing anything)
+#### 3-pre. Read the typed scaffold + inspiration + anti-slop references (MANDATORY before designing anything)
 
-The `templates/` directory pivoted 2026-04-25 from "copy this whole template per-build" to "copy a minimal scaffold + design fresh per customer." The change prevents 100 plumbing customers getting 100 identical SaaS-aesthetic websites. Three things to read BEFORE writing any component code:
+The `templates/` directory pivoted 2026-04-25 from "copy this whole template per-build" to "copy a minimal scaffold + design fresh per customer." The change prevents 100 plumbing customers getting 100 identical SaaS-aesthetic websites. Five things to read BEFORE writing any component code:
 
 1. **`templates/REQUIRED-PATTERNS.md`** — non-negotiable structural requirements every build must satisfy. Mapped 1:1 to `qa-check.js` rules. Read this completely. The visual treatment of every requirement is your design choice; the structural requirement is non-negotiable.
 
@@ -22,9 +22,14 @@ The `templates/` directory pivoted 2026-04-25 from "copy this whole template per
 3. **At least ONE directory in `templates/inspiration/`** — pick the one that best matches the customer's industry direction:
    - `templates/inspiration/saas-default/` — tech / professional services / consultancies (was `templates/astro-base/` before the pivot)
    - `templates/inspiration/industrial-trades/` — plumbing, HVAC, electrical, construction, landscaping, auto, cleaning
+   - `templates/inspiration/industrial-trades-photo-led/` — same industries, photo-led variant for Option A
    - (others added as the library grows)
 
    READ the components for ideas — prop APIs, structural patterns, animation usage, contrast handling. NEVER `cp -r` a component verbatim into the customer build. Every component is designed fresh per customer.
+
+4. **`~/.claude/skills/refero-design/references/anti-ai-slop.md`** (Phase N.2, 2026-05-07) — THE anti-pattern checklist every per-page worker must internalize. Bans: indigo/violet defaults (`#6366f1`, `#8b5cf6`, `#7c3aed`), cards-as-default-container, dark-mode-by-default, emoji-as-icons, decorative left-accent stripe, generic 3-column pricing, hero-with-left-text-right-image, perfect symmetry. Plus the four litmus tests (Card / Image / Brand / Identity) — apply them as you draft each component. **NOT a specification** — these are bans. The customer's `_shared.md` defines the build's tokens.
+
+5. **`~/.claude/skills/refero-design/references/craft-details.md`** (Phase N.2, 2026-05-07) — implementation-detail reference: `:focus-visible` (NEVER plain `:focus` or `outline: none` without a replacement), input `type=email` + `autocomplete=email` + `inputmode=email`, label association via `for=` or wrapping `<label>`, ≥ 44×44 hit targets, no `onPaste preventDefault` on inputs, `:focus-within` for compound controls. Apply these to every form / button / input the spec calls for. **NOT a specification** — these are how-to-build-it-correctly references.
 
 #### 3a. Set Up Project (copy scaffold, install deps)
 
