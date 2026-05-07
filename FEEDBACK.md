@@ -14,6 +14,53 @@ Permanent log of user feedback and the skill improvements made in response. Ever
 
 ---
 
+## 2026-05-07 — Phase J: Vercel Build CPU Minutes leak ($9.64/day → $120/day at scale)
+
+**Trigger**: User flagged Vercel Pro Plan Usage dashboard showing $33.87 on-demand charges this billing cycle, $9.64 on 2026-05-06 alone — almost entirely "Build CPU Minutes". Asked: investigate cause + ways to avoid by building locally.
+
+**Investigation**: Pulled `get_deployment_build_logs` for a recent lisastephenscpa-com-option-a deploy. Logs show:
+
+```
+Running build in iad1 (Turbo Build Machine)
+Build machine configuration: 30 cores, 60 GB
+...
+Using prebuilt build artifacts from .vercel/output
+Deploying outputs...
+Deployment completed                  ← total elapsed ~2.4 seconds
+```
+
+**The good news**: `--prebuilt` IS working as designed. Logs explicitly say "Using prebuilt build artifacts from .vercel/output". Our local `vercel build` step is doing its job; no remote `npm run build` is happening. The B1/F.4 architecture is correct.
+
+**The bad news**: Vercel allocates a 30-core/60-GB Build Machine for **every** deploy regardless of `--prebuilt` — to run the upload pipeline. The machine doesn't run our build; it just uploads files. But Vercel bills a **1-minute minimum per deploy** even when actual elapsed is 2-3 seconds.
+
+**Math**:
+- Current: 3 deploys/build × ~5-7 builds/day × ~$0.40-0.50/min = ~$6-9/day → matches dashboard.
+- Target scale (100 builds/day overnight batches): 100 × 3 × 1 × $0.40 = **$120/day** = ~$3,600/month just on deploy CPU. Untenable.
+
+**Mitigation paths** (ranked):
+
+| Path | Cut | Effort | Comparison impact |
+|---|---|---|---|
+| **A. Migrate to Cloudflare Pages** | ~100% (free 500 builds/mo, then $5/mo flat) | M | None — A/B/C still 3 separate URLs |
+| B. Vercel dashboard → Standard Build Machine | ~30-50% (lower per-min rate) | XS (manual click per project) | None |
+| C. Skip C deploys by default | ~33% (1 fewer deploy) | XS | High (breaks A/B/C product) |
+| D. `--archive=tgz` flag | ~5-10% (faster upload) | XS — already shipped 2026-05-07 | None |
+| E. Spend management cap | 0% on cost; just clamps damage | XS (dashboard click) | None |
+
+**Shipped 2026-05-07**:
+- D: `--archive=tgz` added to `scripts/deploy-with-gate.cjs` (commit 99ccdfa). Per Vercel docs: "compress the build output and minimize upload size."
+- Documentation: stage-8.md notes the failure mode + the manual dashboard mitigation (B). FEEDBACK.md (this entry) captures the full diagnosis.
+- `scripts/set-vercel-build-machine.cjs` — written but currently 400s on the PATCH; `resourceConfig.buildMachine.purchaseType` isn't accepted on the documented `PATCH /v9/projects/{id}` endpoint. Field is described in the GET response schema but appears read-only via API. Script kept for when Vercel exposes the field, or for use against a different endpoint we discover.
+
+**Recommended manual actions** (operator can do today):
+1. Vercel dashboard → each WebFactory project (lisastephenscpa-com-option-{a,b,c}, etc.) → Settings → Build & Development → Build Machine → Standard.
+2. Vercel dashboard → Spend Management → set hard cap (e.g., $50/month) so a runaway batch can't surprise you.
+3. Plan Phase J (full Cloudflare Pages migration) before unbottling parallel-batch-of-100 nightly builds.
+
+**Files modified**: scripts/deploy-with-gate.cjs (--archive=tgz), scripts/set-vercel-build-machine.cjs (new, gated), skill-stages/stage-8.md (notes), FEEDBACK.md (this entry).
+
+---
+
 ## 2026-05-07 — Phase F.5 prompt-bypass leak DIAGNOSED: Claude Code's secondary "Contains while_statement" guard
 
 **The 8-hour waits**: every time the lisastephens / arkansaswell test build "blocked", what was actually blocked was MY MONITOR command in the parent session, NOT the build subprocess. The build subprocess (launched via `nohup claude -p ... &`) ran cleanly to completion. The Monitor I started to watch its log sat for hours waiting for user approval.
