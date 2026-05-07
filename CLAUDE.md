@@ -110,6 +110,24 @@ When `--skip-c` is active: Stage 7 is skipped (no plugin needed, no `option-c/` 
 ### Smart resume
 The skill auto-detects existing work (manifest, Option A, Option B, Option C) and skips completed stages. **Cascade rule**: rebuilding A forces rebuilding B; rebuilding B forces rebuilding C — UNLESS `--skip-c` is active, in which case the B→C cascade is short-circuited.
 
+### Unattended builds (Phase F.5, 2026-05-07)
+
+For background `claude -p` builds (overnight batches, parallel domains), use the `scripts/run-webfactory.sh` wrapper instead of raw `nohup claude -p ... &`:
+
+```bash
+scripts/run-webfactory.sh http://www.example.com/ --full
+scripts/run-webfactory.sh http://www.example.com/ --full --skip-c
+```
+
+The wrapper:
+1. **Captures stdout AND stderr** to `/tmp/webfactory-{domain}-{timestamp}.log` so any prompt that bypassPermissions doesn't suppress is visible (rather than blocking on closed stdin invisibly).
+2. **Spawns an idle watchdog** that polls log freshness every 60s. If the log hasn't grown for `IDLE_LIMIT` seconds (default 1800 = 30 min), kills the build and writes the last 50 lines to `${LOG}.last-50-before-kill` so the operator can see what was waiting.
+3. **Prints a clear `tail -f` instruction** at launch so the operator can watch from another terminal.
+
+Why this matters: 2026-05-07 lisastephens G.2+G.5 build sat 8 hours waiting on a permission prompt that `--permission-mode bypassPermissions` didn't suppress. The default `nohup ... > log 2>&1 &` pattern captured the prompt but the operator had no way to discover it without explicit guidance. The wrapper standardizes the discovery path + adds a kill switch for hung builds. Critical for parallel-batch-of-100 unattended operation.
+
+Environment overrides: `IDLE_LIMIT=3600` (1 hr — safe for 14+-page sites), `LOG_DIR=/path` (default `/tmp`), `NO_WATCHDOG=1` (disable for interactive debugging).
+
 ## Final deliverable
 
 **Default mode (4 links)**:
