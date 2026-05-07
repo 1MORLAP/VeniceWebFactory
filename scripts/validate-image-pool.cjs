@@ -69,13 +69,18 @@ if (!fs.existsSync(poolPath)) {
 }
 
 // Build basename → _class map from the manifest (already enriched by classify-images.cjs).
+// Phase H (2026-05-06): walk backgroundImages too — they get _class tags now,
+// and pool slots may reference them by their localPath basename (bg_N.jpg)
+// once the orchestrator's image-pool generator stops dropping them.
 const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 const classByBasename = new Map();
 for (const p of manifest.pages || []) {
-  for (const img of p.images || []) {
-    if (img.localPath && img._class) {
-      const bn = img.localPath.split('/').pop();
-      if (bn && !classByBasename.has(bn)) classByBasename.set(bn, img._class);
+  for (const arr of [p.images || [], p.backgroundImages || []]) {
+    for (const img of arr) {
+      if (img.localPath && img._class) {
+        const bn = img.localPath.split('/').pop();
+        if (bn && !classByBasename.has(bn)) classByBasename.set(bn, img._class);
+      }
     }
   }
 }

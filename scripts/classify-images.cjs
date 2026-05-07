@@ -74,6 +74,39 @@ const NAV_VOCAB = /\b(home|about us|about|contact|menu|location|email us|email|p
 const PLACEHOLDER_VOCAB = /\b(spacer|divider|separator|blank|placeholder|loading|transparent.?bg|filler)\b/i;
 const TRACKING_HOSTS = /(google-?analytics|googletagmanager|facebook\.com\/tr|doubleclick|hotjar|mixpanel|segment|mouseflow|fullstory|crazyegg|prnx\.net|stat\.|track\.|pixel\.|beacon\.|metrics\.)/i;
 
+// CSS-background chrome-filename signals (Phase H, 2026-05-06). Real bug:
+// Dreamweaver / GoDaddy / Wix / static-HTML legacy sites have no CMS image
+// widget so they place hero / team / banner photos as CSS background-image.
+// Naming conventions consistently mark chrome backgrounds with prefix or
+// suffix tokens. Content backgrounds use descriptive names (`headertop.jpg`,
+// `team.jpg`, `hero1.jpg`) without these tokens.
+//
+// We extract the SOURCE filename (NOT localPath, which is always bg_NN.jpg
+// for backgrounds) to apply this filter. Filters fire on both <img> and CSS
+// background records — same chrome-naming convention applies in both.
+//
+// Real bug 2026-05-06 (lisastephenscpa.com): a 974×348, 145KB JPEG of the
+// team in front of an office (`headertop.jpg`) was filed as bg_6.jpg and
+// AR=2.8, so the previous flat AR≥1.5 rule classed it as 'banner' and it
+// never reached the build's image pool. Three out of three options shipped
+// without the team photo despite it being on every page of the original.
+function isChromeFilename(srcName) {
+  if (!srcName) return false;
+  // Suffix tokens at end of filename (no extension).
+  if (/[-_](bg|border)$/i.test(srcName)) return true;
+  // Embedded chrome words bounded by separator or string edge.
+  if (/(^|[-_])(gradient|shadow|backdrop|spacer|divider|separator|stripe|texture|pattern|swatch|hatch)([-_]|$)/i.test(srcName)) return true;
+  // Common explicit prefix patterns: body-bg, content-bg, footer-bg, sidebar-bg, sidebar-h3-bg.
+  if (/^(body|content|footer|sidebar|nav)[-_].*[-_]bg/i.test(srcName)) return true;
+  return false;
+}
+
+function srcBasenameLower(rec) {
+  const src = String(rec.src || '');
+  const m = src.match(/\/([^\/?#]+)\.(jpe?g|png|gif|webp|svg|avif)(\?|#|$)/i);
+  return m ? m[1].toLowerCase() : '';
+}
+
 function classifyImage(rec, jobDir) {
   const w = Number(rec.width) || 0;
   const h = Number(rec.height) || 0;
@@ -109,12 +142,58 @@ function classifyImage(rec, jobDir) {
   //    as a "marker we have crafted."
   if (area > 0 && area < 3000) return 'tiny';
 
-  // 3. CSS-background extreme aspect → banner. Scraper writes CSS
-  //    background-image sources as bg_*.{jpg,png}. When their aspect
-  //    is ≥1.5 in either direction, they're nearly always decorative
-  //    chrome (gradient strips, banners). Real hero photos rarely
-  //    exceed 1.78:1 (16:9).
-  if (/^bg[_\-]?\d+\./.test(basename) && ar >= 1.5) return 'banner';
+  // 2.5. Unmeasurable dimensions (Phase H, 2026-05-06). Real bug:
+  //      Playwright sometimes fails to measure CSS-background dimensions
+  //      for lazy-loaded / off-screen images, leaving width=height=0 in
+  //      the manifest. Without dims we can't apply any size-based rule,
+  //      so we use FILE SIZE as the sole disambiguator:
+  //        • < 5000 bytes → 'tiny' (chrome icon, theme-skin, gradient stub
+  //          — e.g. giffins.net default-skin.png at 547 bytes)
+  //        • ≥ 5000 bytes → 'content' (real photo, even if dims missing —
+  //          e.g. giffins.net hero photos at 85–693 KB with 0×0 dims)
+  //      Real photos compressed below 5KB are vanishingly rare in 2026
+  //      (hero JPEGs are typically 50–500 KB). Conservative cutoff.
+  if (w === 0 && h === 0) {
+    if (fileSize > 0 && fileSize < 5000) return 'tiny';
+    if (fileSize >= 5000) return 'content';
+    return 'tiny';   // defensive default when we have nothing
+  }
+
+  // 2a. Chrome by source filename (Phase H, 2026-05-06). The original
+  //     site's URL filename is the most reliable signal of intent — a
+  //     site author who calls a file "header-bg.jpg" or "gradient.png"
+  //     is explicitly marking it as chrome. Fires for both <img> and CSS
+  //     background records (legacy `<img class="hero-bg">` patterns exist
+  //     too). The bpp escape hatch (≥ 0.30) rescues the rare case of a
+  //     real photo named something-bg.jpg.
+  const srcName = srcBasenameLower(rec);
+  if (srcName && isChromeFilename(srcName) && bytesPerPixel < 0.30) {
+    if (/[-_]border\b|[-_]border$/i.test(srcName)) return 'line';
+    if (/(^|[-_])(spacer|divider|separator)([-_]|$)/i.test(srcName)) return 'spacer';
+    return 'banner';
+  }
+
+  // 3. CSS-background extreme aspect → banner, with photo-grade rescue.
+  //    Scraper writes CSS background-image sources as bg_*.{jpg,png}.
+  //    Wide-aspect (AR≥1.5) bg files are USUALLY chrome (gradient strips,
+  //    decorative banners), but legacy static-HTML sites also use them
+  //    for content (group team photos, landscape hero shots, storefront
+  //    photos — the Dreamweaver / GoDaddy era had no other way to put a
+  //    photo in a hero slot). Bytes-per-pixel disambiguates: chrome
+  //    compresses to 0.01–0.06 bpp (gradients, solid fills, low entropy);
+  //    real photos sit at 0.15–2.0 bpp (high entropy). The 0.15 cutoff
+  //    is well below any real-photo territory while still excluding
+  //    even rich gradients.
+  //
+  //    The chrome-filename check above (rule 2a) catches the common case
+  //    cleanly, so this rule only fires for backgrounds with NO chrome
+  //    filename — which is precisely the lisastephenscpa headertop.jpg
+  //    case (974×348, 145KB → 0.43 bpp → content).
+  const isCssBackground = rec.type === 'background' || /^bg[_\-]?\d+\./.test(basename);
+  if (isCssBackground && ar >= 1.5) {
+    if (bytesPerPixel >= 0.15) return 'content';   // photo-grade — keep
+    return 'banner';                                // gradient/chrome — drop
+  }
 
   // 4. Spacer — uniform-color tile. Real photos at 240×209 are 5-30 KB
   //    JPEG (≥0.1 bytes/pixel); uniform-fill tiles are 1-3 KB
@@ -208,6 +287,8 @@ const samples = {
 };
 
 let totalImages = 0;
+let totalBackgrounds = 0;
+let backgroundContent = 0;
 
 for (const page of manifest.pages || []) {
   for (const img of page.images || []) {
@@ -224,6 +305,40 @@ for (const page of manifest.pages || []) {
         fileSize: img.fileSize,
         alt: img.alt || '',
         page: page.url || page.path || '',
+        kind: 'img',
+      });
+    }
+  }
+  // Phase H (2026-05-06): walk backgroundImages too. CSS-background sources
+  // are how Dreamweaver / GoDaddy / Wix legacy static-HTML sites place hero
+  // photos, team photos, and other content imagery — they have no CMS image
+  // widget, so any photo larger than ~200px lands here. Pre-Phase-H, the
+  // classifier ignored this array entirely; downstream image-pool generation
+  // filtered for `_class === 'content'` and silently dropped every CSS-
+  // background photo regardless of whether it was chrome or content. Real
+  // bug surfaced 2026-05-06 (lisastephenscpa.com) — 974×348 team photo
+  // missing from all 3 deploys.
+  for (const bg of page.backgroundImages || []) {
+    // Mark explicitly as background so classifyImage's tiered chrome rule
+    // can use the right path. The scraper sets `type: 'background'` already
+    // but defensive set in case of older manifests.
+    if (!bg.type) bg.type = 'background';
+    const cls = classifyImage(bg, jobDir);
+    bg._class = cls;
+    counts[cls] = (counts[cls] || 0) + 1;
+    totalImages++;
+    totalBackgrounds++;
+    if (cls === 'content') backgroundContent++;
+    if (cls !== 'content' && samples[cls] && samples[cls].length < 30) {
+      samples[cls].push({
+        src: bg.src,
+        localPath: bg.localPath,
+        w: bg.width,
+        h: bg.height,
+        fileSize: bg.fileSize,
+        alt: bg.alt || '',
+        page: page.url || page.path || '',
+        kind: 'background',
       });
     }
   }
@@ -238,6 +353,11 @@ const report = {
   domain,
   classifiedAt: new Date().toISOString(),
   totalImages,
+  // Phase H: backgrounds are a separate counted axis so we can audit how
+  // often CSS-background photos rescue legitimate content. See header
+  // comment + lisastephenscpa.com bug.
+  totalBackgrounds,
+  backgroundContent,
   counts,
   contentRatio: totalImages > 0 ? (counts.content / totalImages).toFixed(2) : null,
   samples,

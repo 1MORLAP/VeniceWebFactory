@@ -320,20 +320,48 @@ function isMustReusePhoto(rec) {
   // Only fires when both dimensions are known (h > 0); falls through for
   // CSS background images that don't always carry intrinsic height.
   if (h > 0 && w > 0 && (w / h) >= 2.5 && h < 200) return false;
-  // CSS-background table-chrome: decorative gradient strips, banners, and
-  // solid-fill tiles served as `background-image` on 90s/2000s static-HTML
-  // sites. Scraper downloads CSS-background sources as bg_*.{jpg,png}. When
-  // their aspect ratio is extreme (≥1.5 in either direction) they are
-  // nearly always decorative chrome, NOT content photos — real hero
-  // backgrounds rarely exceed 1.78:1 (16:9) and never reach 1.5:1 in the
-  // tall direction. Real bug 2026-05-04 (watkinsmonuments.com) — vertical
-  // brown gradient (1440×900, AR 1.6) + horizontal banner (157×2344, AR
-  // ~14.9) counted toward must-reuse pool, forcing the modern rebuild to
-  // re-render dated table chrome.
-  const isBgFile = /\/bg[_\-]?\d+\.(jpe?g|png|webp|gif)$/i.test(lp);
+  // CSS-background classification (refined Phase H, 2026-05-06).
+  //
+  // Pre-Phase-H rule was a flat "bg_NN.jpg + AR≥1.5 → not must-reuse",
+  // which had a real false-positive on legitimate content (lisastephenscpa
+  // headertop.jpg: 974×348, 145KB, the team photo — AR 2.8, was dropped
+  // as chrome). The flat rule was added 2026-05-04 for watkinsmonuments
+  // chrome leakage and overcorrected.
+  //
+  // Tiered fix:
+  //   a. SOURCE filename (not localPath bg_N) contains chrome keyword
+  //      (-bg, -border, gradient, shadow, body-, footer-bg, sidebar-bg,
+  //      etc.) AND the file is NOT photo-grade (bpp < 0.30) → chrome,
+  //      not must-reuse. Catches body-bg.png, header-bg.jpg, etc.
+  //   b. Else if bytes-per-pixel < 0.06 AND no alt → solid fill /
+  //      gradient (chrome) → not must-reuse. Catches dimensionally
+  //      large but visually empty fills like watkinsmonuments' vertical
+  //      brown gradient.
+  //   c. Else if AR≥1.5 AND bpp < 0.15 → ambiguous chrome → not must-reuse.
+  //      Conservative: when we can't prove it's a photo, exclude.
+  //   d. Else → must-reuse (photo-grade banner content survives).
+  //      Headertop.jpg (0.43 bpp, no chrome keyword) lands here.
+  //
+  // Mirrors classify-images.cjs's chrome-detection so the classifier and
+  // qa-check agree on what's content. If they disagree, the build either
+  // ships missing content (false chrome) OR the must-reuse gate fails
+  // demanding chrome rendering (false content).
+  const isBgFile = /\/bg[_\-]?\d+\.(jpe?g|png|webp|gif)$/i.test(lp) || rec.kind === 'background';
   if (isBgFile && w > 0 && h > 0) {
     const ar = w >= h ? w / h : h / w;
-    if (ar >= 1.5) return false;
+    const bpp = (fileSize > 0) ? (fileSize / (w * h)) : 0;
+    // Extract source-URL filename (not localPath, which is always bg_N).
+    const srcMatch = src.match(/\/([^\/?#]+)\.(jpe?g|png|gif|webp|svg|avif)(\?|#|$)/i);
+    const srcName = srcMatch ? srcMatch[1].toLowerCase() : '';
+    const hasChromeKeyword = srcName && (
+      /[-_](bg|border)$/i.test(srcName) ||
+      /(^|[-_])(gradient|shadow|backdrop|spacer|divider|separator|stripe|texture|pattern|swatch|hatch)([-_]|$)/i.test(srcName) ||
+      /^(body|content|footer|sidebar|nav)[-_].*[-_]bg/i.test(srcName)
+    );
+    if (hasChromeKeyword && bpp < 0.30) return false;          // explicit chrome filename
+    if (bpp > 0 && bpp < 0.06 && !alt) return false;           // low-entropy gradient/fill
+    if (ar >= 1.5 && bpp > 0 && bpp < 0.15) return false;      // ambiguous wide/tall — treat as chrome
+    // Otherwise: photo-grade content background, KEEP as must-reuse.
   }
   // Uniform-color tile heuristic: very low file-size-per-pixel ratio is a
   // strong signal of a solid-fill or near-solid-fill image (blank spacer,
