@@ -91,6 +91,18 @@ A weak brief produces a "merely better than original" build. Strong brief = stro
 
 Per Tier 3 of the context-optimization plan, the orchestrator MAY (and by default SHOULD) delegate Stage 2 to an Opus sub-agent so the brief generation's screenshot reads + manifest walk happen off the main session. Tier 1a (skill-stages split) + Tier 1b (smart-resume) + Tier 2 (visual-pass dispatch) shipped 2026-05-04 brought main-session context for a 6-page build from ~600-800K to ~250-350K. Tier 3 takes another ~80-120K off main when the customer has more than 4-5 pages.
 
+##### Pre-dispatch: extract slim brief input (Phase L.2, 2026-05-07)
+
+Before dispatching the Stage 2 sub-agent, pre-extract a slim manifest the brief author actually needs. Full `manifest.json` is 35-80KB on small sites, 200KB+ on 14-page sites; most of it is duplicate (rawText vs sections), low-signal (form fields, scrape metadata), or chrome-image entries. The slim `brief-input.json` is ~10-50KB:
+
+```bash
+node scripts/extract-brief-input.cjs $DOMAIN
+```
+
+Self-instruments `1-post/brief-input-extracted` event with full+slim byte counts. The full manifest stays on disk for downstream stages (Phase 2.5b spec author still uses `page-manifests/{slug}.json` from Phase G.2 for verbatim per-page content). L.2 only trims the BRIEF AUTHOR's input; nothing else.
+
+Empirical reduction: -71% on 5-page lisastephens (35KB → 10KB), -51% on 14-page richstaxidermy (202KB → 99KB).
+
 Spawn ONE sub-agent via the `Agent` tool. **Resolve the model per cost-tier first** (Phase D):
 
 ```bash
@@ -112,9 +124,9 @@ You are running **Stage 2: Design Brief** for WebFactory build {DOMAIN}. Read /U
 
 ## What to read
 
-- jobs/{DOMAIN}/manifest.json — every page, every section, business facts, social/footer
-- jobs/{DOMAIN}/assets/screenshots/*.png — visual reference for the original site
-- jobs/{DOMAIN}/image-classification.json — content-vs-chrome inventory (helps you scope "thin manifest" vs "rich photo coverage" sites)
+- jobs/{DOMAIN}/brief-input.json — slim manifest extract (Phase L.2). Contains pages with first 3 paragraphs each + business identity + footer/social/nav + content-class image inventory + image stats. **Use this, NOT `manifest.json`** — the full manifest is 35-200KB of duplicate raw text + chrome image entries that the brief author doesn't cite. The slim version is ~10-50KB and contains everything brief synthesis needs. (If you need the full verbatim text of a specific page for some reason, `manifest.json` is still on disk — but you almost never should.)
+- jobs/{DOMAIN}/assets/screenshots/*.{jpg,png} — visual reference for the original site (prefer `.jpg` sidecars from Phase L.1 if present)
+- jobs/{DOMAIN}/image-classification.json — content-vs-chrome inventory (also summarized in brief-input.json's `imageStats`)
 - /Users/tomasz/WebFactory/SKILL.md sections referenced from stage-2.md (DESIGN QUALITY BAR, FACT GROUNDING PRINCIPLE, BRAND RECOGNIZABILITY)
 
 ## What to write
