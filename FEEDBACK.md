@@ -14,6 +14,24 @@ Permanent log of user feedback and the skill improvements made in response. Ever
 
 ---
 
+## 2026-05-07 — Phase G.6 (explicit prompt caching): not actionable from Agent tool
+
+**Investigation goal**: determine whether Claude Code's `Agent` tool exposes Anthropic's `cache_control: { type: "ephemeral" }` markers for explicit cache placement. If so, mark static content (REQUIRED-PATTERNS.md, _shared.md, brief-essentials.json) as cacheable to cut input-token cost on parallel sub-agent dispatches.
+
+**Findings**:
+1. The Anthropic API DOES support prompt caching — the `cache_read_input_tokens` and `cache_creation_input_tokens` fields appear in API response usage records (visible in Vercel plugin test fixtures: `claude-plugins-official/vercel/.../tests/benchmark-*.test.ts`). So the underlying capability exists.
+2. The Claude Code `Agent` tool exposes a `prompt: string` parameter. **No `cache_control` field is available.** The SDK presumably auto-caches stable message prefixes (system prompt + tool defs) but doesn't let user code control this explicitly.
+3. The SDK's auto-caching behavior at the Anthropic API level is the de facto cache layer. With G.1's parallel dispatch (N sub-agents within seconds) the 5-minute TTL window applies and cache hits SHOULD fire on the system-prompt + tool-defs prefix that's identical across all N calls.
+4. We can't measure whether cache hits are firing because cache_read_input_tokens isn't surfaced through the Agent tool's return value either.
+
+**Conclusion**: G.6 ships as documentation-only. No code change. Re-open if either (a) the SDK adds cache_control exposure, (b) the Anthropic console exposes per-build cache-hit data so we can verify auto-caching is engaging.
+
+**Soft recommendation for prose authors**: order Read tool calls in sub-agent prompts with most-static content first (REQUIRED-PATTERNS, _shared.md), most-variable last (page slug, page-manifest slice). This maximizes the chance that auto-caching engages on the shared prefix across parallel dispatches.
+
+**Files modified**: FEEDBACK.md (this entry only)
+
+---
+
 ## 2026-05-06 — Phase G.1 (parallelize Stage 2.5): descriptive vs imperative prose
 
 **Feedback** (from skill iteration): G.1 split Stage 2.5 into Phase A (1 sub-agent, writes _shared.md + _image-pools.json) + Phase B (N parallel sub-agents, one per page). Architecture is correct. End-to-end test on arkansaswell.com: per-page specs landed SEQUENTIALLY 2-3 min apart over 14 min (home.md 22:38, about_us.md 22:40, services.md 22:43, links.md 22:45, contact.md 22:48). Total Stage 2.5 time **18m34s vs 7m25s monolithic baseline** — G.1 made the build **2.5× slower**. The orchestrator self-reported `dispatcher=sub-agent-parallel, phaseB=5` while writing specs one at a time. Stage 3, 5, 7d-build on the same build all dispatched parallel correctly (multiple events at identical second-level timestamps). The regression was specific to G.1's Phase 2.5b prose.
