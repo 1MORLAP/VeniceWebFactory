@@ -104,6 +104,62 @@ if (gate.status !== 0) {
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// Step 1.5: ensure .vercel/project.json is linked correctly
+//
+// CRITICAL (Phase J followup, 2026-05-07): if `.vercel/project.json`
+// is missing OR has the wrong projectName (e.g., bare "option-a"
+// instead of "{domain}-option-a"), `vercel deploy` will auto-create
+// a generic project that COLLIDES across customers. Real bug observed
+// 2026-05-07: lisastephenscpa-com `--full` build deployed to a
+// project literally named "option-a" because the prior project link
+// got wiped by --full and deploy-with-gate.cjs didn't re-link.
+// All future customer builds would silently push deployments into
+// the same shared "option-a"/"option-b"/"option-c" projects.
+//
+// Fix: pre-link the project before any vercel-cli call. The expected
+// project name is `{domain-slug}-option-{a|b|c}` where {domain-slug}
+// is the canonical domain with dots replaced by hyphens.
+const expectedProjectName = `${domain.replace(/\./g, '-')}-option-${option}`;
+const projectJsonPath = path.join(optionDir, '.vercel', 'project.json');
+let needsLink = !fs.existsSync(projectJsonPath);
+if (!needsLink) {
+  try {
+    const linked = JSON.parse(fs.readFileSync(projectJsonPath, 'utf8'));
+    if (linked.projectName !== expectedProjectName) {
+      console.warn(`⚠ Existing .vercel/project.json has wrong projectName: "${linked.projectName}" (expected "${expectedProjectName}"). Re-linking.`);
+      needsLink = true;
+    }
+  } catch (e) {
+    console.warn(`⚠ Could not parse .vercel/project.json: ${e.message}. Re-linking.`);
+    needsLink = true;
+  }
+}
+
+if (needsLink) {
+  console.log('');
+  console.log(`▶ Step 1.5/4: pre-link Vercel project to ${expectedProjectName}`);
+  // Wipe stale .vercel/ if present — vercel link refuses if there's a
+  // partial link state.
+  const vercelDir = path.join(optionDir, '.vercel');
+  if (fs.existsSync(vercelDir)) {
+    try { fs.rmSync(vercelDir, { recursive: true, force: true }); } catch {}
+  }
+  const link = spawnSync('npx', [
+    'vercel', 'link',
+    '--scope', 'tomek-group',
+    '--project', expectedProjectName,
+    '--yes',
+  ], {
+    cwd: optionDir,
+    stdio: 'inherit',
+  });
+  if (link.status !== 0) {
+    console.error(`✗ vercel link failed (exit ${link.status}) — no deploy attempted.`);
+    process.exit(3);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // Step 2: vercel build + vercel deploy --prebuilt
 // ─────────────────────────────────────────────────────────────────────
 
