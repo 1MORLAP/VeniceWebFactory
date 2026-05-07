@@ -125,10 +125,17 @@ if (build.status !== 0) {
 // Deploy the prebuilt output. Capture stdout via spawnSync so we can
 // extract the deploy URL by regex (the B1 fix pattern from Phase F.3).
 //
+// `--archive=tgz` (Phase J, 2026-05-07): compress the build output as
+// a single tarball before uploading. Per Vercel docs:
+//   "Build a project locally with `vercel build`, then deploy the
+//    prebuilt output using `--prebuilt` and `--archive=tgz` to compress
+//    the build output and minimize upload size."
+// Smaller upload = less billable Build CPU time per deploy.
+//
 // Note: we don't use stdio: 'inherit' here because we need stdout
 // content for URL extraction. Stderr gets echoed live so the operator
 // can see progress.
-const deploy = spawnSync('npx', ['vercel', 'deploy', '--prebuilt', '--yes'], {
+const deploy = spawnSync('npx', ['vercel', 'deploy', '--prebuilt', '--archive=tgz', '--yes'], {
   cwd: optionDir,
   encoding: 'utf8',
   // Pipe stdout so we can extract; let stderr stream live to the parent.
