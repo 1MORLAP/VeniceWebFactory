@@ -2985,6 +2985,80 @@ function rgbToHexFromComputed(rgb) {
     }
   }
   // ---- end INVENTED BRAND GRAPHICS BAN ----
+
+  // ---- EMPTY-ANCHOR-AS-FLEX-CHILD ban (anti-stretched-click misimplementation) ----
+  // Catches the recurring Sonnet worker invention where a "make-the-whole-card-
+  // clickable" overlay is added as an EMPTY <a> with `flex` + `h-full` classes,
+  // placed as a flex-col SIBLING of the actual card content. The empty anchor
+  // takes layout space (h-full claims 100% height) and produces a visible empty
+  // gap inside cards in a flex-row grid where content heights vary slightly
+  // — cards with shorter content show a giant empty space above the photo.
+  //
+  // Real bug 2026-05-07 (johnsepticservice.com Option A and B service cards):
+  // 3 of 4 cards had ~50% empty cream space above the photo because of this
+  // anti-pattern. Spec didn't ask for stretched-click; Stage 3 Sonnet worker
+  // invented it. Visual Sanity Pass on Opus didn't catch it (verdict was
+  // pass 18/18 anyway). qa-check needs deterministic detection.
+  //
+  // Correct stretched-click pattern: `<a class="absolute inset-0 z-10" ...>`
+  // INSIDE a `position: relative` parent. This is OUT-OF-FLEX-FLOW and doesn't
+  // consume layout space. Photo + "Learn more →" anchors usually suffice
+  // without a stretched overlay at all.
+  //
+  // Detection: empty <a> element (no children OR only whitespace inside) whose
+  // class contains BOTH `flex` (or `flex-col`) AND `h-full`. The combination
+  // is the fingerprint — neither alone is suspicious; together they're the
+  // misimplementation. Self-closing anchors (`<a ... />`) are also matched
+  // even though valid HTML5 doesn't allow them — the worker may produce them.
+  try {
+    const distDirs = [];
+    if (manifestPath && optionName) {
+      const jobDir = dirname(manifestPath);
+      const dd = join(jobDir, `option-${optionName}`, 'dist');
+      if (existsSync(dd)) distDirs.push(dd);
+    }
+    if (referenceDistPath && existsSync(referenceDistPath)) distDirs.push(referenceDistPath);
+    for (const distDir of distDirs) {
+      const htmlFiles = [];
+      walkHtmlFiles(distDir, htmlFiles);
+      for (const htmlPath of htmlFiles) {
+        let html;
+        try { html = readFileSync(htmlPath, 'utf8'); } catch { continue; }
+        // Match <a ...class="...">[ws]</a> OR <a ... />
+        // The class attribute capture allows finding flex+h-full in either order.
+        const anchorRe = /<a\s[^>]*class=["']([^"']+)["'][^>]*>\s*<\/a>|<a\s[^>]*class=["']([^"']+)["'][^>]*\/>/gi;
+        let m;
+        const seen = new Set();
+        while ((m = anchorRe.exec(html)) !== null) {
+          const cls = m[1] || m[2] || '';
+          // Both `flex` (or `flex-col`) AND `h-full` must appear.
+          const hasFlex = /\bflex(-col|-row)?\b/.test(cls);
+          const hasHFull = /\bh-full\b/.test(cls);
+          if (!hasFlex || !hasHFull) continue;
+          // Dedupe by file + class signature so we don't spam multiple
+          // identical occurrences (typical: 4 service cards = 4 hits → 1 issue).
+          const key = `${htmlPath}::${cls}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          const relPath = htmlPath.replace(distDir, '').replace(/\\/g, '/');
+          // Count occurrences in this file for the message.
+          const occurrences = (html.match(new RegExp(
+            anchorRe.source.replace(/\([^)]+\)/g, m => m).slice(0, -1),  // strip flags
+            'g'
+          )) || []).length;
+          staticIssues.push({
+            severity: 'fail',
+            check: 'empty-anchor-as-flex-child',
+            msg: `${relPath}: empty <a class="${cls.slice(0, 80)}${cls.length > 80 ? '...' : ''}"></a> detected (${occurrences} occurrence${occurrences === 1 ? '' : 's'} in this file). This is the misimplemented stretched-click overlay anti-pattern (real bug 2026-05-07 johnsepticservice service cards): the empty anchor placed as a flex-col sibling with h-full takes layout space and produces visible empty gaps inside cards. Either (a) remove the empty anchor entirely — the photo and "Learn more" anchors already provide adequate click targets — OR (b) implement stretched-click correctly as <a class="absolute inset-0 z-10" aria-hidden="true" tabindex="-1"></a> inside a position:relative parent, NEVER as a flex sibling. See "Mandatory _shared.md What NOT to add" in SKILL.md.`,
+          });
+        }
+      }
+    }
+  } catch (e) {
+    console.warn(`⚠ empty-anchor-as-flex-child: failed to run (${e.message}) — skipping.`);
+  }
+  // ---- end EMPTY-ANCHOR-AS-FLEX-CHILD ban ----
+
   // ---- end static source lints ----
 
   // Report — grouped by viewport, with dedupe for issues that fire at both.
