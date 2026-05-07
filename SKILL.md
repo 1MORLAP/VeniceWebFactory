@@ -187,10 +187,12 @@ Note: there is **NO Sonnet 4.7** — only 4.6. Both Opus 4.7 and Sonnet 4.6 defa
 
 Pick ONE preset at Stage 0 via `node scripts/configure-model.cjs $DOMAIN --cost-tier=<preset>`. Per-stage overrides allowed for fine control. **Haiku is reserved for LOW-quality-risk stages only** (multilingual translation, report formatting, scaffold) per user direction 2026-05-05 — never for per-page builds, fix-loops, brief, specs, or visual passes.
 
+**Default flipped from `baseline` to `balanced` 2026-05-07 (Phase K)**: cost-audit data showed Opus accounted for ~70% of build cost with Sonnet handling per-page volume. The validate-design-brief / validate-specs / validate-image-pool / validate-visual-pass gates + the Opus 4c-tris audit collectively enforce design quality regardless of which model runs the synthesis stages, so dropping brief/specs/visual-pass to Sonnet is a controlled ~30% cost reduction. Pass `--cost-tier=baseline` (or `--ab=baseline` for an A/B variant) to restore the pre-K behavior.
+
 | Preset | Brief / Specs | Per-page | Visual pass | 4c-tris | Orchestrator | Multilingual / Scaffold / Report | Cost vs baseline | Quality risk |
 |---|---|---|---|---|---|---|---|---|
-| `baseline` (today) | **Opus 4.7 1M** (high effort) | Sonnet 4.6 (low) | Opus (medium) | Opus (high) | Opus 4.7 1M (max) | Sonnet (low) | 1.0× | Lowest |
-| `balanced` | **Sonnet 4.6** (high) | Sonnet (low) | **Sonnet** (medium) | Opus (high) | Opus 4.7 1M (high) | Sonnet (low) | ~0.7× (~30% cut) | Low — gates protect (validate-design-brief / specs / image-pool / visual-pass / 4c-tris stays Opus) |
+| `baseline` | **Opus 4.7 1M** (high effort) | Sonnet 4.6 (low) | Opus (medium) | Opus (high) | Opus 4.7 1M (max) | Sonnet (low) | 1.0× | Lowest |
+| `balanced` (**default since Phase K, 2026-05-07**) | **Sonnet 4.6** (high) | Sonnet (low) | **Sonnet** (medium) | Opus (high) | Opus 4.7 1M (high) | Sonnet (low) | ~0.7× (~30% cut) | Low — gates protect (validate-design-brief / specs / image-pool / visual-pass / 4c-tris stays Opus) |
 | `aggressive` | Sonnet (high) | Sonnet (low) | Sonnet (medium) | Opus (high) | **Sonnet** (high) | **Haiku 4.5** (low) | ~0.55× (~45% cut) | Medium — Sonnet orchestrator is the unproven dial; Haiku stays out of medium-risk stages |
 | `opus-everywhere` | Opus 1M (max) | **Opus** (medium) | Opus (high) | Opus (max) | Opus 1M (max) | Opus (medium) | ~3× | Highest / showcase only |
 

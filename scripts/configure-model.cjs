@@ -23,7 +23,7 @@
  * direction 2026-05-05 — never on per-page builds, fix-loops, or
  * brief/specs/visual passes):
  *
- *   --cost-tier=baseline      Today's defaults (no change). All Opus where
+ *   --cost-tier=baseline      Pre-Phase-K default. All Opus where
  *                             applicable. ~1.0× cost.
  *   --cost-tier=balanced      Sonnet for brief/specs/visual; Opus for
  *                             4c-tris + plugin orchestration. Per-page stays
@@ -67,7 +67,14 @@ const REPO_ROOT = path.resolve(__dirname, '..');
 
 const args = process.argv.slice(2);
 let domain = null;
-let costTier = 'baseline';
+// Phase K (2026-05-07): default flipped from `baseline` to `balanced`. The
+// `balanced` preset runs Sonnet on brief/specs/visual-pass and keeps Opus
+// on 4c-tris (taste call) + orchestrator (decision logic) — ~30% cost cut
+// vs `baseline` with low quality risk because the validate-* gates and
+// the Opus 4c-tris audit catch any drop in synthesis quality. To run
+// the legacy preset: pass `--cost-tier=baseline` explicitly OR
+// `--ab=baseline` for an A/B variant build.
+let costTier = 'balanced';
 const overrides = {};
 
 for (const a of args) {
