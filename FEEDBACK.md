@@ -14,6 +14,28 @@ Permanent log of user feedback and the skill improvements made in response. Ever
 
 ---
 
+## 2026-05-07 — Phase G.7 (extend G.2/G.5 to Stage 3/5/7d-build workers): no leverage
+
+**Investigation goal**: verify whether per-page workers at Stages 3 / 5 / 7d-build would benefit from reading the slim `brief-essentials.json` and `page-manifests/{slug}.json` artifacts (which Phase 2.5b already uses).
+
+**Findings**: The per-page worker prompt template (SKILL.md:486-499) explicitly tells workers to read ONLY:
+1. `jobs/{domain}/specs/_shared.md` (design tokens, components, hard rules)
+2. `[Optional]` `jobs/{domain}/specs/_<type>-template.md` (shared template if applicable)
+3. `jobs/{domain}/specs/<page>.md` (page-specific spec)
+4. Write the resulting `.astro` file.
+
+And then: **"Do NOT explore the file tree. Do NOT read other pages. The spec files are self-contained."**
+
+The spec is the digested artifact — it already contains palette, typography, page text, image references, footer/social, and hero direction. The worker doesn't need to re-read brief or manifest. Stage 5 (B copy rewrite) reads option-a/dist files, not the manifest. Stage 7d-build (Option C per-page renders) follows the same self-contained-spec pattern.
+
+**Conclusion**: G.7 is a no-op. The G.2 + G.5 input-trim leverage was 100% concentrated at Phase 2.5b spec authors (already shipped). Per-page workers are already lean by design.
+
+**If we want further per-page worker savings**, the lever is making specs leaner (currently ~20KB each). That's a separate optimization (call it G.8 if it surfaces). Not actionable today.
+
+**Files modified**: FEEDBACK.md (this entry only)
+
+---
+
 ## 2026-05-07 — Phase G.6 (explicit prompt caching): not actionable from Agent tool
 
 **Investigation goal**: determine whether Claude Code's `Agent` tool exposes Anthropic's `cache_control: { type: "ephemeral" }` markers for explicit cache placement. If so, mark static content (REQUIRED-PATTERNS.md, _shared.md, brief-essentials.json) as cacheable to cut input-token cost on parallel sub-agent dispatches.
