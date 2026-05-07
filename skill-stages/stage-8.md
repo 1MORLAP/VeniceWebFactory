@@ -319,66 +319,40 @@ if [ ! -f .vercel/project.json ]; then
 fi
 ```
 
-**Option A** — build locally, then deploy prebuilt:
+**Use the `deploy-with-gate.cjs` wrapper** (Phase F.4, 2026-05-07) — it atomically combines the validate-pre-deploy chokepoint, `vercel build`, `vercel deploy --prebuilt`, URL capture (B1 fix), and `record-deploy-url.cjs` into a single non-skippable script. If you skip this script, nothing deploys. If you call it, the gate runs unconditionally before any vercel-cli invocation.
 
 ```bash
-cd jobs/{domain}/option-a/
-npx vercel build --yes
-```
-
-```bash
-cd jobs/{domain}/option-a/
-DEPLOY_URL_A=$(npx vercel deploy --prebuilt --yes 2>/dev/null | grep -oE 'https://[^[:space:]]+\.vercel\.app' | tail -1)
-echo "Option A deployed: $DEPLOY_URL_A"
 cd /Users/tomasz/WebFactory
-node scripts/record-deploy-url.cjs "$DOMAIN" a "$DEPLOY_URL_A"
-node scripts/log-decision.cjs "$DOMAIN" 8b deploy-recorded --detail option=a --detail url="$DEPLOY_URL_A"
-```
-
-**Option B** — same pattern (B inherits A's design and outputs to its own Astro build):
-
-```bash
-cd jobs/{domain}/option-b/
-npx vercel build --yes
+node scripts/deploy-with-gate.cjs $DOMAIN a
 ```
 
 ```bash
-cd jobs/{domain}/option-b/
-DEPLOY_URL_B=$(npx vercel deploy --prebuilt --yes 2>/dev/null | grep -oE 'https://[^[:space:]]+\.vercel\.app' | tail -1)
-echo "Option B deployed: $DEPLOY_URL_B"
 cd /Users/tomasz/WebFactory
-node scripts/record-deploy-url.cjs "$DOMAIN" b "$DEPLOY_URL_B"
-node scripts/log-decision.cjs "$DOMAIN" 8b deploy-recorded --detail option=b --detail url="$DEPLOY_URL_B"
+node scripts/deploy-with-gate.cjs $DOMAIN b
 ```
-
-**Option C** — same pattern (skip ENTIRELY if `$SKIP_C=1` OR if Option C wasn't built because the plugin isn't installed):
 
 ```bash
 if [ "$SKIP_C" = "1" ]; then
   echo "⏭️  Option C deploy skipped (SKIP-C mode)"
 else
-  # Run the two commands below
-  echo "Deploying Option C..."
+  cd /Users/tomasz/WebFactory
+  node scripts/deploy-with-gate.cjs $DOMAIN c
 fi
 ```
 
-```bash
-cd jobs/{domain}/option-c/
-npx vercel build --yes
-```
+What each invocation does internally (per option):
+1. `validate-pre-deploy.cjs $DOMAIN` — checks orchestration.log for the 9 required pass-events. Exit 2 if any missing.
+2. `cd jobs/$DOMAIN/option-{a|b|c}/ && npx vercel build --yes` — produces `.vercel/output/`.
+3. `npx vercel deploy --prebuilt --yes` — uploads the prebuilt artifact, captures URL via `https://[^[:space:]]+\.vercel\.app` regex (the Phase F.3 / B1 pattern).
+4. `record-deploy-url.cjs $DOMAIN <option> <url>` — persists URL to metrics.json + self-instruments `8b/deploy-recorded`.
 
-```bash
-cd jobs/{domain}/option-c/
-DEPLOY_URL_C=$(npx vercel deploy --prebuilt --yes 2>/dev/null | grep -oE 'https://[^[:space:]]+\.vercel\.app' | tail -1)
-echo "Option C deployed: $DEPLOY_URL_C"
-cd /Users/tomasz/WebFactory
-node scripts/record-deploy-url.cjs "$DOMAIN" c "$DEPLOY_URL_C"
-node scripts/log-decision.cjs "$DOMAIN" 8b deploy-recorded --detail option=c --detail url="$DEPLOY_URL_C"
-```
+Exit codes from the wrapper: 0 (success), 2 (gate blocked deploy), 3 (vercel build failed), 4 (vercel deploy failed), 5 (record-deploy-url failed).
 
-**Why capture + record the URLs**: Stage 10c (`scripts/register-with-store.mjs`) registers the build with the WebFactory storefront at `tomekgroup.com` and needs all three deploy URLs. Recording them to `metrics.json` here means the Stage 10 invocation needs no extra args.
+**Why this is non-skippable**: pre-Phase-F.4, the gate (validate-pre-deploy.cjs) and the deploy (`vercel deploy`) were two separate orchestrator-driven shell blocks. The orchestrator could silently skip the gate and run only the deploy — which actually happened on the 2026-05-07 lisastephens G.1-fix build (audit verdict: "validate-pre-deploy ran: gate did not run", but deploys happened). Wrapping both in one script removes the orchestrator's ability to run one without the other. If validate-pre-deploy.cjs fails, the script exits BEFORE invoking `vercel deploy` — the deploy is structurally impossible.
 
-**The capture pattern is `... | grep -oE 'https://[^[:space:]]+\.vercel\.app' | tail -1`** — extract the LAST line matching the Vercel deploy-URL shape. The previous pattern `... | tail -1` broke around 2026-05-06 when the Vercel CLI started emitting JSON-shaped trailing output: `tail -1` then captured a literal `}` instead of the URL (real bug observed on lisastephenscpa.com). The robust fix is to extract by URL shape, not by line position. If the CLI ever changes again, this still works: any line containing `https://....vercel.app` gets captured. If `2>/dev/null` discards stderr, the captured URL is clean.
+**Override**: `node scripts/deploy-with-gate.cjs $DOMAIN <option> --allow-missing-events` passes the flag through to validate-pre-deploy.cjs. Use sparingly + document the override in the build prose. The gate will emit `8a/validate-pre-deploy-override` instead of `-pass` so the audit can flag it.
+
+**The B1 URL-capture fix lives inside deploy-with-gate.cjs** (the regex `https://[^[:space:]]+\.vercel\.app`). Pre-F.4 this lived in the bash invocation — it was added after the Vercel CLI changed output format in 2026-05-06 and started emitting JSON-shaped trailing lines, causing `tail -1` to capture a literal `}`. Extraction by URL shape is robust to future format drift.
 
 **Verify after first deploy** (one-time sanity check per pipeline change): the build logs in the Vercel dashboard for any of these deployments should NOT contain the lines `"Running build in ... (Turbo Build Machine)"` or `"Running 'vercel build'"`. Instead they should jump straight to `"Deploying outputs..."`. If you see remote-build lines, `--prebuilt` is being ignored — re-check that `.vercel/output/` exists in the option's root directory after `vercel build`, and that you're NOT passing `./dist` (or any path) to `vercel deploy`.
 
