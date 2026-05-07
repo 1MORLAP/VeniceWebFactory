@@ -120,7 +120,7 @@ function parseArgs(argv) {
 }
 
 function loadIndustryDirection(jobDir, forOption) {
-  // Option C: prefer industry-tokens.json
+  // Option C: prefer industry-tokens.json (Stage 7b-bis output — explicit direction)
   if (forOption === 'c') {
     const p = path.join(jobDir, 'industry-tokens.json');
     if (fs.existsSync(p)) {
@@ -134,18 +134,47 @@ function loadIndustryDirection(jobDir, forOption) {
       } catch (e) { /* fall through */ }
     }
   }
-  // Option A: design-brief.json
-  const p = path.join(jobDir, 'design-brief.json');
-  if (fs.existsSync(p)) {
+  // Option A — try in order of richness:
+  //   1. design-brief.json (Stage 2 output — best, but only available POST-Stage 2)
+  //   2. brief-input.json (slim manifest extract from Phase L.2 — POST-Stage 1)
+  //   3. manifest.json (raw scrape — POST-Stage 1; rough fallback)
+  // This ordering lets the orchestrator pre-run the selector BEFORE Stage 2
+  // (so the brief author can read priors as inspiration) AND re-run it AFTER
+  // Stage 2 (for higher-quality picks driven by the explicit brief).
+  const briefPath = path.join(jobDir, 'design-brief.json');
+  if (fs.existsSync(briefPath)) {
     try {
-      const b = JSON.parse(fs.readFileSync(p, 'utf8'));
+      const b = JSON.parse(fs.readFileSync(briefPath, 'utf8'));
       const direction = [
         b.business && b.business.industry,
+        b.business && b.business.subIndustry,
         b.design && b.design.style,
         b.design && b.design.inspiration,
       ].filter(Boolean).join(' ');
       const colorScheme = (b.design && b.design.colorPalette && b.design.colorPalette.mode) || null;
       return { source: 'design-brief.json', direction, colorScheme };
+    } catch (e) { /* fall through */ }
+  }
+  const briefInputPath = path.join(jobDir, 'brief-input.json');
+  if (fs.existsSync(briefInputPath)) {
+    try {
+      const bi = JSON.parse(fs.readFileSync(briefInputPath, 'utf8'));
+      const businessName = (bi.business && bi.business.name) || '';
+      const businessIndustry = (bi.business && bi.business.industry) || '';
+      const titles = (bi.pages || []).slice(0, 6).map(p => p.title || '').join(' ');
+      const direction = [businessName, businessIndustry, titles].filter(Boolean).join(' ');
+      return { source: 'brief-input.json', direction, colorScheme: null };
+    } catch (e) { /* fall through */ }
+  }
+  const manifestPath = path.join(jobDir, 'manifest.json');
+  if (fs.existsSync(manifestPath)) {
+    try {
+      const m = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+      const businessName = (m.business && m.business.name) || (m.meta && m.meta.businessName) || '';
+      const titles = (m.pages || []).slice(0, 6).map(p => p.title || '').join(' ');
+      const headings = (m.pages || []).slice(0, 6).flatMap(p => (p.sections || []).slice(0, 3).map(s => s.heading || '')).filter(Boolean).slice(0, 12).join(' ');
+      const direction = [businessName, titles, headings].filter(Boolean).join(' ');
+      return { source: 'manifest.json', direction, colorScheme: null };
     } catch (e) { /* fall through */ }
   }
   return { source: null, direction: '', colorScheme: null };

@@ -91,7 +91,7 @@ A weak brief produces a "merely better than original" build. Strong brief = stro
 
 Per Tier 3 of the context-optimization plan, the orchestrator MAY (and by default SHOULD) delegate Stage 2 to an Opus sub-agent so the brief generation's screenshot reads + manifest walk happen off the main session. Tier 1a (skill-stages split) + Tier 1b (smart-resume) + Tier 2 (visual-pass dispatch) shipped 2026-05-04 brought main-session context for a 6-page build from ~600-800K to ~250-350K. Tier 3 takes another ~80-120K off main when the customer has more than 4-5 pages.
 
-##### Pre-dispatch: extract slim brief input (Phase L.2, 2026-05-07)
+##### Pre-dispatch step 1: extract slim brief input (Phase L.2, 2026-05-07)
 
 Before dispatching the Stage 2 sub-agent, pre-extract a slim manifest the brief author actually needs. Full `manifest.json` is 35-80KB on small sites, 200KB+ on 14-page sites; most of it is duplicate (rawText vs sections), low-signal (form fields, scrape metadata), or chrome-image entries. The slim `brief-input.json` is ~10-50KB:
 
@@ -102,6 +102,20 @@ node scripts/extract-brief-input.cjs $DOMAIN
 Self-instruments `1-post/brief-input-extracted` event with full+slim byte counts. The full manifest stays on disk for downstream stages (Phase 2.5b spec author still uses `page-manifests/{slug}.json` from Phase G.2 for verbatim per-page content). L.2 only trims the BRIEF AUTHOR's input; nothing else.
 
 Empirical reduction: -71% on 5-page lisastephens (35KB → 10KB), -51% on 14-page richstaxidermy (202KB → 99KB).
+
+##### Pre-dispatch step 2: select industry-relevant refero-styles inspiration priors (Phase N.1, 2026-05-07)
+
+Run the selector against the local `templates/inspiration/refero-styles/` library (1,226 DESIGN.md files) so the brief author has industry-relevant inspiration priors to draw from:
+
+```bash
+node scripts/select-refero-styles.cjs $DOMAIN --for=a --n=5
+```
+
+The script reads `brief-input.json` (or `manifest.json` as fallback when brief-input.json is unavailable) to derive a rough industry direction, word-boundary-keyword-matches against each refero-styles entry's `northStar`, and writes `jobs/{DOMAIN}/refero-style-priors-a.json` with up to 5 picks. The brief author Reads this priors file (and the picks' full DESIGN.md files when relevant) per the "Industry inspiration" section of the dispatch prompt below. Self-instruments `1-post/refero-styles-selected`.
+
+**INSPIRATION, NOT SPECIFICATION.** The selector emits best-guess candidates from a SaaS-skewed corpus. The brief author MUST second-filter at consumption time — read each `northStar` and reject obvious aesthetic mismatches before reading the full DESIGN.md. Even when an entry IS aesthetically relevant, the worker extracts STRUCTURAL ideas (section order, hero composition, role thinking) and NEVER copies tokens verbatim. The customer's brand + scraped color/font signals + the customer's industry are the canonical spec inputs. See REFERO REFERENCES rule "INSPIRATION VS SPECIFICATION" in SKILL.md.
+
+For trade customers (tree services, plumbers, electricians, etc.) the priors file may be empty — the corpus has no positive-score matches. That's the expected fallback behavior; the brief author proceeds without industry priors and relies on the customer's brand + the universal anti-slop taxonomy.
 
 Spawn ONE sub-agent via the `Agent` tool. **Resolve the model per cost-tier first** (Phase D):
 
@@ -124,10 +138,48 @@ You are running **Stage 2: Design Brief** for WebFactory build {DOMAIN}. Read /U
 
 ## What to read
 
+### Customer's actual content (specification — execute against this)
+
 - jobs/{DOMAIN}/brief-input.json — slim manifest extract (Phase L.2). Contains pages with first 3 paragraphs each + business identity + footer/social/nav + content-class image inventory + image stats. **Use this, NOT `manifest.json`** — the full manifest is 35-200KB of duplicate raw text + chrome image entries that the brief author doesn't cite. The slim version is ~10-50KB and contains everything brief synthesis needs. (If you need the full verbatim text of a specific page for some reason, `manifest.json` is still on disk — but you almost never should.)
 - jobs/{DOMAIN}/assets/screenshots/*.{jpg,png} — visual reference for the original site (prefer `.jpg` sidecars from Phase L.1 if present)
 - jobs/{DOMAIN}/image-classification.json — content-vs-chrome inventory (also summarized in brief-input.json's `imageStats`)
 - /Users/tomasz/WebFactory/SKILL.md sections referenced from stage-2.md (DESIGN QUALITY BAR, FACT GROUNDING PRINCIPLE, BRAND RECOGNIZABILITY)
+
+### World-class design taxonomy (Phase N.1, 2026-05-07 — universal anti-slop guard, ALWAYS-LOAD)
+
+The brief author MUST read these BEFORE writing the brief. They're general design taxonomy, not industry-specific — they make the brief anti-AI-slop-aware by construction:
+
+- /Users/tomasz/.claude/skills/refero-design/SKILL.md — research-first methodology + craft litmus tests (Card / Image / Brand / Identity / Copy)
+- /Users/tomasz/.claude/skills/refero-design/references/anti-ai-slop.md — **THE primary anti-pattern checklist**. Internalize the bans before choosing palette / typography / layout: indigo/violet defaults (#6366f1, #8b5cf6, #7c3aed), cards-as-default-container, dark-mode-by-default, emoji-as-icons, decorative left-accent stripe, generic 3-column pricing, hero-with-left-text-right-image, perfect symmetry. **The brief MUST avoid every one of these patterns** — write the palette and design moves explicitly to be the opposite.
+- /Users/tomasz/.claude/skills/refero-design/references/typography.md — font pairing, hierarchy, letter-spacing on caps, weight pairs. Use this to choose the brief's typography pairing.
+- /Users/tomasz/.claude/skills/refero-design/references/color.md — dominant + sharp accent (NOT timid evenly-distributed pastels). Use this to design the palette + named-role rationale.
+- /Users/tomasz/.claude/skills/refero-design/references/motion.md — high-impact moments, surprising hover states. Use this to plan the brief's micro-interaction list.
+
+### Industry inspiration (INSPIRATION, not specification — extract patterns, never copy tokens)
+
+The orchestrator pre-runs `node scripts/select-refero-styles.cjs $DOMAIN --for=a` BEFORE this dispatch. That writes:
+
+- jobs/{DOMAIN}/refero-style-priors-a.json — up to 5 candidate DESIGN.md picks from `templates/inspiration/refero-styles/` filtered by the customer's industry direction.
+
+If `entries: []` is empty (common for SMB trade customers — corpus skews B2B SaaS / fintech), skip this section. Rely on the customer's actual brand + the universal taxonomy above.
+
+If `entries` has 1-5 picks, **second-filter** by reading each `northStar` line and rejecting obvious aesthetic mismatches (SaaS / fintech metaphor matches like "typographic landscape" hitting an outdoor industry's `landscape` keyword without being aesthetically relevant). For 1-2 picks that survive, Read the full DESIGN.md at `entries[i].path` (each ~10-15KB).
+
+**CRITICAL — INSPIRATION VS SPECIFICATION**: these picks DESCRIBE the design systems of OTHER BRANDS (Stripe, Linear, Anthropic, ElevenLabs, etc.). They are EXAMPLES of what considered design looks like. They are NOT the design system for THIS customer. See REFERO REFERENCES rule "INSPIRATION VS SPECIFICATION" in SKILL.md.
+
+What you MAY extract from accepted picks:
+- ✅ Structural patterns (section order, hero composition, spacing rhythm)
+- ✅ Typographic hierarchy moves (display+body weight pairs, optical sizing, letter-spacing on caps)
+- ✅ Color *roles* ("dominant + sharp accent + neutral surface" as a thinking frame)
+- ✅ Component vocabulary (kinds of cards, dividers, buttons — principles)
+- ✅ Do's & Don'ts (anti-patterns the brand learned)
+
+What you MUST NOT extract (these are someone else's brand identity):
+- ❌ Exact hex codes, exact font families, exact spacing scale, exact radii
+- ❌ The "Quick Start" `:root` and Tailwind `@theme` CSS blocks
+- ❌ The "Agent Prompt Guide" component prompts as written
+
+The customer's industry + brand + scraped color/font signals are the spec inputs. Refero-styles entries are JUST EXAMPLES of how someone else solved a related problem at a high quality level. Express the customer's brief in the customer's own vocabulary — never quote a Refero entry's tokens.
 
 ## What to write
 
@@ -244,11 +296,30 @@ too) and /Users/tomasz/WebFactory/SKILL.md "Stage 2.5: Per-page spec generation"
 
 ## What to read
 
+### Customer's actual content (specification)
+
 - jobs/{DOMAIN}/manifest.json — pages, sections, business facts
 - jobs/{DOMAIN}/design-brief.json — the brief from Stage 2
 - jobs/{DOMAIN}/image-classification.json — content-class filter for the image pool
 - jobs/{DOMAIN}/video-classification.json (if exists) — variant A/B/C/D for video CTAs
 - /Users/tomasz/WebFactory/templates/REQUIRED-PATTERNS.md — non-negotiable structural patterns
+
+### Anti-slop bans (Phase N.1, 2026-05-07 — required reading; the specs you write codify these)
+
+- /Users/tomasz/.claude/skills/refero-design/references/anti-ai-slop.md — the source of truth for "What NOT to add". Your `_shared.md` "What NOT to add" list MUST include each of the anti-ai-slop tells verbatim:
+  1. **Indigo/Violet ban** — never `#6366f1`, `#8b5cf6`, `#7c3aed` or their Tailwind classes (`indigo-*`, `violet-*`, `purple-*`) unless the brief explicitly justifies them as the customer's brand color
+  2. **Cards justified by interaction only** — removing border/shadow/background/radius from a "card" should break the design; if it doesn't, the chrome is decoration → drop the card
+  3. **Light mode is the baseline** — dark-by-default is an AI fingerprint
+  4. **No emoji as icons** — 😀🚀💡🎯 in buttons / nav / hero / CTA = AI-generated. Use icon library, Unicode (→ • ◆), or SVG.
+  5. **No decorative left-accent stripe** — only when it carries meaning (status, priority, owner, selection)
+  6. **Typography intentional** — distinctive display + refined body; letter-spacing on ALL CAPS; never Inter/Roboto/Arial as the only fonts
+  7. **Color hierarchy** — dominant + sharp accent, not timid evenly-distributed pastels, not purple-gradient-on-white
+  8. **Layout has tension** — asymmetry, overlap, grid-breaking, OR generous negative space (intentional, not accidental)
+  9. **One memorable detail** — Refero identity test: "if the first viewport could belong to any other company → branding is too weak"
+
+### Industry inspiration (INSPIRATION, not specification)
+
+- jobs/{DOMAIN}/refero-style-priors-a.json (if non-empty) — up to 5 candidate DESIGN.md picks the orchestrator pre-selected from `templates/inspiration/refero-styles/` based on the customer's industry direction. Same inspiration-vs-spec rule as Stage 2: extract structural ideas (section order, hero composition, spacing rhythm, role thinking) — NEVER copy hexes / fonts / spacing scales / radii / `:root` / `@theme` blocks / "Agent Prompt Guide" prompts. The customer's brief is the canonical spec. See REFERO REFERENCES rule "INSPIRATION VS SPECIFICATION" in SKILL.md.
 
 ## What to write
 
@@ -351,12 +422,18 @@ the DESIGN QUALITY BAR rules.
 
 ## What to read
 
-- jobs/{DOMAIN}/specs/_shared.md — cross-page tokens, prohibitions, component sigs (READ THIS FIRST)
+### Customer-specific inputs (the spec you're authoring is for THIS page)
+
+- jobs/{DOMAIN}/specs/_shared.md — cross-page tokens, prohibitions, component sigs (READ THIS FIRST). The "What NOT to add" list inside includes the anti-ai-slop bans codified in Phase 2.5a — apply them verbatim in your per-page spec.
 - jobs/{DOMAIN}/brief-essentials.json — slim brief (palette + typography + business identity + top layout patterns). Phase G.5 extract. **Use this, NOT `design-brief.json`** — the full brief contains ~25KB of audit prose (hero direction reasoning, distinctive-element rationale, brand signature inventory) that's overhead in the per-page worker's context window.
 - jobs/{DOMAIN}/page-manifests/{SLUG}.json — your specific page's manifest slice (text, images, backgrounds, sections, navigation, footer, social, business identity). This is the slim per-page extract from Phase G.2 — DO NOT read the full `manifest.json`; the slice is ~8KB vs the full manifest's ~35-80KB and contains everything you need.
 - jobs/{DOMAIN}/specs/_image-pools.json[{SLUG}] — your image-pool assignments
 - /Users/tomasz/WebFactory/templates/REQUIRED-PATTERNS.md — non-negotiable structural patterns
 - /Users/tomasz/WebFactory/templates/inspiration/<directory>/ — chosen inspiration (named in brief-essentials.json's `design.style` and inspirationLead)
+
+### Anti-slop bans (Phase N.1, 2026-05-07 — apply per-page)
+
+- /Users/tomasz/.claude/skills/refero-design/references/anti-ai-slop.md — same source of truth Stage 2.5a used. Read it once so you understand the WHY of each ban (it's not just "don't do X" — there's a litmus test for each). Apply the litmus tests when authoring this page's spec: Card test, Image test, Brand test, Identity test. If your spec section calls for a card whose border/shadow/background/radius could be removed without breaking interaction, the spec should call for a non-card layout instead (sections, columns, dividers, media blocks).
 
 ## What to write
 
