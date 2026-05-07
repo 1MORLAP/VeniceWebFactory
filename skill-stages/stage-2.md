@@ -281,6 +281,27 @@ test -f jobs/$DOMAIN/specs/_shared.md && test -f jobs/$DOMAIN/specs/_image-pools
   || { echo "✗ Phase 2.5a missing outputs"; exit 1; }
 ```
 
+##### Phase 2.5a-bis — Pre-extract per-page manifest slices (Phase G.2, 2026-05-07)
+
+Each Phase 2.5b sub-agent only needs its OWN page's manifest entry plus a few
+global fields (business identity, navigation, footer, social). Pre-G.2, the
+sub-agent prompt named `manifest.json pages[{PAGE_INDEX}]` — but the Read
+tool always loads the full file (~35KB on a 5-page site, ~80KB on 14-page
+sites). The other N-1 pages of manifest content are pure overhead in the
+sub-agent's context window, and that overhead compounds N× across parallel
+calls (a 14-page parallel dispatch would re-read 14×80KB = ~1.1MB of
+manifest just to find each page's section).
+
+```bash
+# Pre-compute per-page slices into jobs/$DOMAIN/page-manifests/<slug>.json.
+# Each slice contains: page-specific data + global metadata (business,
+# navigation, footer, meta). Per-page sub-agents read the slice instead
+# of the full manifest. Typical slice: ~8KB (vs ~35KB full).
+node scripts/extract-page-manifest.cjs $DOMAIN --all
+```
+
+The script self-instruments at Stage 2.5-pre per Phase F (`page-manifests-extracted` event with count + total-bytes). Audit can verify the step ran.
+
 ##### Phase 2.5b — Per-page specs (parallel)
 
 ```bash
@@ -309,7 +330,7 @@ the DESIGN QUALITY BAR rules.
 
 - jobs/{DOMAIN}/specs/_shared.md — cross-page tokens, prohibitions, component sigs (READ THIS FIRST)
 - jobs/{DOMAIN}/design-brief.json — the brief from Stage 2
-- jobs/{DOMAIN}/manifest.json pages[{PAGE_INDEX}] — your specific page's data (text, images, backgrounds, sections)
+- jobs/{DOMAIN}/page-manifests/{SLUG}.json — your specific page's manifest slice (text, images, backgrounds, sections, navigation, footer, social, business identity). This is the slim per-page extract from Phase G.2 — DO NOT read the full `manifest.json`; the slice is ~8KB vs the full manifest's ~35-80KB and contains everything you need.
 - jobs/{DOMAIN}/specs/_image-pools.json[{SLUG}] — your image-pool assignments
 - /Users/tomasz/WebFactory/templates/REQUIRED-PATTERNS.md — non-negotiable structural patterns
 - /Users/tomasz/WebFactory/templates/inspiration/<directory>/ — chosen inspiration (named in design-brief.json)
