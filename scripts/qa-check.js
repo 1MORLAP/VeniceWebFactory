@@ -3059,6 +3059,171 @@ function rgbToHexFromComputed(rgb) {
   }
   // ---- end EMPTY-ANCHOR-AS-FLEX-CHILD ban ----
 
+  // ---- ANTI-SLOP — INDIGO/VIOLET BAN (Phase N.3, 2026-05-07) ----
+  //
+  // Per ~/.claude/skills/refero-design/references/anti-ai-slop.md:
+  //   "Every AI model defaults to indigo/violet (#6366f1, #8b5cf6, #7c3aed).
+  //    It's the universal fingerprint of AI-generated design.
+  //    RULE: NEVER use indigo/violet unless the brand explicitly requires it."
+  //
+  // Detection: scan compiled dist HTML for the AI-default indigo/violet hex
+  // codes (Tailwind's indigo-500 / violet-500 / violet-600) AND the matching
+  // Tailwind classes (bg-indigo-*, text-violet-*, border-purple-*, etc.).
+  //
+  // Severity: FAIL. Customers whose brand IS genuinely indigo/violet (rare —
+  // a fintech / AI-tool customer that explicitly chose it) can document the
+  // hex in design-brief.json colorPalette with role+rationale and add a
+  // comment exemption: <!-- design-quality-allow-indigo: brand-color -->
+  // anywhere in the document head. Without that comment, indigo/violet fails
+  // the gate.
+  //
+  // Won't false-positive on: <span style="color: #6366f1"> etc., as long as
+  // the build justifies it via the comment exemption.
+  try {
+    const distDirs = [];
+    if (manifestPath && optionName) {
+      const jobDir = dirname(manifestPath);
+      const dd = join(jobDir, `option-${optionName}`, 'dist');
+      if (existsSync(dd)) distDirs.push(dd);
+    }
+    if (referenceDistPath && existsSync(referenceDistPath)) distDirs.push(referenceDistPath);
+    // The AI-default hexes from anti-ai-slop.md (Tailwind indigo-500 / violet-500 / violet-600).
+    // Match in any case + with or without the leading #. Whole-word boundary for the hex.
+    const aiDefaultHexes = [
+      { hex: '6366f1', label: 'indigo-500 (#6366f1)' },
+      { hex: '8b5cf6', label: 'violet-500 (#8b5cf6)' },
+      { hex: '7c3aed', label: 'violet-600 (#7c3aed)' },
+    ];
+    // Tailwind class detection: bg-, text-, border-, from-, to-, via-, ring-, divide-, accent-, decoration-, outline-, fill-, stroke-, shadow- prefixes, all combined with indigo-/violet-/purple-{number}.
+    const aiDefaultClassRe = /\b(?:bg|text|border|from|to|via|ring|divide|accent|decoration|outline|fill|stroke|shadow|caret|placeholder)-(?:indigo|violet|purple)-(?:50|100|200|300|400|500|600|700|800|900|950)\b/i;
+    const exemptionMarker = /design-quality-allow-indigo/i;
+    for (const distDir of distDirs) {
+      const htmlFiles = [];
+      walkHtmlFiles(distDir, htmlFiles);
+      for (const htmlPath of htmlFiles) {
+        let html;
+        try { html = readFileSync(htmlPath, 'utf8'); } catch { continue; }
+        // Skip if the document explicitly exempts (legitimate indigo brand customers).
+        if (exemptionMarker.test(html)) continue;
+        const relPath = htmlPath.replace(distDir, '').replace(/\\/g, '/');
+        const hexHits = [];
+        for (const { hex, label } of aiDefaultHexes) {
+          const re = new RegExp(`#${hex}\\b`, 'gi');
+          const m = html.match(re);
+          if (m && m.length > 0) hexHits.push(`${label} ×${m.length}`);
+        }
+        const classMatches = html.match(new RegExp(aiDefaultClassRe.source, 'gi')) || [];
+        const uniqueClasses = Array.from(new Set(classMatches.map(c => c.toLowerCase()))).slice(0, 5);
+        if (hexHits.length > 0 || uniqueClasses.length > 0) {
+          const evidence = [
+            hexHits.length > 0 ? `hex codes: ${hexHits.join(', ')}` : null,
+            uniqueClasses.length > 0 ? `classes: ${uniqueClasses.join(', ')}${classMatches.length > uniqueClasses.length ? ` (+${classMatches.length - uniqueClasses.length} more)` : ''}` : null,
+          ].filter(Boolean).join('; ');
+          staticIssues.push({
+            severity: 'fail',
+            check: 'anti-slop-indigo-violet',
+            msg: `${relPath}: indigo/violet AI-default colors detected (${evidence}). Per anti-ai-slop.md: "Every AI model defaults to indigo/violet (#6366f1, #8b5cf6, #7c3aed). It's the universal fingerprint of AI-generated design. NEVER use unless the brand explicitly requires it." If this customer's brand IS genuinely indigo/violet (rare — must be documented in design-brief.json colorPalette), add the exemption comment <!-- design-quality-allow-indigo: brand-color --> to the document head. Otherwise replace with the customer's brand color from design-brief.json palette.`,
+          });
+        }
+      }
+    }
+  } catch (e) {
+    console.warn(`⚠ anti-slop-indigo-violet: failed to run (${e.message}) — skipping.`);
+  }
+  // ---- end ANTI-SLOP — INDIGO/VIOLET BAN ----
+
+  // ---- ANTI-SLOP — EMOJI AS ICONS BAN (Phase N.3, 2026-05-07) ----
+  //
+  // Per ~/.claude/skills/refero-design/references/anti-ai-slop.md:
+  //   "Standard emoji (😀🚀💡🎯) immediately signal 'AI-generated.' They're a
+  //    shortcut that makes any design look cheap and unfinished.
+  //    RULE: Never use emoji unless the user explicitly asks for them.
+  //    Use instead: icon libraries (Lucide, Phosphor, Heroicons), Unicode
+  //    symbols (→ • ◆), SVG graphics."
+  //
+  // Detection: scan compiled dist HTML for emoji characters inside icon
+  // contexts: <button>, <a> (other than legit social platform anchors which
+  // have aria-label="Facebook"/"Instagram" — those typically use a logo SVG
+  // not an emoji), <nav> link text. Emojis in legit body content (<p>,
+  // <article>, <blockquote>, testimonials) are allowed — they may be part of
+  // the customer's actual copy.
+  //
+  // Severity: FAIL. The exemption mechanism: <!-- design-quality-allow-emoji:
+  // <reason> --> in the document head bypasses the rule for that page.
+  //
+  // Emoji regex covers Unicode pictographic ranges (faces, hands, transport,
+  // food, symbols). Excludes arrows (→ U+2192) and bullets (• U+2022) and
+  // dots (◆ U+25C6) which the anti-ai-slop reference explicitly endorses as
+  // valid replacements.
+  try {
+    const distDirs = [];
+    if (manifestPath && optionName) {
+      const jobDir = dirname(manifestPath);
+      const dd = join(jobDir, `option-${optionName}`, 'dist');
+      if (existsSync(dd)) distDirs.push(dd);
+    }
+    if (referenceDistPath && existsSync(referenceDistPath)) distDirs.push(referenceDistPath);
+    // Pictographic emoji ranges (excludes arrows, bullets, math symbols which
+    // anti-ai-slop.md endorses as valid).
+    const emojiRe = /[\u{1F300}-\u{1F5FF}\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FAFF}\u{1F1E6}-\u{1F1FF}]/u;
+    const exemptionMarker = /design-quality-allow-emoji/i;
+    for (const distDir of distDirs) {
+      const htmlFiles = [];
+      walkHtmlFiles(distDir, htmlFiles);
+      for (const htmlPath of htmlFiles) {
+        let html;
+        try { html = readFileSync(htmlPath, 'utf8'); } catch { continue; }
+        if (exemptionMarker.test(html)) continue;
+        const relPath = htmlPath.replace(distDir, '').replace(/\\/g, '/');
+        // Walk button + nav-link + non-social-anchor contexts. Use simple regex
+        // to extract candidates; this isn't a real DOM parser but it's good
+        // enough for the chrome surfaces we care about (buttons + CTAs +
+        // header nav). Each match is the inner text of one element.
+        const buttonRe = /<button[^>]*>([\s\S]{0,400}?)<\/button>/gi;
+        // <a> with class containing btn|cta|button — typical CTA anchors.
+        // Skip <a> inside footer-social class containers (those are real
+        // platform links and emoji-as-logo isn't the failure pattern there).
+        const ctaAnchorRe = /<a\s[^>]*class=["'][^"']*\b(?:btn|cta|button)\b[^"']*["'][^>]*>([\s\S]{0,400}?)<\/a>/gi;
+        // Headers (likely nav + hero CTAs)
+        const headerRe = /<header[^>]*>([\s\S]{0,2000}?)<\/header>/gi;
+        // Nav link text
+        const navLinkRe = /<nav[^>]*>([\s\S]{0,4000}?)<\/nav>/gi;
+
+        const sources = [
+          { re: buttonRe, ctx: '<button>' },
+          { re: ctaAnchorRe, ctx: '<a class="...btn|cta|button...">' },
+          { re: headerRe, ctx: '<header>' },
+          { re: navLinkRe, ctx: '<nav>' },
+        ];
+        const offenders = new Set();
+        for (const { re, ctx } of sources) {
+          let m;
+          while ((m = re.exec(html)) !== null) {
+            const inner = m[1];
+            if (emojiRe.test(inner)) {
+              // Capture the offending emoji + surrounding text for the message.
+              const emojiMatch = inner.match(emojiRe);
+              const offender = emojiMatch ? `${ctx}: "${(inner.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60))}"` : ctx;
+              offenders.add(offender);
+            }
+          }
+        }
+        if (offenders.size > 0) {
+          const sample = Array.from(offenders).slice(0, 3).join(' | ');
+          const moreCount = offenders.size > 3 ? ` (+${offenders.size - 3} more)` : '';
+          staticIssues.push({
+            severity: 'fail',
+            check: 'anti-slop-emoji-as-icon',
+            msg: `${relPath}: emoji used as icon in ${offenders.size} location${offenders.size === 1 ? '' : 's'}${moreCount}: ${sample}. Per anti-ai-slop.md: "Standard emoji (😀🚀💡🎯) immediately signal 'AI-generated.' Never use emoji unless the user explicitly asks for them. Use instead: icon libraries (Lucide, Phosphor, Heroicons), Unicode symbols (→ • ◆), SVG graphics." Replace the emoji with an icon library glyph, an SVG, or one of the endorsed Unicode symbols (→ • ◆). If the emoji is intentional for this customer (e.g. a memoji testimonial author), add the exemption comment <!-- design-quality-allow-emoji: <reason> --> to the document head.`,
+          });
+        }
+      }
+    }
+  } catch (e) {
+    console.warn(`⚠ anti-slop-emoji-as-icon: failed to run (${e.message}) — skipping.`);
+  }
+  // ---- end ANTI-SLOP — EMOJI AS ICONS BAN ----
+
   // ---- end static source lints ----
 
   // Report — grouped by viewport, with dedupe for issues that fire at both.
