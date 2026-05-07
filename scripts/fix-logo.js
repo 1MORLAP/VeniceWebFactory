@@ -29,6 +29,7 @@
 
 import { readFile, writeFile, stat, open } from 'fs/promises';
 import { join, resolve, dirname, basename, extname } from 'path';
+import { spawnSync } from 'child_process';
 
 // ---------- PNG / image inspection ----------
 
@@ -384,94 +385,138 @@ function pngHasTransparencyHint(buf) {
 }
 
 /**
- * Cheap corner-colour sampling that does NOT require a PNG decoder. We use
- * Playwright (which we already depend on for scraping) to render the file
- * and read the four corner pixels via canvas.
+ * Corner-colour sampling using ffmpeg (no browser dependency).
  *
- * Returns { hasTransparency, backgroundColor } where backgroundColor is a
- * hex string if all four corners agree, otherwise null.
+ * 2026-05-07 rewrite: previous version used Playwright (`new Image()` +
+ * canvas getImageData). That had a silent failure mode — `file://` URLs
+ * with `img.crossOrigin = 'anonymous'` get treated as cross-origin in
+ * Chromium without proper CORS headers from a file server, causing
+ * `image load failed` on every customer. The bug went undetected because
+ * the function returns `{ hasTransparency: null, backgroundColor: null,
+ * error: ... }` and the caller wrote nulls to manifest without warning.
+ * Result: manifest.logo.backgroundColor was null on EVERY customer in
+ * the library, deprived qa-check.js of the data it needed to enforce
+ * LOGO RULE Layer B, and bugs like rebeccabosscpa.com (cream-on-navy)
+ * shipped to production.
+ *
+ * This rewrite uses ffmpeg (already a soft-dep for video transcoding)
+ * to extract corner pixels directly. No browser. No CORS. Works on every
+ * raster format ffmpeg understands (PNG, JPEG, WebP, GIF, BMP).
+ *
+ * Returns:
+ *   { hasTransparency, backgroundColor, backgroundColorConfidence,
+ *     cornersAgree, cornersAgreeLoose, cornerSamples, width, height }
+ *   OR
+ *   { hasTransparency: null, backgroundColor: null, error: '<reason>' }
  */
+async function inspectImageWithFfmpeg(absPath) {
+  // Probe dimensions via ffprobe (also bundled with ffmpeg)
+  let probe;
+  try {
+    probe = spawnSync('ffprobe', [
+      '-v', 'error',
+      '-select_streams', 'v:0',
+      '-show_entries', 'stream=width,height,pix_fmt',
+      '-of', 'json',
+      absPath,
+    ], { encoding: 'utf8' });
+  } catch (e) {
+    return { hasTransparency: null, backgroundColor: null, error: `ffprobe spawn failed: ${e.message}` };
+  }
+  if (probe.status !== 0) {
+    return { hasTransparency: null, backgroundColor: null, error: `ffprobe error: ${(probe.stderr || '').toString().slice(0, 200)}` };
+  }
+  let width, height, pix_fmt;
+  try {
+    const j = JSON.parse(probe.stdout);
+    width = j.streams[0].width;
+    height = j.streams[0].height;
+    pix_fmt = j.streams[0].pix_fmt;
+  } catch (e) {
+    return { hasTransparency: null, backgroundColor: null, error: `ffprobe parse failed: ${e.message}` };
+  }
+
+  // Sample one pixel at (x, y) via ffmpeg crop + raw rgba output
+  function samplePixel(x, y) {
+    const r = spawnSync('ffmpeg', [
+      '-loglevel', 'error',
+      '-i', absPath,
+      '-vf', `crop=1:1:${Math.max(0, Math.min(width - 1, x))}:${Math.max(0, Math.min(height - 1, y))}`,
+      '-f', 'rawvideo',
+      '-pix_fmt', 'rgba',
+      '-y',
+      '-',
+    ], { stdio: ['ignore', 'pipe', 'pipe'] });
+    if (r.status !== 0 || !r.stdout || r.stdout.length < 4) {
+      return null;
+    }
+    return { r: r.stdout[0], g: r.stdout[1], b: r.stdout[2], a: r.stdout[3] };
+  }
+
+  // Sample 4 corners
+  const corners = [
+    samplePixel(0, 0),
+    samplePixel(width - 1, 0),
+    samplePixel(0, height - 1),
+    samplePixel(width - 1, height - 1),
+  ];
+  if (corners.some(c => c === null)) {
+    return { hasTransparency: null, backgroundColor: null, error: `ffmpeg pixel sampling failed (one or more corners returned null)` };
+  }
+
+  // Check transparency by sampling a 5x5 grid + corners
+  let anyTransparent = corners.some(c => c.a < 250);
+  if (!anyTransparent) {
+    const stepX = Math.max(1, Math.floor(width / 5));
+    const stepY = Math.max(1, Math.floor(height / 5));
+    for (let y = 0; y < height && !anyTransparent; y += stepY) {
+      for (let x = 0; x < width && !anyTransparent; x += stepX) {
+        const p = samplePixel(x, y);
+        if (p && p.a < 250) anyTransparent = true;
+      }
+    }
+  }
+
+  // Threshold checks (matching qa-check.js's hardened 15-unit threshold)
+  const allAgreeStrict = corners.every(c =>
+    Math.abs(c.r - corners[0].r) < 5 &&
+    Math.abs(c.g - corners[0].g) < 5 &&
+    Math.abs(c.b - corners[0].b) < 5
+  );
+  const allAgreeLoose = corners.every(c =>
+    Math.abs(c.r - corners[0].r) < 15 &&
+    Math.abs(c.g - corners[0].g) < 15 &&
+    Math.abs(c.b - corners[0].b) < 15
+  );
+
+  let backgroundColor = null;
+  let backgroundColorConfidence = null;
+  if (!anyTransparent && allAgreeStrict) {
+    const c = corners[0];
+    backgroundColor = '#' + [c.r, c.g, c.b].map(n => n.toString(16).padStart(2, '0')).join('');
+    backgroundColorConfidence = 'high';
+  } else if (!anyTransparent && allAgreeLoose) {
+    const c = corners[0];
+    backgroundColor = '#' + [c.r, c.g, c.b].map(n => n.toString(16).padStart(2, '0')).join('');
+    backgroundColorConfidence = 'low (corners disagreed by 5-15 RGB units)';
+  }
+
+  return {
+    hasTransparency: anyTransparent,
+    backgroundColor,
+    backgroundColorConfidence,
+    cornersAgree: allAgreeStrict,
+    cornersAgreeLoose: allAgreeLoose,
+    cornerSamples: corners,
+    width,
+    height,
+    pix_fmt,
+  };
+}
+
+// Backward-compat alias — old name still in use elsewhere, points at new impl.
 async function inspectImageWithBrowser(absPath) {
-  let chromium;
-  try {
-    ({ chromium } = await import('playwright'));
-  } catch {
-    return { hasTransparency: null, backgroundColor: null, error: 'playwright not installed' };
-  }
-
-  const browser = await chromium.launch();
-  try {
-    const page = await browser.newPage();
-    const fileUrl = 'file://' + absPath;
-    const result = await page.evaluate(async (url) => {
-      return new Promise((res) => {
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        img.onload = () => {
-          const c = document.createElement('canvas');
-          c.width = img.naturalWidth;
-          c.height = img.naturalHeight;
-          const ctx = c.getContext('2d');
-          ctx.drawImage(img, 0, 0);
-
-          // Sample the four corners (and centre as control)
-          const points = [
-            [0, 0], [c.width - 1, 0],
-            [0, c.height - 1], [c.width - 1, c.height - 1],
-            [Math.floor(c.width / 2), Math.floor(c.height / 2)],
-          ];
-          const samples = points.map(([x, y]) => {
-            const d = ctx.getImageData(x, y, 1, 1).data;
-            return { r: d[0], g: d[1], b: d[2], a: d[3] };
-          });
-
-          // Check if any pixel has alpha < 255 (transparency)
-          // Sample a small grid of pixels to be confident
-          let anyTransparent = false;
-          const step = Math.max(1, Math.floor(Math.min(c.width, c.height) / 20));
-          for (let y = 0; y < c.height; y += step) {
-            for (let x = 0; x < c.width; x += step) {
-              const d = ctx.getImageData(x, y, 1, 1).data;
-              if (d[3] < 250) { anyTransparent = true; break; }
-            }
-            if (anyTransparent) break;
-          }
-
-          res({ samples, anyTransparent, width: c.width, height: c.height });
-        };
-        img.onerror = (e) => res({ error: 'image load failed', message: String(e) });
-        img.src = url;
-      });
-    }, fileUrl);
-
-    if (result.error) {
-      return { hasTransparency: null, backgroundColor: null, error: result.error };
-    }
-
-    const corners = result.samples.slice(0, 4);
-    const allAgree = corners.every((c) => {
-      return Math.abs(c.r - corners[0].r) < 5 &&
-             Math.abs(c.g - corners[0].g) < 5 &&
-             Math.abs(c.b - corners[0].b) < 5;
-    });
-
-    let backgroundColor = null;
-    if (!result.anyTransparent && allAgree) {
-      const c = corners[0];
-      backgroundColor = '#' + [c.r, c.g, c.b].map((n) => n.toString(16).padStart(2, '0')).join('');
-    }
-
-    return {
-      hasTransparency: result.anyTransparent,
-      backgroundColor,
-      cornersAgree: allAgree,
-      cornerSamples: corners,
-      width: result.width,
-      height: result.height,
-    };
-  } finally {
-    await browser.close();
-  }
+  return inspectImageWithFfmpeg(absPath);
 }
 
 // ---------- Main ----------
@@ -723,7 +768,11 @@ async function main() {
     format: best.format,
     hasTransparency: inspection.hasTransparency === true || best.format === 'svg',
     backgroundColor: inspection.backgroundColor || null,
+    backgroundColorConfidence: inspection.backgroundColorConfidence || null,
     cornerSamples: inspection.cornerSamples || null,
+    cornersAgree: inspection.cornersAgree ?? null,
+    cornersAgreeLoose: inspection.cornersAgreeLoose ?? null,
+    inspectionError: inspection.error || null,
   };
   await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
 
@@ -733,10 +782,16 @@ async function main() {
   console.log(`  File:           ${finalLocal} (${best.format})`);
   console.log(`  Has transparency: ${manifest.logo.hasTransparency ? 'YES — place anywhere' : 'NO'}`);
   if (!manifest.logo.hasTransparency && manifest.logo.backgroundColor) {
-    console.log(`  Background:     ${manifest.logo.backgroundColor}`);
+    const conf = manifest.logo.backgroundColorConfidence ? ` [${manifest.logo.backgroundColorConfidence}]` : '';
+    console.log(`  Background:     ${manifest.logo.backgroundColor}${conf}`);
     console.log(`  → Nav background MUST match this colour, OR find a transparent variant`);
+  } else if (!manifest.logo.hasTransparency && manifest.logo.cornerSamples) {
+    console.log(`  Background:     unknown (corners disagree even at loose threshold).`);
+    console.log(`  Corner samples: ${JSON.stringify(manifest.logo.cornerSamples)}`);
+    console.log(`  → Manual review recommended. qa-check.js will FAIL the build if logo bg can't be verified.`);
   } else if (!manifest.logo.hasTransparency) {
-    console.log(`  Background:     unknown (corners disagree). Manual review recommended.`);
+    console.log(`  Background:     unknown (browser inspection failed: ${manifest.logo.inspectionError || 'no error recorded'}).`);
+    console.log(`  → qa-check.js will FAIL the build at deploy time. Either find a transparent logo variant OR resolve the browser-inspection error.`);
   }
   console.log(`${'='.repeat(60)}`);
 }

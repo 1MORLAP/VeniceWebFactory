@@ -1016,6 +1016,23 @@ async function main() {
         // Background match check — sample the corners of the rendered logo via canvas.
         // If the logo is opaque (corner pixels all alpha=255 AND all the same colour)
         // and that colour does not match the nav background, flag a fail.
+        //
+        // 2026-05-07 hardening (real bug filed via rebeccabosscpa.com Options A + C —
+        // cream-rectangle logo glued onto dark navy nav, same SS Power Washing pattern):
+        // pre-2026-05-07 this rule had THREE silent-pass paths that let the bug ship:
+        //   1. Canvas-tainted exception → catch swallowed, no fail recorded
+        //   2. `allAgree` threshold too strict (5 RGB units) — anti-aliased edges
+        //      commonly produce 6-15 unit differences → allAgree=false → no fail
+        //   3. No fallback to manifest.logo.backgroundColor when canvas check fails
+        // The rebeccabosscpa.com logo had `manifest.logo.backgroundColor: null` AND
+        // `cornerSamples: null` (fix-logo.js bug — separate issue). qa-check then
+        // had nothing to compare; the canvas check apparently failed silently
+        // because of a tainted-canvas edge case OR allAgree-too-strict.
+        // Post-fix: catch pushes a fail; allOpaque-but-not-allAgree pushes a warn;
+        // ALSO check against manifest.logo.backgroundColor (passed via report.logo
+        // by the QA harness) as a fallback when canvas check returns nothing.
+        let logoBgFromCanvas = null;
+        let canvasCheckOk = false;
         try {
           const c = document.createElement('canvas');
           c.width = logo.naturalWidth;
@@ -1029,29 +1046,105 @@ async function main() {
             ctx.getImageData(0, h - 1, 1, 1).data,
             ctx.getImageData(w - 1, h - 1, 1, 1).data,
           ];
+          report.logo.cornerSamples = corners.map(d => ({ r: d[0], g: d[1], b: d[2], a: d[3] }));
           const allOpaque = corners.every(d => d[3] >= 250);
+          // Loosened threshold from 5 → 15 RGB units. Anti-aliased corners on
+          // logo edges commonly produce 6-12 unit differences while the human
+          // eye still reads the corners as "the same colour".
           const allAgree = corners.every(d =>
-            Math.abs(d[0] - corners[0][0]) < 5 &&
-            Math.abs(d[1] - corners[0][1]) < 5 &&
-            Math.abs(d[2] - corners[0][2]) < 5
+            Math.abs(d[0] - corners[0][0]) < 15 &&
+            Math.abs(d[1] - corners[0][1]) < 15 &&
+            Math.abs(d[2] - corners[0][2]) < 15
           );
+          canvasCheckOk = true;
           if (allOpaque && allAgree) {
             const c0 = corners[0];
-            const logoBgHex = '#' + [c0[0], c0[1], c0[2]]
+            logoBgFromCanvas = '#' + [c0[0], c0[1], c0[2]]
               .map(n => n.toString(16).padStart(2, '0')).join('');
-            report.logo.logoBackground = logoBgHex;
-            if (navBgHex && logoBgHex && colorDistance(logoBgHex, navBgHex) > 12) {
+            report.logo.logoBackground = logoBgFromCanvas;
+            if (navBgHex && logoBgFromCanvas && colorDistance(logoBgFromCanvas, navBgHex) > 12) {
               report.issues.push({
                 severity: 'fail',
                 check: 'logo-bg-mismatch',
-                msg: `Logo has solid ${logoBgHex} background but nav is ${navBgHex} — visible colour mismatch. Either find a transparent logo variant OR change nav background to ${logoBgHex}.`,
+                msg: `Logo has solid ${logoBgFromCanvas} background but nav is ${navBgHex} — visible colour mismatch. Either find a transparent logo variant OR change nav background to ${logoBgFromCanvas}. (LOGO RULE Layer B — real bug pattern: SS Power Washing 2026-04-24, rebeccabosscpa.com 2026-05-07.)`,
               });
+            }
+          } else if (allOpaque && !allAgree) {
+            // 2026-05-07: previously silent. Now WARN. Logo IS opaque (no
+            // transparency) but corners disagree — likely anti-aliased edges
+            // with slight gradient. Most-frequent corner becomes the inferred
+            // bg; flag for visual review.
+            const c0 = corners[0];
+            const inferredBg = '#' + [c0[0], c0[1], c0[2]]
+              .map(n => n.toString(16).padStart(2, '0')).join('');
+            report.logo.logoBackground = inferredBg;
+            report.logo.logoBackgroundConfidence = 'low (corners disagreed by >15 RGB units)';
+            if (navBgHex && colorDistance(inferredBg, navBgHex) > 25) {
+              report.issues.push({
+                severity: 'warn',
+                check: 'logo-bg-mismatch-corners-disagree',
+                msg: `Logo opaque but corners disagreed (anti-aliased edges?); inferred bg ~${inferredBg}, nav is ${navBgHex} — possible visible colour mismatch. Manual visual check required. If real, find transparent logo variant OR match nav to logo bg.`,
+              });
+            }
+          } else if (!allOpaque) {
+            // Logo IS transparent — but the worker may have wrapped it in
+            // a decorative "chip" container with non-matching bg color
+            // (real bug 2026-05-07: rebeccabosscpa.com Options A + C —
+            // worker wrapped transparent logo in `<span class="nav-logo-
+            // chip" style="background-color: var(--color-bone-light)">`
+            // with the explicit comment "to avoid white-halo on navy" —
+            // creating the same visible cream-on-navy mismatch as the SS
+            // Power Washing logo bug, just from a different source).
+            //
+            // Check: walk from logo upward; find the IMMEDIATE non-
+            // transparent-bg ancestor between the logo and the nav. If
+            // its bg differs from the nav's effective bg by > 12 RGB
+            // units, that's a wrapper chip violating LOGO RULE.
+            report.logo.logoBackground = 'transparent';
+            let chipBgRgb = null;
+            let chipElement = null;
+            let cur = logo.parentElement;
+            const navOrHeader = logo.closest('nav, header');
+            while (cur && cur !== navOrHeader && cur !== document.documentElement) {
+              const bg = getComputedStyle(cur).backgroundColor;
+              if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') {
+                chipBgRgb = bg;
+                chipElement = cur;
+                break;
+              }
+              cur = cur.parentElement;
+            }
+            if (chipBgRgb && navBgRgb && chipBgRgb !== navBgRgb) {
+              const chipBgHex = rgbToHex(chipBgRgb);
+              if (navBgHex && chipBgHex && colorDistance(chipBgHex, navBgHex) > 12) {
+                const tagName = chipElement.tagName.toLowerCase();
+                const className = chipElement.className || '';
+                report.logo.chipBackground = chipBgHex;
+                report.logo.chipElement = `<${tagName}${className ? ` class="${String(className).slice(0, 50)}"` : ''}>`;
+                report.issues.push({
+                  severity: 'fail',
+                  check: 'logo-wrapper-chip-bg-mismatch',
+                  msg: `Logo IS transparent BUT it's wrapped in <${tagName}${className ? ` class="${String(className).slice(0, 50)}"` : ''}> with bg ${chipBgHex} on nav with bg ${navBgHex} — visible decorative chip behind the logo. Same visual outcome as the SS Power Washing logo-bg bug (real bug 2026-05-07: rebeccabosscpa.com Options A + C — worker added "bone-light chip to avoid white-halo on navy" comment, but the chip itself IS the visible mismatch). Fix: remove the chip's background-color OR match it to the nav's bg ${navBgHex} OR pick a logo design treatment that doesn't need a chip (e.g. logo content with built-in margin so corner pixels match the nav).`,
+                });
+              }
             }
           }
         } catch (e) {
-          // Cross-origin or canvas tainted — silently skip background check
-          report.logo.bgCheckError = String(e).slice(0, 100);
+          // 2026-05-07: previously silent (only stored bgCheckError, no fail).
+          // Now FAILS the build. Canvas-tainted means we cannot verify the
+          // logo bg — for safety we fail-closed. The build can't deploy
+          // until either (a) canvas check succeeds, or (b) the operator
+          // adds <!-- design-quality-allow-logo-bg-unverified --> to bypass.
+          report.logo.bgCheckError = String(e).slice(0, 200);
+          if (!/design-quality-allow-logo-bg-unverified/i.test(document.documentElement.outerHTML)) {
+            report.issues.push({
+              severity: 'fail',
+              check: 'logo-bg-unverifiable',
+              msg: `Canvas getImageData threw on logo (likely cross-origin / canvas-tainted): "${String(e).slice(0, 150)}". Cannot verify whether logo bg matches nav bg ${navBgHex}. LOGO RULE Layer B requires this verification. Fix: ensure logo image is served same-origin (it should be — logo is in /images/) OR add <!-- design-quality-allow-logo-bg-unverified --> to <head> after manual visual confirmation. Real bug pattern: rebeccabosscpa.com 2026-05-07 shipped Options A + C with cream-on-navy because this check silently passed.`,
+            });
+          }
         }
+        report.logo.canvasCheckOk = canvasCheckOk;
       }
 
       // Broken images

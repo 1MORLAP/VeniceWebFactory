@@ -2138,3 +2138,46 @@ Possible future direction: replace B and C with an **"A+"** track — Option A's
 **Files unchanged (deliberately)**: no model-provider abstraction layer — refactoring Anthropic dispatch away from the Agent tool is not justified by the failed Venice integration alone. Refero MCP integration unchanged (that's prose data, working well).
 
 **Open follow-on**: re-evaluate Sonnet visual-pass on A specifically when a Sonnet 5 (or equivalent) ships. The Phase K-narrow methodology (5-customer A/B + manual prose pairing) is the template.
+
+---
+
+## 2026-05-07 — Logo-on-cream-chip silent-pass + systemic Playwright failure
+
+**Feedback**: User screenshot of rebeccabosscpa.com Option A (and same for Option C): "how did this logo pass your QA? We have a strict rule on contrast." Image shows the RB monogram in a CREAM rectangle visibly contrasted against the dark navy nav — same SS Power Washing failure pattern, this time on a CPA brand.
+
+**Investigation**:
+1. The logo PNG file is actually TRANSPARENT (palette PNG with tRNS chunk). The cream rectangle is NOT the logo's intrinsic background.
+2. The worker session DELIBERATELY wrapped the transparent logo in a `<span class="nav-logo-chip" style="background-color: var(--color-bone-light)">` with the comment "Logo — on a bone-light chip to avoid white-halo on navy". The chip itself was visible cream-on-navy.
+3. The existing `qa-check.js logo-bg-mismatch` rule only checked the LOGO IMAGE's intrinsic bg (via canvas getImageData on `<img>` element). It did NOT walk the parent chain to detect a decorative chip wrapping a transparent logo. So this bug was invisible to the rule.
+4. **Bigger discovery**: `manifest.logo.backgroundColor` is `null` across EVERY customer in the library (giffins, watkins, bigdaddysdumpers, bugsbgone, abcincfencing, etc.). The Playwright-based corner sampler in `scripts/fix-logo.js` (`inspectImageWithBrowser`) has been silently failing for the entire customer base. The function used `img.crossOrigin = 'anonymous'` on `file://` URLs, which Chromium treats as cross-origin without proper CORS headers (no server) → image load fails → returns `{hasTransparency: null, backgroundColor: null, error: 'image load failed'}`. The caller wrote nulls to manifest with no warning. qa-check then had no manifest data to use as fallback.
+5. The qa-check.js `logo-bg-mismatch` rule had THREE silent-pass paths beyond not-checking-wrapper-chips:
+   - Catch on `getImageData` SecurityError → swallowed silently (only stored `bgCheckError`, no fail/warn pushed)
+   - `allAgree` threshold of 5 RGB units → anti-aliased corners commonly produce 6-15 unit differences → `allAgree=false` → no fail recorded
+   - No fallback to `manifest.logo.backgroundColor` when canvas check failed
+
+**Root causes (cascading, in order of severity)**:
+
+1. `inspectImageWithBrowser` silently failing on every customer due to file:// + crossOrigin issue → no `backgroundColor` data written to ANY manifest → qa-check has nothing to compare against in fallback paths
+2. `qa-check.js logo-bg-mismatch` rule's catch block didn't push a fail when canvas getImageData threw → silent pass for any customer where canvas was tainted
+3. `qa-check.js logo-bg-mismatch` rule's `allAgree` threshold too strict (5 RGB units) → silent pass for any customer with anti-aliased logo edges
+4. NO RULE existed to detect "transparent logo wrapped in decorative chip with non-matching bg" → silent pass for the rebeccabosscpa.com pattern
+
+**Fixes shipped**:
+
+1. **`scripts/fix-logo.js`** — rewrote `inspectImageWithBrowser` (kept the name as a backward-compat alias; new impl is `inspectImageWithFfmpeg`) to use ffmpeg directly for pixel sampling. No browser, no CORS. Probes dimensions via ffprobe, samples corners via `ffmpeg -vf crop=1:1:X:Y -f rawvideo -pix_fmt rgba`. Works on every raster format ffmpeg understands (PNG, JPEG, WebP, GIF, BMP). ffmpeg already a soft-dep for video transcoding.
+2. **`scripts/fix-logo.js`** — loosened `allAgreeStrict` (5 units, sets `confidence=high`) + added `allAgreeLoose` (15 units, sets `confidence=low`). manifest.logo now also records: `backgroundColorConfidence`, `cornerSamples` (always populated, regardless of agreement), `cornersAgree`, `cornersAgreeLoose`, `inspectionError`.
+3. **`scripts/qa-check.js logo-bg-mismatch` rule** — catch block now pushes a `fail` (was silent). `allOpaque && !allAgree` (loose 15-unit threshold) now pushes `logo-bg-mismatch-corners-disagree` warn (was silent). `allAgree` threshold loosened from 5 → 15 RGB units (matches fix-logo.js). New report fields: `cornerSamples`, `canvasCheckOk`. Documented exemption escape: `<!-- design-quality-allow-logo-bg-unverified -->` for cases where canvas check fails but operator manually verified.
+4. **`scripts/qa-check.js` NEW RULE — `logo-wrapper-chip-bg-mismatch`** (FAIL): when logo IS transparent, walks from `<img>` upward (stopping at the closest `<nav>` / `<header>`); finds the immediate non-transparent-bg ancestor between the logo and the nav; if its bg differs from the nav's effective bg by > 12 RGB units, fails with the offending tag/class + both colors. Catches the rebeccabosscpa.com pattern by construction.
+5. **`templates/REQUIRED-PATTERNS.md` Rule 4.3** — documented "no decorative wrapper chip" with the rebeccabosscpa.com example as the canonical bug to avoid.
+
+**Hot-fix on the deployed builds**:
+- Removed `<span class="nav-logo-chip" ...>` from `jobs/rebeccabosscpa.com/option-a/src/components/Nav.astro` (both desktop nav + mobile-menu overlay occurrences)
+- Removed `<span class="logo-chip">` from `jobs/rebeccabosscpa.com/option-c/src/components/Nav.astro`
+- Logos now placed directly on the navy nav (logo PNG has clean alpha edges; no halo)
+- Rebuilt + redeployed both options:
+  - A: https://rebeccabosscpa-com-option-m14zpvw5i-tomek-group.vercel.app
+  - C: https://rebeccabosscpa-com-option-nkzu32k20-tomek-group.vercel.app
+
+**Pending follow-on**: backfill manifest.logo.backgroundColor + cornerSamples across the customer library by re-running `node scripts/fix-logo.js <domain>` on each existing job. Was null on every customer; now ffmpeg-based sampler will populate them correctly. Non-blocking — the new qa-check.js rules catch the bug regardless of manifest data; the backfill makes future audits richer.
+
+**Files modified**: scripts/fix-logo.js (Playwright → ffmpeg rewrite + threshold loosening), scripts/qa-check.js (logo-bg-mismatch rule hardened + new logo-wrapper-chip-bg-mismatch rule), templates/REQUIRED-PATTERNS.md (Rule 4.3 documented), jobs/rebeccabosscpa.com/option-a/src/components/Nav.astro (chip removed ×2), jobs/rebeccabosscpa.com/option-c/src/components/Nav.astro (chip removed), FEEDBACK.md.

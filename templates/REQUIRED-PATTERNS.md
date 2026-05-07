@@ -47,7 +47,8 @@ QA runs at FOUR viewports since Phase O (2026-05-07): mobile 390×844 (FIRST in 
 | Rule | What MUST hold | qa-check |
 |---|---|---|
 | 4.1 Always preserve original | Nav header MUST contain EITHER `<img src="/images/logo.{ext}">` (the customer's actual logo from `fix-logo.js`) OR plain text containing the verbatim business name in display font. NEVER design / invent a logo (no monogram, no abstract mark, no decorative wordmark) | `logo` (FAIL), `logo-is-placeholder` (FAIL — Hibu/CMS), `logo-literal-text` (FAIL — alt is "Logo"), `logo-generic-alt` (warn) |
-| 4.2 Background-aware placement | If logo file is opaque, nav background MUST match `manifest.logo.backgroundColor` within ~5 RGB units. `fix-logo.js` writes the sampled color | `logo-bg-mismatch` (FAIL) |
+| 4.2 Background-aware placement | If logo file is opaque, nav background MUST match `manifest.logo.backgroundColor` within ~12 RGB units. `fix-logo.js` writes the sampled color | `logo-bg-mismatch` (FAIL) |
+| 4.3 No decorative wrapper chip | If logo is TRANSPARENT, do NOT wrap it in a `<span>` / `<div>` with a non-matching `background-color` to "avoid halo." That chip itself becomes the visible mismatch on the nav. Fix the halo at the source (logo file's edge alpha) OR pick a design treatment that doesn't need a chip. Real bug 2026-05-07 (rebeccabosscpa.com Options A + C — worker added `<span class="nav-logo-chip" style="background-color: bone-light">` with comment "to avoid white-halo on navy"). | `logo-wrapper-chip-bg-mismatch` (FAIL — added 2026-05-07), `logo-bg-unverifiable` (FAIL — canvas-tainted bg-check, fail-closed instead of silent-pass), `logo-bg-mismatch-corners-disagree` (warn — opaque logo with anti-aliased edges) |
 
 ---
 
