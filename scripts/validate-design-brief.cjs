@@ -230,12 +230,20 @@ if (allowThin && ratio < 0.70) {
   }
 }
 
-// Phase F self-instrumentation
+// Phase F self-instrumentation. Phase I.1: include bytesProduced for cost
+// auditing (size of design-brief.json — the actual artifact written by the
+// Stage 2 sub-agent).
+let bytesProduced = 0;
+try {
+  bytesProduced = fs.statSync(briefPath).size;
+} catch {}
+
 const { logDecision } = require('./_log-helper.cjs');
 logDecision(domain, '2', 'validate-design-brief-pass', {
   richness: `${passed}/${total}`,
   pct: Math.round(ratio * 100),
   allowThin: allowThin || false,
+  bytesProduced,
 });
 
 process.exit(0);

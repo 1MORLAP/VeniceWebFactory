@@ -401,10 +401,23 @@ if (allIssues.length === 0) {
     const m = specsDir.match(/jobs\/([^\/]+)\/specs/);
     const domain = m ? m[1] : null;
     if (domain) {
+      // Phase I.1: include bytesProduced for cost auditing — the sum of
+      // ALL spec files (per-page <slug>.md + _shared.md + _image-pools.json).
+      // audit-cost.cjs uses bytesProduced/4 as an output-token proxy
+      // when present, fallback to event-type defaults otherwise.
+      let bytesProduced = 0;
+      try {
+        for (const f of fs.readdirSync(specsDir)) {
+          if (f.endsWith('.md') || f.endsWith('.json')) {
+            try { bytesProduced += fs.statSync(path.join(specsDir, f)).size; } catch {}
+          }
+        }
+      } catch {}
       const { logDecision } = require('./_log-helper.cjs');
       logDecision(domain, '2.5b', 'validate-specs-pass', {
         specCount: specFiles.length,
         mode: allowEmpty ? 'monolithic' : 'decomposed',
+        bytesProduced,
       });
     }
   } catch { /* best-effort */ }

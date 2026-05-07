@@ -97,9 +97,32 @@ function loadLog(jobDir) {
   return events;
 }
 
+// Phase I.1 (2026-05-07): prefer real artifact byte counts over fixed
+// heuristics. Scripts that write artifacts (validate-specs.cjs,
+// validate-design-brief.cjs, extract-page-manifest.cjs,
+// extract-brief-essentials.cjs) emit `bytesProduced` (output bytes).
+// Convert to output tokens at ~4 bytes/token (English text + JSON).
+//
+// Order of preference for token estimate:
+//   1. d.tokensApprox        — explicit declaration (rare; orchestrator-driven)
+//   2. d.bytesProduced       — actual artifact byte count (most accurate proxy)
+//   3. d.bytesProduced via slim/full pair from extract-* scripts
+//   4. d.totalBytes          — extract-page-manifest emits this
+//   5. d.fullBytes           — extract-brief-essentials emits this
+//   6. TOKEN_DEFAULTS[event] — fallback when none of the above present
+//
+// Conversion: bytes / 4 ≈ output tokens. Slightly conservative
+// (English averages 3.5 bytes/token, JSON closer to 4.5 with whitespace).
+const BYTES_PER_TOKEN = 4;
+
 function tokensFor(event) {
   const d = event.details || {};
   if (d.tokensApprox && Number.isFinite(Number(d.tokensApprox))) return Number(d.tokensApprox);
+  // Real artifact size, when available.
+  const bytesField = d.bytesProduced || d.totalBytes || d.fullBytes || d.slimBytes;
+  if (bytesField && Number.isFinite(Number(bytesField))) {
+    return Math.max(200, Math.round(Number(bytesField) / BYTES_PER_TOKEN));
+  }
   let base = TOKEN_DEFAULTS[event.event] ?? 200;
   if (event.event === 'specs-written' && d.specCount) base = base * Number(d.specCount);
   return base;
@@ -195,7 +218,7 @@ function reportSingle(d) {
     console.log(`| ${model} | ${row.events} | ${row.tokens.toLocaleString()} | $${row.cost.toFixed(2)} (${pct}%) |`);
   }
   console.log('');
-  console.log('Token counts are estimates derived from `--detail tokensApprox=<N>` where present, or from per-event-type defaults in `audit-cost.cjs`. Real spend numbers come from the Anthropic console.');
+  console.log('Token counts are estimates derived from (in order of preference): `--detail tokensApprox=<N>` (explicit), `--detail bytesProduced=<N>` (artifact-byte proxy at 4 bytes/token, Phase I.1), or per-event-type defaults in `audit-cost.cjs`. Real spend numbers come from the Anthropic console.');
 }
 
 function reportAll() {
