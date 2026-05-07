@@ -1372,11 +1372,36 @@ Before settling on the first logo file you find, **hunt for the best variant**, 
 
 **Step 4 — Apply across all options.** If the logo's background dictates the nav's background, that constraint flows through to A, B, and C consistently. Don't let one option use the matched color and another use a different color. The brand color is decided by the logo file we received, not by our design preferences.
 
+##### Layer C — Logo content must contrast with its immediate composited background (LOGO RULE 4.4, added 2026-05-07)
+
+Even with a transparent logo and a "valid" nav placement, the logo can still be invisible if its **painted pixels** don't contrast with whatever sits immediately behind it. The most common version of this bug:
+
+- Customer ships a **white-on-transparent logo** (designed for dark backgrounds).
+- Worker session, worried about a "white halo" effect at logo edges on dark nav, wraps the logo in a `<span style="background-color: cream">` chip.
+- Result: white logo on cream chip → ~1.14:1 WCAG contrast → logo content nearly invisible.
+- Real bug 2026-05-07 (rebeccabosscpa.com Options A + C). Worker comment in source was literal: *"Logo — on a bone-light chip to avoid white-halo on navy."* The chip itself defeated the logo it was supposed to help.
+
+**The rule**:
+
+`fix-logo.js` computes `manifest.logo.dominantPaintedColor` (mean RGB of pixels with alpha > 200) using ffmpeg-based pixel sampling. For a white-on-transparent logo this resolves to ~`#ffffff`; for a dark-on-transparent logo, ~`#1a1a1a`-ish. This is the polarity of the logo's content.
+
+`qa-check.js` `logo-rendered-contrast` rule walks from the rendered `<img>` upward to find the immediate non-transparent-background ancestor (the wrapper chip if any, else the nav itself), then computes WCAG contrast between `manifest.logo.dominantPaintedColor` and that effective bg. **FAILs at < 3:1 (the WCAG graphic-contrast threshold)**.
+
+**Three valid fixes when this rule fires**:
+1. **Remove the wrapper element** (chip / panel / div with non-matching bg). Lets the logo render directly on the nav, which the LOGO RULE Layer B already validated as safe.
+2. **Match the wrapper's bg to the OPPOSITE polarity of the logo paint**. White logo → dark wrapper (matching nav, so wrapper is invisible). Dark logo → light wrapper.
+3. **Swap to the opposite-polarity logo variant** if the customer has one (e.g., they ship `logo-light.png` AND `logo-dark.png`). `fix-logo.js`'s variant-hunting step already tries common naming conventions; if no variant exists, fall back to fixes 1 or 2.
+
+**What this rule does NOT do**: it doesn't run for OPAQUE logos (where `dominantPaintedColor` is muddied by mixing the logo's bg + foreground colors — the existing Layer B `logo-bg-mismatch` rule already covers opaque logos). It silently no-ops if `manifest.logo.dominantPaintedColor` is null (e.g., legacy customers whose manifests weren't backfilled by the new ffmpeg sampler).
+
 ##### QA gate enforcement
 
 Stage 8a `qa-check.js` checks:
-- Nav header MUST contain either (a) an `<img>` referencing `/images/logo*`, OR (b) plain text containing the verbatim business name. If the nav contains any non-original-logo graphic, fail.
-- **NEW**: If the logo file is opaque (no transparency in the alpha channel OR alpha is uniformly 255), the nav's background color MUST match the logo's sampled background color within a small tolerance (~5 RGB units per channel). If they don't match, fail with message: `"logo background #XXXXXX does not match nav background #YYYYYY — find a transparent variant OR change the nav background to match"`.
+- Nav header MUST contain either (a) an `<img>` referencing `/images/logo*`, OR (b) plain text containing the verbatim business name. If the nav contains any non-original-logo graphic, fail. (`logo` FAIL, `logo-is-placeholder` FAIL, `logo-literal-text` FAIL, `logo-generic-alt` warn)
+- **Layer B**: If the logo file is opaque (no transparency in the alpha channel OR alpha is uniformly 255), the nav's background color MUST match the logo's sampled background color within ~12 RGB units per channel (loosened from 5 to 12 on 2026-05-07 to tolerate anti-aliased corner edges). If they don't match, fail with message: `"logo background #XXXXXX does not match nav background #YYYYYY — find a transparent variant OR change the nav background to match"`. (`logo-bg-mismatch` FAIL)
+- **Layer B variants** (added 2026-05-07): `logo-bg-unverifiable` FAIL when canvas-tainted exception prevents verification (was silent pass pre-2026-05-07); `logo-bg-mismatch-corners-disagree` warn when corners disagree by 5-15 RGB units (anti-aliased edges, manual review).
+- **Wrapper chip detection** (added 2026-05-07): When logo IS transparent, walks parent chain from `<img>` to find any decorative chip wrapper. If chip's bg differs from nav's bg by > 12 RGB units, fail. (`logo-wrapper-chip-bg-mismatch` FAIL)
+- **Layer C — Logo content vs immediate composited bg** (added 2026-05-07): WCAG contrast between `manifest.logo.dominantPaintedColor` and effective composited bg behind logo (chip if present, else nav). FAILs at < 3:1. (`logo-rendered-contrast` FAIL)
 
 ---
 

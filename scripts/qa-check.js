@@ -56,6 +56,7 @@ import { createHash } from 'node:crypto';
 const rawArgs = process.argv.slice(2);
 let baseUrl = 'http://localhost:4321';
 let manifestPath = null;
+let manifestLogo = null;   // captures manifest.logo for LOGO RULE 4.4 logo-rendered-contrast check
 let referenceDistPath = null;
 let referenceDistI18nPath = null;   // MULTILINGUAL SUPPORT: option-b/dist when checking B/C, so testimonial-tampering compares each /<lang>/ against B's /<lang>/
 let optionName = null;   // 'a' | 'b' | 'c' — gates per-option checks (e.g. image-reuse-A only fires for 'a')
@@ -149,6 +150,11 @@ if (manifestPath) {
         .replace(/\s+/g, ' ')
         .trim();
       manifestPagesCount = Array.isArray(m.pages) ? m.pages.length : 0;
+      // Capture manifest.logo for the LOGO RULE 4.4 logo-rendered-contrast
+      // check (Phase 2026-05-07): the rule needs manifest.logo.dominantPaintedColor
+      // (mean RGB of opaque pixels, computed by fix-logo.js) to compute WCAG
+      // contrast against the effective composited bg behind the rendered logo.
+      manifestLogo = (m && typeof m.logo === 'object') ? m.logo : null;
       console.log(`✓ Loaded manifest corpus from ${manifestPath} (${manifestCorpus.length} chars, ${manifestPagesCount} pages)`);
 
       // Walk pages[*].images + pages[*].backgroundImages.
@@ -764,6 +770,82 @@ const FACT_RULES = [
   },
 ];
 
+// ─────────────────────────────────────────────────────────────────────
+// LOGO RULE 4.4 — logo-rendered-contrast
+// ─────────────────────────────────────────────────────────────────────
+//
+// Computes WCAG contrast between the logo's DOMINANT PAINTED COLOR
+// (mean RGB of opaque pixels, captured by fix-logo.js as
+// manifest.logo.dominantPaintedColor) and the EFFECTIVE COMPOSITED BG
+// behind the rendered logo (capturing report.logo.chipBackground if
+// present — i.e., a wrapper chip — falling through to navBackground
+// otherwise). FAILs when contrast < 3:1 (WCAG graphic-contrast threshold).
+//
+// Real bug (rebeccabosscpa.com Options A + C, /webfactory-learn intake
+// 2026-05-07): the customer's logo is white-on-transparent (designed for
+// dark backgrounds). Stage 2.6 scaffold sub-agent wrapped it in a
+// `<span class="nav-logo-chip" style="background-color: bone-light">`
+// inside the navy nav. Result: logo-paint-vs-chip-bg contrast ~1.14:1
+// (white #ffffff on cream #F4EFE5). Logo content was nearly invisible.
+// The existing logo-wrapper-chip-bg-mismatch rule (commit ad6ecec)
+// caught the chip-vs-nav mismatch; this rule catches the
+// logo-paint-vs-immediate-bg mismatch — different failure mode, both
+// ship together.
+//
+// Catches:
+//   - White / cream / light-gray logo on white / cream / light-gray bg
+//   - Black / dark-gray / dark-blue logo on navy / charcoal / dark bg
+//   - ANY logo content invisible against its immediate composited bg
+//
+// Inputs:
+//   manifestLogo  — manifest.logo with .dominantPaintedColor {r,g,b,hex}
+//   reportLogo    — out.logo with .navBackground (hex), optionally
+//                   .chipBackground (hex) if a wrapper chip was detected
+//
+// Returns array of issues to push into out.issues.
+function runLogoRenderedContrastCheck(manifestLogo, reportLogo) {
+  const issues = [];
+  const dpc = manifestLogo && manifestLogo.dominantPaintedColor;
+  if (!dpc || typeof dpc.r !== 'number' || typeof dpc.g !== 'number' || typeof dpc.b !== 'number') {
+    return issues;   // skipped — manifest doesn't have the data
+  }
+  // Effective composited bg: prefer the IMMEDIATE wrapper chip's bg if the
+  // chip rule already captured it; else fall back to navBackground.
+  const immediateBgHex = reportLogo.chipBackground || reportLogo.navBackground;
+  if (!immediateBgHex || !/^#[0-9a-f]{6}$/i.test(immediateBgHex)) {
+    return issues;   // can't measure — bg not captured
+  }
+  const bgR = parseInt(immediateBgHex.slice(1, 3), 16);
+  const bgG = parseInt(immediateBgHex.slice(3, 5), 16);
+  const bgB = parseInt(immediateBgHex.slice(5, 7), 16);
+
+  function srgbToLinear(c) {
+    const v = c / 255;
+    return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  }
+  function relLuminance(r, g, b) {
+    return 0.2126 * srgbToLinear(r) + 0.7152 * srgbToLinear(g) + 0.0722 * srgbToLinear(b);
+  }
+  const L1 = relLuminance(dpc.r, dpc.g, dpc.b);
+  const L2 = relLuminance(bgR, bgG, bgB);
+  const lighter = Math.max(L1, L2);
+  const darker = Math.min(L1, L2);
+  const ratio = (lighter + 0.05) / (darker + 0.05);
+
+  if (ratio < 3.0) {
+    const polarity = L1 > L2 ? 'light-on-light' : 'dark-on-dark';
+    const wrapperNote = reportLogo.chipBackground
+      ? ` (logo wrapped in a chip with bg ${reportLogo.chipBackground} — that chip is the immediate bg, not the nav)`
+      : '';
+    issues.push({
+      severity: 'fail',
+      check: 'logo-rendered-contrast',
+      msg: `LOGO RULE 4.4 violation: logo content is ${polarity} against its immediate background — WCAG contrast only ${ratio.toFixed(2)}:1 (need ≥ 3:1 for graphics). Logo's dominant painted color is ${dpc.hex} (mean RGB of ${dpc.opaquePixelCount || '?'} opaque pixels); effective composited bg is ${immediateBgHex}${wrapperNote}. Fix one of: (a) remove the wrapper element / chip if any (lets logo render directly on nav); (b) match the wrapper bg to the OPPOSITE polarity of the logo paint (white logo → dark wrapper, dark logo → light wrapper); (c) swap to the opposite-polarity logo variant if the customer has one (e.g. customer ships both logo-light.png and logo-dark.png). Real bug pattern: rebeccabosscpa.com 2026-05-07 — white logo on cream chip, ~1.14:1 contrast, logo nearly invisible.`,
+    });
+  }
+  return issues;
+}
+
 function runFactGroundingCheck(visibleText) {
   if (!manifestCorpus) return []; // skipped (warning already emitted at startup)
   const issues = [];
@@ -1087,19 +1169,17 @@ async function main() {
               });
             }
           } else if (!allOpaque) {
-            // Logo IS transparent — but the worker may have wrapped it in
-            // a decorative "chip" container with non-matching bg color
-            // (real bug 2026-05-07: rebeccabosscpa.com Options A + C —
-            // worker wrapped transparent logo in `<span class="nav-logo-
-            // chip" style="background-color: var(--color-bone-light)">`
-            // with the explicit comment "to avoid white-halo on navy" —
-            // creating the same visible cream-on-navy mismatch as the SS
-            // Power Washing logo bug, just from a different source).
+            // Logo IS transparent — capture the IMMEDIATE composited bg
+            // behind it (the wrapper chip's bg if any, else nav's bg)
+            // for two downstream rules:
+            //   - logo-wrapper-chip-bg-mismatch (chip-vs-nav, fires here
+            //     in-browser): real bug 2026-05-07 rebeccabosscpa.com
+            //   - logo-rendered-contrast (LOGO RULE 4.4, fires Node-side
+            //     post-evaluate): WCAG contrast between manifest.logo
+            //     .dominantPaintedColor and the chip/nav bg
             //
-            // Check: walk from logo upward; find the IMMEDIATE non-
-            // transparent-bg ancestor between the logo and the nav. If
-            // its bg differs from the nav's effective bg by > 12 RGB
-            // units, that's a wrapper chip violating LOGO RULE.
+            // Walk from logo upward; find the IMMEDIATE non-transparent-bg
+            // ancestor between the logo and the nav.
             report.logo.logoBackground = 'transparent';
             let chipBgRgb = null;
             let chipElement = null;
@@ -1114,13 +1194,17 @@ async function main() {
               }
               cur = cur.parentElement;
             }
-            if (chipBgRgb && navBgRgb && chipBgRgb !== navBgRgb) {
+            // ALWAYS persist chipBackground when a chip is found — even if
+            // chip-vs-nav matches. The Node-side LOGO RULE 4.4 logo-
+            // rendered-contrast check uses this as the immediate bg for
+            // its WCAG contrast calculation.
+            if (chipBgRgb) {
               const chipBgHex = rgbToHex(chipBgRgb);
-              if (navBgHex && chipBgHex && colorDistance(chipBgHex, navBgHex) > 12) {
-                const tagName = chipElement.tagName.toLowerCase();
-                const className = chipElement.className || '';
-                report.logo.chipBackground = chipBgHex;
-                report.logo.chipElement = `<${tagName}${className ? ` class="${String(className).slice(0, 50)}"` : ''}>`;
+              const tagName = chipElement.tagName.toLowerCase();
+              const className = chipElement.className || '';
+              report.logo.chipBackground = chipBgHex;
+              report.logo.chipElement = `<${tagName}${className ? ` class="${String(className).slice(0, 50)}"` : ''}>`;
+              if (navBgRgb && chipBgRgb !== navBgRgb && navBgHex && chipBgHex && colorDistance(chipBgHex, navBgHex) > 12) {
                 report.issues.push({
                   severity: 'fail',
                   check: 'logo-wrapper-chip-bg-mismatch',
@@ -2504,6 +2588,28 @@ function rgbToHexFromComputed(rgb) {
       }
     }
     delete out.liveTestimonials;
+
+    // ---- LOGO RULE 4.4 — logo-rendered-contrast (Node-side, needs manifest.logo.dominantPaintedColor) ----
+    // /webfactory-learn intake 2026-05-07 (rebeccabosscpa.com — white logo
+    // designed for dark bgs got wrapped in cream chip; logo-vs-chip contrast
+    // ~1.14:1, logo content invisible). Complementary to the in-browser
+    // `logo-wrapper-chip-bg-mismatch` rule (which catches chip-vs-nav
+    // mismatch); this rule catches LOGO-PAINT-vs-IMMEDIATE-BG mismatch.
+    //
+    // Catches: light logo (white, cream, light-gray) on light bg (cream,
+    // white, light-gray); dark logo (black, dark-gray, dark-blue) on dark
+    // bg (navy, charcoal, forest); ANY logo-content-invisible-against-its-
+    // immediate-bg pattern.
+    //
+    // Scope: only mobile + desktop viewports (mobile FIRST per Phase O);
+    // logo metric is identical across viewports so we run it once. Skips
+    // silently if manifest.logo.dominantPaintedColor is null (e.g.
+    // pre-Phase-K-narrow customers whose manifests weren't backfilled —
+    // see FEEDBACK.md Phase K-narrow entry).
+    if (manifestLogo && manifestLogo.dominantPaintedColor && out.logo && viewport.name === 'mobile') {
+      const lrcIssues = runLogoRenderedContrastCheck(manifestLogo, out.logo);
+      out.issues.push(...lrcIssues);
+    }
 
     results.push({ viewport: viewport.name, path: p, ...out });
   }

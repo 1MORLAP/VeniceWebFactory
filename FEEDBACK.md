@@ -2181,3 +2181,43 @@ Possible future direction: replace B and C with an **"A+"** track — Option A's
 **Pending follow-on**: backfill manifest.logo.backgroundColor + cornerSamples across the customer library by re-running `node scripts/fix-logo.js <domain>` on each existing job. Was null on every customer; now ffmpeg-based sampler will populate them correctly. Non-blocking — the new qa-check.js rules catch the bug regardless of manifest data; the backfill makes future audits richer.
 
 **Files modified**: scripts/fix-logo.js (Playwright → ffmpeg rewrite + threshold loosening), scripts/qa-check.js (logo-bg-mismatch rule hardened + new logo-wrapper-chip-bg-mismatch rule), templates/REQUIRED-PATTERNS.md (Rule 4.3 documented), jobs/rebeccabosscpa.com/option-a/src/components/Nav.astro (chip removed ×2), jobs/rebeccabosscpa.com/option-c/src/components/Nav.astro (chip removed), FEEDBACK.md.
+
+---
+
+## 2026-05-07 (afternoon) — /webfactory-learn intake: LOGO RULE 4.4 logo-rendered-contrast
+
+**Feedback**: User invoked `/webfactory-learn` with structured payload after the morning's chip-removal fix:
+- DOMAIN: rebeccabosscpa.com
+- ROOT CAUSE (deeper than the morning fix captured): "Customer's Rebecca-Boss-Logo.png is white-on-transparent (designed for dark backgrounds). Stage 2.6 scaffold sub-agent wrapped it in a nav-logo-chip <span> with bg-bone-light cream color inside the navy nav, making the white logo nearly invisible on cream-on-navy."
+- PROPOSED RULE: WCAG contrast between logo's dominant painted color (mean RGB of opaque pixels) and effective composited bg behind the logo. FAIL when light-on-light or dark-on-dark (< 3:1 graphic contrast).
+
+**Why this is a different rule than the morning fix**:
+
+The morning's `logo-wrapper-chip-bg-mismatch` rule (commit ad6ecec) caught the OUTER mismatch — chip's bg differs from nav's bg by > 12 RGB units, so the chip is visible as a "sticker" on the nav. That fired on rebeccabosscpa.com.
+
+The /webfactory-learn proposal catches a complementary INNER mismatch — the logo's painted pixels don't contrast with whatever sits immediately behind them. This catches:
+- Light logo (white / cream / light-gray) on light bg (cream / white / light-gray) → invisible
+- Dark logo (black / dark-gray / dark-blue) on dark bg (navy / charcoal / forest) → invisible
+- The rebeccabosscpa.com case (white on cream chip) fires here too (1.15:1 contrast)
+
+The proposed rule is strictly more general — it catches cases where there's no chip at all but the logo is invisible against the nav (e.g., a white logo on a white-by-default scaffold nav).
+
+**Verified the rule fires on the pre-fix rebeccabosscpa.com state**:
+- Logo dominant painted color: #ffffff (4204 opaque pixels out of 32500 total)
+- Effective composited bg: #F4EFE5 (bone-light chip)
+- WCAG contrast: **1.15:1** — light-on-light, FAIL
+- Post-fix (chip removed, logo on navy directly): WCAG contrast 15.80:1 → pass
+
+**SKILL.md change**:
+- LOGO RULE Layer C / Rule 4.4 added with full architectural rationale and three valid fixes (remove wrapper / match opposite polarity / swap variant)
+- QA gate enforcement section extended to list all logo rules: 4.1 (preserve original), 4.2 / Layer B (logo-bg-mismatch + logo-bg-unverifiable + logo-bg-mismatch-corners-disagree), 4.3 (logo-wrapper-chip-bg-mismatch), 4.4 (logo-rendered-contrast — added today)
+- REQUIRED-PATTERNS.md Rule 4.4 row added
+
+**Code shipped**:
+- `scripts/fix-logo.js` `inspectImageWithFfmpeg`: dumps full image as raw RGBA via ffmpeg `-pix_fmt rgba`; iterates every pixel; mean RGB of pixels with alpha > 200 → `dominantPaintedColor.{r,g,b,hex,opaquePixelCount,totalPixelCount,opaqueRatio}`. Persisted to `manifest.logo.dominantPaintedColor`.
+- `scripts/qa-check.js` `runLogoRenderedContrastCheck` (node-side, runs at mobile viewport only since logo metric is identical across viewports): reads `manifestLogo.dominantPaintedColor`; uses `report.logo.chipBackground` if present (immediate composited bg), falls back to `report.logo.navBackground`; computes WCAG contrast via standard luminance formula; FAILs at < 3:1 with detailed message naming polarity (light-on-light / dark-on-dark) + painted color + bg + chip-vs-nav distinction.
+- `scripts/qa-check.js` in-browser logo block: `chipBackground` now ALWAYS captured when a wrapper chip exists (was only captured when chip-vs-nav mismatch fired). The Node-side LOGO RULE 4.4 check needs this even when chip-vs-nav matches but logo-paint-vs-chip doesn't.
+
+**Files modified**: scripts/fix-logo.js (dominantPaintedColor computation), scripts/qa-check.js (runLogoRenderedContrastCheck + manifestLogo capture + chipBackground always-captured + post-evaluate dispatch), SKILL.md (LOGO RULE Layer C / Rule 4.4 + QA gate enforcement section), templates/REQUIRED-PATTERNS.md (Rule 4.4 row), FEEDBACK.md.
+
+**Pending follow-on**: backfill `manifest.logo.dominantPaintedColor` across customer library by re-running `node scripts/fix-logo.js <domain>` on each existing job. Was unset on every customer (data didn't exist pre-2026-05-07-afternoon). Non-blocking — rule silently no-ops when data is missing.

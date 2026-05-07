@@ -501,6 +501,54 @@ async function inspectImageWithFfmpeg(absPath) {
     backgroundColorConfidence = 'low (corners disagreed by 5-15 RGB units)';
   }
 
+  // Compute the logo's DOMINANT PAINTED COLOR — mean RGB of pixels with
+  // alpha > 200 (opaque enough to count). For a white-on-transparent logo
+  // (designed for dark backgrounds), this resolves to ~white. For a
+  // dark-on-transparent logo (designed for light backgrounds), this
+  // resolves to ~dark. qa-check.js uses this value vs the effective
+  // composited bg behind the rendered logo to compute WCAG contrast and
+  // flag light-on-light / dark-on-dark failures (LOGO RULE 4.4, real
+  // bug 2026-05-07: rebeccabosscpa.com — white logo on cream chip,
+  // visually invisible).
+  let dominantPaintedColor = null;
+  try {
+    const fullDump = spawnSync('ffmpeg', [
+      '-loglevel', 'error',
+      '-i', absPath,
+      '-f', 'rawvideo',
+      '-pix_fmt', 'rgba',
+      '-y', '-',
+    ], { stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 200 * 1024 * 1024 });
+    if (fullDump.status === 0 && fullDump.stdout && fullDump.stdout.length === width * height * 4) {
+      const buf = fullDump.stdout;
+      let totalR = 0, totalG = 0, totalB = 0, count = 0;
+      for (let i = 0; i < buf.length; i += 4) {
+        const a = buf[i + 3];
+        if (a > 200) {
+          totalR += buf[i];
+          totalG += buf[i + 1];
+          totalB += buf[i + 2];
+          count++;
+        }
+      }
+      if (count > 0) {
+        const r = Math.round(totalR / count);
+        const g = Math.round(totalG / count);
+        const b = Math.round(totalB / count);
+        const hex = '#' + [r, g, b].map(n => n.toString(16).padStart(2, '0')).join('');
+        dominantPaintedColor = {
+          r, g, b, hex,
+          opaquePixelCount: count,
+          totalPixelCount: width * height,
+          opaqueRatio: count / (width * height),
+        };
+      }
+    }
+  } catch (e) {
+    // Best-effort — leave dominantPaintedColor null and let qa-check
+    // fall through to its own canvas-based mean-color computation.
+  }
+
   return {
     hasTransparency: anyTransparent,
     backgroundColor,
@@ -508,6 +556,7 @@ async function inspectImageWithFfmpeg(absPath) {
     cornersAgree: allAgreeStrict,
     cornersAgreeLoose: allAgreeLoose,
     cornerSamples: corners,
+    dominantPaintedColor,
     width,
     height,
     pix_fmt,
@@ -772,6 +821,7 @@ async function main() {
     cornerSamples: inspection.cornerSamples || null,
     cornersAgree: inspection.cornersAgree ?? null,
     cornersAgreeLoose: inspection.cornersAgreeLoose ?? null,
+    dominantPaintedColor: inspection.dominantPaintedColor || null,    // LOGO RULE 4.4 (added 2026-05-07)
     inspectionError: inspection.error || null,
   };
   await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
