@@ -174,7 +174,7 @@ You are running **Stage 2.5: Per-page spec generation** for WebFactory build {DO
 ## What to write
 
 - jobs/{DOMAIN}/specs/_shared.md
-- jobs/{DOMAIN}/specs/_image-pools.json — content-class images ONLY in portfolio/catalog/gallery slots (per PORTFOLIO INTEGRITY RULE)
+- jobs/{DOMAIN}/specs/_image-pools.json — content-class images ONLY in portfolio/catalog/gallery slots (per PORTFOLIO INTEGRITY RULE). **The image pool MUST union BOTH `manifest.pages[*].images[]` AND `manifest.pages[*].backgroundImages[]`** filtered by `_class === 'content'`. CSS-background photos are how Dreamweaver / GoDaddy / Wix / static-HTML legacy sites place hero / team / banner photos (no CMS image widget). Phase H (2026-05-06) extended classification to `backgroundImages[]`; treating only foreground `<img>` records as the pool misses content imagery on those sites. Real bug filed via lisastephenscpa.com: a 974×348 team photo on every page as a CSS background was missing from all 3 deploys.
 - jobs/{DOMAIN}/specs/<page>.md — one per page in the manifest
 - A 3-line summary back to the orchestrator: page count + 1-line confirmation that _image-pools is content-class-filtered + any "What NOT to add" prohibitions added to _shared.md.
 
