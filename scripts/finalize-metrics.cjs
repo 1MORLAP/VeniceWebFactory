@@ -90,3 +90,12 @@ if (fs.existsSync(manifestPath)) {
 
 fs.writeFileSync(metricsPath, JSON.stringify(metrics, null, 2));
 console.log(JSON.stringify(metrics, null, 2));
+
+// Phase F self-instrumentation
+const { logDecision } = require('./_log-helper.cjs');
+logDecision(domain, '10', 'finalize-metrics-complete', {
+  totalMinutes: metrics.totalMinutes,
+  optionA_url: metrics.optionA?.url || null,
+  optionB_url: metrics.optionB?.url || null,
+  optionC_url: metrics.optionC?.url || null,
+});

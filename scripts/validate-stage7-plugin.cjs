@@ -181,4 +181,13 @@ console.log(`✓ Stage 7 plugin gate passed for ${domain} — industry-tokens.js
 for (const c of checks) {
   if (!c.ok) console.log(`  (note: failed ${c.name} — but overall threshold still met)`);
 }
+
+// Phase F self-instrumentation
+const { logDecision } = require('./_log-helper.cjs');
+logDecision(domain, '7d', 'validate-stage7-plugin-pass', {
+  richness: `${passed}/${total}`,
+  pct: Math.round(ratio * 100),
+  allowInline: allowInline || false,
+});
+
 process.exit(0);

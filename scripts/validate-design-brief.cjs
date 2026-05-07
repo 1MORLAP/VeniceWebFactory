@@ -229,4 +229,13 @@ if (allowThin && ratio < 0.70) {
     if (!c.ok) console.log(`  (note: failed ${c.name} — but overall threshold met)`);
   }
 }
+
+// Phase F self-instrumentation
+const { logDecision } = require('./_log-helper.cjs');
+logDecision(domain, '2', 'validate-design-brief-pass', {
+  richness: `${passed}/${total}`,
+  pct: Math.round(ratio * 100),
+  allowThin: allowThin || false,
+});
+
 process.exit(0);

@@ -394,6 +394,21 @@ console.log('═'.repeat(72));
 if (allIssues.length === 0) {
   console.log(`\n  ✓ PASSED — all ${specFiles.length} spec(s) validated. No unsupported fact claims found.\n`);
   console.log('═'.repeat(72));
+
+  // Phase F self-instrumentation. Derive domain from specsDir (path shape:
+  // jobs/{domain}/specs or absolute equivalent).
+  try {
+    const m = specsDir.match(/jobs\/([^\/]+)\/specs/);
+    const domain = m ? m[1] : null;
+    if (domain) {
+      const { logDecision } = require('./_log-helper.cjs');
+      logDecision(domain, '2.5b', 'validate-specs-pass', {
+        specCount: specFiles.length,
+        mode: allowEmpty ? 'monolithic' : 'decomposed',
+      });
+    }
+  } catch { /* best-effort */ }
+
   process.exit(0);
 }
 

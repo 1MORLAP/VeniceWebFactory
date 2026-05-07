@@ -62,3 +62,7 @@ metrics[key].deployedAt = new Date().toISOString();
 
 fs.writeFileSync(metricsPath, JSON.stringify(metrics, null, 2));
 console.log(`✓ Recorded ${key}.url = ${url}`);
+
+// Phase F self-instrumentation
+const { logDecision } = require('./_log-helper.cjs');
+logDecision(domain, '8b', 'deploy-recorded', { option, url });

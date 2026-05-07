@@ -77,3 +77,14 @@ fs.writeFileSync(metricsPath, JSON.stringify(metrics, null, 2));
 console.log(`✓ Metrics initialized for ${domain}${suffix ? ` (A/B variant: ${metrics.abVariant})` : ''}`);
 console.log(`  Ports — A: ${portA}, B: ${portB}, C: ${portC}`);
 console.log(`  File: ${metricsPath}`);
+
+// Phase F self-instrumentation (2026-05-06): emit our own log-decision event
+// so orchestration.log captures the build start. The orchestrator's prose
+// is documented to also emit this — we're belt-and-suspenders.
+const { logDecision } = require('./_log-helper.cjs');
+logDecision(domain, '0', 'build-started', {
+  url,
+  canonicalDomain,
+  abVariant: metrics.abVariant || 'none',
+  portA, portB, portC,
+});

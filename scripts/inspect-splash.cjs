@@ -276,6 +276,10 @@ async function scanDomain(d) {
 
   if (targets.size === 0) {
     console.log(`✓ No video CTAs found for ${d} — nothing to classify.`);
+    // Still emit the event (with totalUrls=0) so audit-orchestration can
+    // distinguish "stage ran cleanly, no videos" from "stage skipped".
+    const { logDecision } = require('./_log-helper.cjs');
+    logDecision(d, '1e', 'videos-classified', { totalUrls: 0, variantA: 0, variantB: 0, variantC: 0, variantD: 0 });
     process.exit(0);
   }
 
@@ -325,6 +329,17 @@ async function scanDomain(d) {
     if (counts[k] > 0) console.log(`  Variant ${k}: ${counts[k]}`);
   }
   console.log(`  → ${reportPath}`);
+
+  // Phase F self-instrumentation: emit videos-classified event.
+  const { logDecision } = require('./_log-helper.cjs');
+  logDecision(d, '1e', 'videos-classified', {
+    totalUrls: results.length,
+    variantA: counts.A,
+    variantB: counts.B,
+    variantC: counts.C,
+    variantD: counts.D,
+  });
+
   process.exit(0);
 }
 

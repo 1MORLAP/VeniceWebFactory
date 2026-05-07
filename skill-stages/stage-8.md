@@ -119,7 +119,34 @@ Propagation is usually 1-3 seconds after the CLI command succeeds.
 
 This relies on the project being correctly scoped to `tomek-group` already (Step 1 or 2 above). If the project landed in the personal account, this command targets the wrong project and fails silently.
 
-#### Stage 8a: Automated QA Gate (MANDATORY — BLOCKS deploy)
+#### Stage 8a: Automated QA Gates (MANDATORY — BLOCK deploy)
+
+Stage 8a runs TWO mandatory gates back-to-back. Both must pass before Stage 8b deploys to Vercel.
+
+**Gate 1 — Pre-deploy event audit** (added 2026-05-06 as Phase F.2 chokepoint):
+
+```bash
+cd /Users/tomasz/WebFactory
+node scripts/validate-pre-deploy.cjs $DOMAIN
+```
+
+This is the structural fix for the recurring "orchestrator silently skips QA stages" failure mode. It scans `jobs/{domain}/orchestration.log` and verifies that every Phase F-instrumented script emitted its pass-event for THIS build:
+
+- `0/build-started` (init-metrics.cjs ran)
+- `1d/images-classified` (classify-images.cjs ran)
+- `2/validate-design-brief-pass` (Stage 2 brief gate passed)
+- `2.5b/validate-specs-pass` (Stage 2.5b gate passed)
+- `2.5c/validate-image-pool-pass` (Stage 2.5c chrome gate passed)
+- `4c-bis/visual-pass-verdict` for option=a (Stage 4c-bis visual pass)
+- `6c/visual-pass-verdict` for option=b (Stage 6c visual pass)
+- `7d/validate-stage7-plugin-pass` (Stage 7d plugin gate; auto-skipped if option-c absent)
+- `7g/visual-pass-verdict` for option=c (auto-skipped if option-c absent)
+
+Exit 2 = required event missing = deploy MUST be blocked. Re-run the missing stage so its script emits the event, then re-run this gate. `--allow-missing-events` is the documented escape hatch for genuinely-emergency scenarios — use sparingly because it bypasses the entire QA chain.
+
+**This gate exists because shipping QA-skipped builds keeps happening.** The 2026-05-06 idahoequinehospital test build deployed all three options without ever running qa-check.js, the visual sanity passes, the dramatic-improvement audit, or the validate-* hard gates — the orchestrator silently skipped them and the documented "MUST run" prose alone wasn't enough. Phase F's solution: scripts self-instrument when they run, and this gate fails the deploy if the events are absent.
+
+**Gate 2 — Headless QA pre-deploy check** (the original Stage 8a):
 
 Before deploying, run the automated QA gate against local dev servers. This is a fast, exit-code-based check that fails the pipeline if ANY of these are detected: logo is low-res (<100px natural width OR naturalWidth < 1.5× displayed width = will appear blurry on retina), broken images, literal `\uXXXX` escapes rendered as visible text, missing nav/footer/h1, console errors, or failed network requests. It catches the class of bugs that slip past manifest-level grep checks and casual visual skim.
 

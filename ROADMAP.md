@@ -150,6 +150,37 @@ Shipped this wave:
 - `scripts/audit-cross-build.cjs` — aggregate report across all builds. Smoke-tested: 24% of Option C builds show plugin-bypass fingerprint, median chrome ratio 34% across 57 builds.
 - `register-with-store.mjs` self-instruments storefront-registered events.
 
+### Wave 5 — Self-instrumenting scripts + pre-deploy chokepoint gate (2026-05-06)
+
+The 2026-05-06 idahoequinehospital end-to-end test exposed a structural gap: prose-based instrumentation (the dozens of "the orchestrator MUST emit log-decision here" calls Phase 2 scattered across SKILL.md and skill-stages/) is fragile. The orchestrator follows ~30% of those calls and silently drops the rest, especially through QA-heavy stages (4, 6, 7g). The build deployed all three options without ever running `qa-check.js`, the visual sanity passes, the dramatic-improvement audit, or any of the validate-* hard gates we'd shipped over the previous two days.
+
+The structural fix:
+
+**Phase F.1 — Self-instrumenting scripts.** Every helper script imports `scripts/_log-helper.cjs` and emits its own log-decision event on success. The orchestrator can't skip what the script does itself.
+
+Files modified to self-emit:
+- `init-metrics.cjs` → `0/build-started`
+- `configure-model.cjs` → `0/cost-tier-configured`
+- `smart-resume.cjs` → `0/smart-resume-report`
+- `classify-images.cjs` → `1d/images-classified` (with full counts)
+- `inspect-splash.cjs` → `1e/videos-classified` (even when 0 videos found)
+- `validate-specs.cjs` → `2.5b/validate-specs-pass`
+- `validate-image-pool.cjs` → `2.5c/validate-image-pool-pass`
+- `validate-design-brief.cjs` → `2/validate-design-brief-pass`
+- `validate-stage7-plugin.cjs` → `7d/validate-stage7-plugin-pass`
+- `validate-visual-pass.cjs` → `4c-bis|6c|7g/visual-pass-verdict` (stage from --option arg)
+- `record-deploy-url.cjs` → `8b/deploy-recorded`
+- `finalize-metrics.cjs` → `10/finalize-metrics-complete`
+- `register-with-store.mjs` (already self-instrumented since Phase E) → `10c/storefront-registered`
+
+**Phase F.2 — Pre-deploy chokepoint gate.** `scripts/validate-pre-deploy.cjs` reads `jobs/{domain}/orchestration.log` and HARD-FAILS if any required pass-event is missing. This is the structural enforcement that prevents un-QA'd deploys. Required events: `0/build-started`, `1d/images-classified`, `2/validate-design-brief-pass`, `2.5b/validate-specs-pass`, `2.5c/validate-image-pool-pass`, `4c-bis/visual-pass-verdict (option=a)`, `6c/visual-pass-verdict (option=b)`, `7d/validate-stage7-plugin-pass`, `7g/visual-pass-verdict (option=c)`. Auto-skips Stage 7d/7g requirements when option-c isn't built (--skip-c mode). `--allow-missing-events` is the documented escape hatch.
+
+**Phase F.3 — Stage 8a wiring.** `skill-stages/stage-8.md` now runs `validate-pre-deploy.cjs` as the FIRST gate at Stage 8a, before the existing headless QA. Both must pass before Stage 8b deploys. Documented in SKILL.md ORCHESTRATION LOGGING CONTRACT prose.
+
+Smoke test confirmed: re-running `classify-images.cjs watkinsmonuments.com` immediately added a `1d/images-classified` event to that build's orchestration.log without any orchestrator involvement — the script self-instrumented correctly. `validate-pre-deploy.cjs` correctly identifies idahoequinehospital.com missing 8 of 9 required events and would have blocked that deploy.
+
+The honest meta-finding from the test that prompted Wave 5: shipping architecture without testing doesn't catch the bugs. The user explicitly asked "did you test it?" and the answer was no. Every prior Wave's gates and instrumentation looked correct on paper but weren't actually wired in production. Phase F's self-instrumentation pattern + chokepoint gate makes the architecture self-enforcing — the work either happens (script runs, event lands) or the build is blocked.
+
 ### Where we stand on QA
 - **30+ deterministic checks** in `scripts/qa-check.js` (was ~11 a few weeks ago, ~26 last week)
 - **18-item Visual Sanity Pass** checklist (delegated to Opus sub-agent at Stages 4c-bis / 6c / 7g-h since 2026-05-04 — Tier 2 of context-optimization plan)

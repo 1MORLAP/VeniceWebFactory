@@ -208,4 +208,15 @@ console.log(JSON.stringify({
   summary,
   artifactsFound,
 }, null, 2));
+
+// Phase F self-instrumentation. The job dir might not exist yet on a
+// fresh build (smart-resume is called BEFORE init-metrics in some flows
+// — the orchestrator probes the dir for pre-existing artifacts). Only
+// emit if the job dir exists, so log-decision doesn't quietly create
+// orchestration.log in a directory that's about to be wiped by --full.
+if (fs.existsSync(jobDir)) {
+  const { logDecision } = require('./_log-helper.cjs');
+  logDecision(domain, '0', 'smart-resume-report', { resumeFrom });
+}
+
 process.exit(0);

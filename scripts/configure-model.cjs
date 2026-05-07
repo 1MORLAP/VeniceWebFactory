@@ -229,4 +229,14 @@ for (const [stage, a] of Object.entries(assignment)) {
   const mark = overrides[stage] ? '  *' : '';
   console.log(`  ${stage.padEnd(14)} ${a.model.padEnd(12)} effort=${a.effort.padEnd(11)}${mark}`);
 }
+
+// Phase F self-instrumentation
+const { logDecision } = require('./_log-helper.cjs');
+logDecision(domain, '0', 'cost-tier-configured', {
+  costTier,
+  overrides: Object.keys(overrides).length || 0,
+  orchestratorModel: assignment.orchestrator.model,
+  orchestratorEffort: assignment.orchestrator.effort,
+});
+
 process.exit(0);

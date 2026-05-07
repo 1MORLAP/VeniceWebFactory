@@ -117,6 +117,11 @@ for (const [pageKey, pageEntry] of Object.entries(pool)) {
 
 if (violations.length === 0) {
   console.log(`✓ Image pool clean for ${domain} — every portfolio slot contains content-class images only.`);
+
+  // Phase F self-instrumentation
+  const { logDecision } = require('./_log-helper.cjs');
+  logDecision(domain, '2.5c', 'validate-image-pool-pass', { mode: 'clean' });
+
   process.exit(0);
 }
 

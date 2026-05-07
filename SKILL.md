@@ -118,9 +118,13 @@ Less capable models default to "ask before acting" because that feels safe. But 
 
 The completion contract above replaces the model's instinct to "check in" with explicit positive guidance: "the URL was the check-in. Now do all 10 stages." Stronger models (Opus, Sonnet 4.7+) follow UNATTENDED MODE bullet #4 ("NEVER ask the user questions") implicitly. Weaker models need this section spelled out.
 
-## 📊 ORCHESTRATION LOGGING CONTRACT (added 2026-05-04)
+## 📊 ORCHESTRATION LOGGING CONTRACT (added 2026-05-04, restructured 2026-05-06 — Phase F)
 
 **Every key decision the orchestrator makes MUST be appended to `jobs/{domain}/orchestration.log` via `scripts/log-decision.cjs`.** This is the audit trail that lets the skill-owner cross-check what the skill prescribed vs what actually happened. Pre-2026-05-04, the only post-build evidence was on-disk artifacts (manifest, specs, dist, screenshots) — major decisions like "did Stage 3 go decomposed or monolithic?" or "did Stage 7d invoke the plugin?" were INVISIBLE. The empty-`specs/` survey on 2026-05-04 found 46 of 53 built jobs had silently bypassed decomposed mode for weeks. The instrumentation closes that gap.
+
+**Phase F update (2026-05-06)**: prose-based instrumentation alone is fragile. The 2026-05-06 idahoequinehospital end-to-end test showed orchestrators follow the documented log-decision calls for ~30% of stages and silently drop the rest — particularly through QA-heavy stages (4, 6, 7g) where there are many bash blocks per stage. **The structural fix: scripts self-instrument.** Every helper script (`init-metrics.cjs`, `classify-images.cjs`, `validate-*.cjs`, `record-deploy-url.cjs`, `finalize-metrics.cjs`, `inspect-splash.cjs`, `register-with-store.mjs`, `configure-model.cjs`, `smart-resume.cjs`) now imports `scripts/_log-helper.cjs` and emits its own log-decision event on success. The orchestrator can't skip what the script does itself.
+
+**The Stage 8a chokepoint** (`scripts/validate-pre-deploy.cjs`) reads `orchestration.log` before the deploy and HARD-FAILS if any required pass-event is missing. This is the structural enforcement that prevents un-QA'd deploys — the failure mode the idahoequinehospital test surfaced. Every gate now has a reliable signal that it ran.
 
 **Pattern**:
 ```bash

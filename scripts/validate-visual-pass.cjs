@@ -141,4 +141,17 @@ if (verdict.verdict === 'rebuild') {
 }
 
 console.log(`✓ Visual-pass gate passed for Option ${option.toUpperCase()} — verdict=${verdict.verdict} (${verdict.items_passed}/${verdict.items_checked} items passed, ${verdict.issues.length} issue${verdict.issues.length === 1 ? '' : 's'} flagged).`);
+
+// Phase F self-instrumentation. Stage maps from option:
+//   a → 4c-bis, b → 6c, c → 7g
+const STAGE_FOR_OPT = { a: '4c-bis', b: '6c', c: '7g' };
+const { logDecision } = require('./_log-helper.cjs');
+logDecision(domain, STAGE_FOR_OPT[option], 'visual-pass-verdict', {
+  option,
+  verdict: verdict.verdict,
+  items_passed: verdict.items_passed,
+  items_checked: verdict.items_checked,
+  issues: (verdict.issues || []).length,
+});
+
 process.exit(0);

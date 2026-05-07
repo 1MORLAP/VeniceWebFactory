@@ -260,4 +260,21 @@ if (counts.content === 0 && totalImages > 0) {
   console.error(`  Builds will have empty image pools. Inspect ${reportPath}.`);
 }
 
+// Phase F self-instrumentation: emit images-classified event regardless of
+// whether the orchestrator's prose remembers to do so. Lets audit-orchestration
+// see Stage 1d ran even when the orchestrator drops the explicit log call.
+const { logDecision } = require('./_log-helper.cjs');
+const contentPct = totalImages > 0 ? Math.round((counts.content / totalImages) * 100) : 0;
+logDecision(domain, '1d', 'images-classified', {
+  total: totalImages,
+  content: counts.content,
+  contentPct,
+  navButton: counts['nav-button'],
+  banner: counts.banner,
+  line: counts.line,
+  spacer: counts.spacer,
+  tracking: counts.tracking,
+  tiny: counts.tiny,
+});
+
 process.exit(0);
