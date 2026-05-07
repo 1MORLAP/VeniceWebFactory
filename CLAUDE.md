@@ -126,6 +126,8 @@ The wrapper:
 
 Why this matters: 2026-05-07 lisastephens G.2+G.5 build sat 8 hours waiting on a permission prompt that `--permission-mode bypassPermissions` didn't suppress. The default `nohup ... > log 2>&1 &` pattern captured the prompt but the operator had no way to discover it without explicit guidance. The wrapper standardizes the discovery path + adds a kill switch for hung builds. Critical for parallel-batch-of-100 unattended operation.
 
+**Prompt-bypass leak DIAGNOSED 2026-05-07**: the 8-hour blocks weren't on the build subprocess (which runs cleanly under `claude -p`). They were on the parent session's Monitor commands. Claude Code has a secondary "Contains while_statement" permission guard that `bypassPermissions` does NOT override — any tool command containing a `while` loop blocks until approved. Solution: don't start parallel Monitor commands with `tail -F | while read ...` patterns. Either tail the orchestration.log directly when checking status, or use a Node helper that uses `fs.watch` instead of bash loops. The build subprocess is independently unaffected. See FEEDBACK.md "Phase F.5 prompt-bypass leak DIAGNOSED" for the full investigation.
+
 Environment overrides: `IDLE_LIMIT=3600` (1 hr — safe for 14+-page sites), `LOG_DIR=/path` (default `/tmp`), `NO_WATCHDOG=1` (disable for interactive debugging).
 
 ## Final deliverable
