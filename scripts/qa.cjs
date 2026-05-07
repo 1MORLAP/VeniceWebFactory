@@ -2,9 +2,32 @@
 /**
  * WebFactory QA Script — Headless Visual QA
  *
- * Takes screenshots at desktop/tablet/mobile viewports,
- * checks console errors, failed network requests, and broken images.
- * Runs entirely headless (no visible browser window).
+ * Takes screenshots at FOUR viewports (mobile-first ordering), checks
+ * console errors, failed network requests, and broken images. Runs entirely
+ * headless (no visible browser window).
+ *
+ * Viewports (mobile FIRST in scan order — primary conversion target for SMB
+ * customers; the existing mobile-first design rule is unchanged):
+ *
+ *   mobile       390 × 844    iPhone 14 — base CSS, no Tailwind prefix.
+ *                             Sticky-CTA, hamburger, 44px taps, body ≥16px,
+ *                             no horizontal overflow. DEPLOY-BLOCKER.
+ *   ipad         1024 × 1366  iPad portrait — at md/lg Tailwind breakpoint
+ *                             boundary. Catches hamburger logic that breaks
+ *                             at 1024, cards that squish at the lg trigger,
+ *                             nav clipping. Added 2026-05-07 as Phase O.
+ *   desktop      1440 × 900   Standard desktop — hero feels intentional,
+ *                             content respects max-width caps. DEPLOY-BLOCKER.
+ *   desktop-wide 1920 × 1080  FHD monitors / decision-maker viewing. Catches
+ *                             hero photo lost in side gutters, max-width
+ *                             container too tight for the viewport, type
+ *                             scale that looks cramped at FHD. Added
+ *                             2026-05-07 as Phase O.
+ *
+ * Mobile + desktop are deploy-blockers (FAIL). iPad + desktop-wide are
+ * coverage upgrades — same rules run, same severity tags emerge per the
+ * rule's natural severity. After 5-10 builds we measure false-positive
+ * rate and tune (see Phase O notes in SKILL.md MOBILE-FIRST DESIGN rule).
  *
  * Usage:
  *   node scripts/qa.js <base-url> <output-dir> [page-path-1] [page-path-2] ...
@@ -16,19 +39,26 @@
  * If no page paths are given, auto-discovers pages from nav links on homepage.
  *
  * Output:
- *   {output-dir}/desktop-{page}.png    — 1440x900 screenshots
- *   {output-dir}/mobile-{page}.png     — 375x812 screenshots
- *   {output-dir}/report.json           — structured QA report
+ *   {output-dir}/mobile-{page}.png        — 390×844 screenshots
+ *   {output-dir}/ipad-{page}.png          — 1024×1366 screenshots
+ *   {output-dir}/desktop-{page}.png       — 1440×900 screenshots
+ *   {output-dir}/desktop-wide-{page}.png  — 1920×1080 screenshots
+ *   {output-dir}/report.json              — structured QA report (per-viewport)
  */
 
 const { chromium } = require('playwright');
 const path = require('path');
 const fs = require('fs');
 
-const VIEWPORTS = {
-  desktop: { width: 1440, height: 900 },
-  mobile: { width: 375, height: 812 },
-};
+// Mobile FIRST — primary conversion target. iPad next (md/lg boundary edge case).
+// Desktop next (standard). Desktop-wide last (FHD viewing). Tablet bug-zone
+// in the middle, mobile + desktop pinned at the ends.
+const VIEWPORTS = [
+  { name: 'mobile',       width: 390,  height: 844  },  // iPhone 14
+  { name: 'ipad',         width: 1024, height: 1366 },  // iPad portrait
+  { name: 'desktop',      width: 1440, height: 900  },  // Standard desktop
+  { name: 'desktop-wide', width: 1920, height: 1080 },  // FHD monitor
+];
 
 async function discoverPages(page, baseUrl) {
   await page.goto(baseUrl, { waitUntil: 'networkidle', timeout: 15000 });
@@ -108,46 +138,36 @@ async function qaPage(page, baseUrl, pagePath, outputDir) {
       result.error = `HTTP ${response?.status() || 'no response'}`;
     }
 
-    // Desktop screenshot
-    await page.setViewportSize(VIEWPORTS.desktop);
-    await page.waitForTimeout(500); // Let animations settle
-    // Trigger any scroll-based reveal animations (IntersectionObserver fade-up)
-    await page.evaluate(async () => {
-      const dist = document.body.scrollHeight;
-      const step = 400;
-      for (let y = 0; y < dist; y += step) {
-        window.scrollTo(0, y);
-        await new Promise(r => setTimeout(r, 80));
-      }
-      window.scrollTo(0, 0);
-      // Force any remaining fade-up elements visible as a safety net
-      document.querySelectorAll('.fade-up, .stagger').forEach(el => el.classList.add('visible'));
-      await new Promise(r => setTimeout(r, 400));
-    });
-    const desktopPath = path.join(outputDir, `desktop-${slug}.png`);
-    await page.screenshot({ path: desktopPath, fullPage: true });
-    result.screenshots.desktop = desktopPath;
+    // Iterate all viewports — mobile first (primary conversion target),
+    // then iPad (md/lg edge case), then desktop (standard), then desktop-wide
+    // (FHD). Per Phase O (2026-05-07) the four-viewport scan replaced the
+    // pre-Phase-O two-viewport scan (desktop + mobile). Mobile-first order
+    // means mobile screenshots are produced first; downstream visual-pass
+    // sub-agents read in this order.
+    for (const viewport of VIEWPORTS) {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      await page.waitForTimeout(500); // Let animations settle
+      // Trigger any scroll-based reveal animations (IntersectionObserver fade-up)
+      await page.evaluate(async () => {
+        const dist = document.body.scrollHeight;
+        const step = 400;
+        for (let y = 0; y < dist; y += step) {
+          window.scrollTo(0, y);
+          await new Promise(r => setTimeout(r, 80));
+        }
+        window.scrollTo(0, 0);
+        // Force any remaining fade-up elements visible as a safety net
+        document.querySelectorAll('.fade-up, .stagger').forEach(el => el.classList.add('visible'));
+        await new Promise(r => setTimeout(r, 400));
+      });
+      const screenshotPath = path.join(outputDir, `${viewport.name}-${slug}.png`);
+      await page.screenshot({ path: screenshotPath, fullPage: true });
+      result.screenshots[viewport.name] = screenshotPath;
+    }
 
-    // Mobile screenshot
-    await page.setViewportSize(VIEWPORTS.mobile);
-    await page.waitForTimeout(500);
-    await page.evaluate(async () => {
-      const dist = document.body.scrollHeight;
-      const step = 400;
-      for (let y = 0; y < dist; y += step) {
-        window.scrollTo(0, y);
-        await new Promise(r => setTimeout(r, 80));
-      }
-      window.scrollTo(0, 0);
-      document.querySelectorAll('.fade-up, .stagger').forEach(el => el.classList.add('visible'));
-      await new Promise(r => setTimeout(r, 400));
-    });
-    const mobilePath = path.join(outputDir, `mobile-${slug}.png`);
-    await page.screenshot({ path: mobilePath, fullPage: true });
-    result.screenshots.mobile = mobilePath;
-
-    // Reset to desktop
-    await page.setViewportSize(VIEWPORTS.desktop);
+    // Reset to mobile (the primary viewport — leaves the page in mobile-state
+    // for any downstream tooling that reads document state)
+    await page.setViewportSize({ width: VIEWPORTS[0].width, height: VIEWPORTS[0].height });
 
   } catch (err) {
     result.status = 'error';

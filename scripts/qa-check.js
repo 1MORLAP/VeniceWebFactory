@@ -789,14 +789,29 @@ function runFactGroundingCheck(visibleText) {
   return issues;
 }
 
-// ---- Viewports (mobile is first-class — half the audience) ----
-// Every check runs at BOTH viewports. Some bugs only manifest at mobile
-// (text overflow, broken hamburger nav, image stretching, hero text
-// disappearing into a tall photo). Some bugs only manifest at desktop
-// (wide layouts, multi-column grids breaking). Running both catches both.
+// ---- Viewports (FOUR-viewport scan, mobile FIRST since 2026-05-07 Phase O) ----
+//
+// Every check runs at every viewport. Per-viewport rules (mobile-overflow,
+// tap-target, sticky-CTA-recommended, body-min-16px) are scoped via
+// `viewport.name === 'mobile'` inside the rule body — they only fire at
+// mobile, regardless of how many viewports are in the array.
+//
+// Mobile (390 × 844) is first-class — primary conversion target for SMB
+// customers, deploy-blocker. iPad (1024 × 1366) catches the md/lg Tailwind
+// breakpoint edge case (hamburger logic, card squish, nav clipping) where
+// designs commonly fall over because workers tested at 390 + 1440 only.
+// Desktop (1440 × 900) is the standard checkpoint, also a deploy-blocker.
+// Desktop-wide (1920 × 1080) catches FHD-monitor failure modes (hero lost
+// in side gutters, max-width too tight, type scale cramped).
+//
+// Mobile-first order means mobile is scanned first. The visual-pass sub-
+// agent reads screenshots in this order; mobile-only failures surface
+// before the larger viewports' issues, reinforcing mobile's primacy.
 const VIEWPORTS = [
-  { name: 'desktop', width: 1440, height: 900 },
-  { name: 'mobile',  width: 390,  height: 844 },  // iPhone 14
+  { name: 'mobile',       width: 390,  height: 844  },  // iPhone 14
+  { name: 'ipad',         width: 1024, height: 1366 },  // iPad portrait — md/lg edge case
+  { name: 'desktop',      width: 1440, height: 900  },  // Standard desktop
+  { name: 'desktop-wide', width: 1920, height: 1080 },  // FHD monitor
 ];
 
 async function main() {
@@ -3286,9 +3301,22 @@ function rgbToHexFromComputed(rgb) {
       console.log(`  logo (mobile):  natural=${mobileR.logo.naturalW}x${mobileR.logo.naturalH}, displayed=${mobileR.logo.displayedW}x${mobileR.logo.displayedH}`);
     }
 
-    // Dedupe: same check + same msg at both viewports = one entry tagged "[both]"
+    // Dedupe: same check + same msg at multiple viewports = one entry tagged
+    // with the set of viewports it fired at. Phase O (2026-05-07) extended
+    // from 2 → 4 viewports, so the tag taxonomy expanded:
+    //   [all]                          — fired at all 4 viewports (worst case)
+    //   [mobile-only]                  — mobile-specific bug (overflow, tap target)
+    //   [ipad-only]                    — md/lg breakpoint bug
+    //   [desktop-only]                 — desktop-specific layout bug
+    //   [desktop-wide-only]            — FHD-specific bug
+    //   [mobile+ipad]                  — non-desktop coverage gap (likely shared logic)
+    //   [desktop+desktop-wide]         — wide-screen-only issue
+    //   [mobile+ipad+desktop]          — fixed at desktop-wide (rare)
+    //   ...etc — the tag is the literal viewport set joined by '+'
+    // VIEWPORT_NAMES kept in mobile-first scan order so tags read consistently.
+    const VIEWPORT_NAMES = VIEWPORTS.map(v => v.name);
     const issueMap = new Map(); // key: check::msg → { issue, viewports: Set }
-    for (const v of ['desktop', 'mobile']) {
+    for (const v of VIEWPORT_NAMES) {
       const r = byPath[path][v];
       if (!r) continue;
       for (const i of r.issues) {
@@ -3302,11 +3330,22 @@ function rgbToHexFromComputed(rgb) {
     }
 
     if (issueMap.size === 0) {
-      console.log('  ✓ PASS (both viewports)');
+      console.log(`  ✓ PASS (all ${VIEWPORT_NAMES.length} viewports)`);
     } else {
       for (const { issue, viewports } of issueMap.values()) {
         const mark = issue.severity === 'fail' ? '✗' : '⚠';
-        const tag = viewports.size === 2 ? '[both]' : `[${[...viewports][0]}-only]`;
+        // Tag: [all] if hit at every viewport, otherwise sorted-by-scan-order
+        // viewport list. e.g. [mobile+ipad], [desktop-only], [ipad+desktop].
+        let tag;
+        if (viewports.size === VIEWPORT_NAMES.length) {
+          tag = '[all]';
+        } else if (viewports.size === 1) {
+          tag = `[${[...viewports][0]}-only]`;
+        } else {
+          // Preserve mobile-first scan order in the tag
+          const ordered = VIEWPORT_NAMES.filter(v => viewports.has(v));
+          tag = `[${ordered.join('+')}]`;
+        }
         console.log(`  ${mark} ${tag} [${issue.check}] ${issue.msg}`);
         if (issue.severity === 'fail') failCount++;
         if (issue.severity === 'warn') warnCount++;

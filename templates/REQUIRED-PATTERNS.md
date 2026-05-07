@@ -21,7 +21,7 @@ If you can't tell whether you're satisfying a rule, READ this file. If a rule co
 
 ## 2. Mobile-first design
 
-QA runs at BOTH 1440×900 desktop AND 390×844 mobile. Mobile is not an afterthought.
+QA runs at FOUR viewports since Phase O (2026-05-07): mobile 390×844 (FIRST in scan order — primary conversion target, deploy-blocker), iPad 1024×1366 (md/lg breakpoint edge case), desktop 1440×900 (deploy-blocker), desktop-wide 1920×1080 (FHD viewing). Mobile is not an afterthought — it's the primary design target. The two new viewports (iPad + desktop-wide) are coverage upgrades that catch tablet-portrait and FHD-monitor bugs that previously slipped through; mobile-specific rules below (overflow at 390, ≥44px tap targets, ≥16px body, sticky-CTA) stay scoped to mobile only.
 
 | Rule | What MUST hold | qa-check |
 |---|---|---|

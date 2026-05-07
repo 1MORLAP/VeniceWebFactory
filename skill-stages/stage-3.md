@@ -128,7 +128,7 @@ Key design rules:
 
 **More than half of small-business site traffic is mobile. Mobile is not the "responsive afterthought" — it is the primary design target.** Every component, every page, every interaction must be designed mobile-first and scaled UP to desktop, not the reverse.
 
-**Hard rules** (qa-check.js enforces the programmatic ones at both 1440×900 and 390×844 viewports):
+**Hard rules** (qa-check.js enforces the programmatic ones at FOUR viewports since Phase O 2026-05-07: mobile 390×844 — primary, deploy-blocker; iPad 1024×1366 — md/lg edge case; desktop 1440×900 — deploy-blocker; desktop-wide 1920×1080 — FHD viewing. Mobile-specific rules listed below stay scoped to mobile only):
 
 1. **Mobile-first CSS**: write the base styles for the 390px viewport. Use Tailwind responsive prefixes (`md:`, `lg:`) to scale UP, not down. Default classes apply to mobile; `md:` and `lg:` classes are progressive enhancements for wider screens.
 
