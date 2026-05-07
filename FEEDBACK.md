@@ -14,6 +14,33 @@ Permanent log of user feedback and the skill improvements made in response. Ever
 
 ---
 
+## 2026-05-06 — Phase G.1 (parallelize Stage 2.5): descriptive vs imperative prose
+
+**Feedback** (from skill iteration): G.1 split Stage 2.5 into Phase A (1 sub-agent, writes _shared.md + _image-pools.json) + Phase B (N parallel sub-agents, one per page). Architecture is correct. End-to-end test on arkansaswell.com: per-page specs landed SEQUENTIALLY 2-3 min apart over 14 min (home.md 22:38, about_us.md 22:40, services.md 22:43, links.md 22:45, contact.md 22:48). Total Stage 2.5 time **18m34s vs 7m25s monolithic baseline** — G.1 made the build **2.5× slower**. The orchestrator self-reported `dispatcher=sub-agent-parallel, phaseB=5` while writing specs one at a time. Stage 3, 5, 7d-build on the same build all dispatched parallel correctly (multiple events at identical second-level timestamps). The regression was specific to G.1's Phase 2.5b prose.
+
+**Root cause**: G.1's prose used DESCRIPTIVE wording placed BEFORE the prompt template:
+> "the orchestrator emits N parallel `Agent` calls in a single message (per the standard parallel-dispatch idiom used at Stage 3 / 5 / 7d-build)."
+
+The orchestrator parsed this as flavor text / context-setting, not as a directive. Stage 3's working pattern (SKILL.md:501) uses IMPERATIVE wording placed AFTER the prompt template:
+> "Spawn all N agents in a SINGLE message with multiple `Agent` tool uses (parallel execution). Wall-clock for the whole batch is dominated by the slowest single page-build (~50-65 sec) regardless of N."
+
+This pattern empirically works for Stage 3, 5, 7d-build, and 4 fix-loop. The descriptive variant doesn't.
+
+**SKILL.md change**: `skill-stages/stage-2.md` Phase 2.5b dispatch prose rewritten to mirror Stage 3 verbatim:
+- Removed the descriptive paragraph that came BEFORE the prompt template
+- Added imperative paragraph AFTER the prompt template: "**Spawn all N spec-author sub-agents in a SINGLE message with multiple `Agent` tool uses (parallel execution)** — same idiom as Stage 3 / 5 / 7d-build per-page dispatch. **Wall-clock for the whole batch is dominated by the slowest single spec-author (~2-3 min), regardless of N.**"
+- Documented the real-bug call-out with arkansaswell.com test data so future contributors understand why the wording matters
+
+**General principle for parallel-dispatch prose**: instructional imperative paragraph placed AFTER the prompt template, citing wallclock characteristic. Descriptive context-setting BEFORE the prompt is parsed as flavor by Opus 4.7 1M orchestrators.
+
+**Cost note**: G.1's win was always wall-clock (parallel dispatch), not cost. Per-call Opus token usage is ~the same whether 5 specs are written sequentially in one large Agent call (monolithic) or in parallel across 5 separate Agent calls. The 2.5× wallclock penalty under sequential dispatch is direct (sum vs max).
+
+**Files modified**: skill-stages/stage-2.md (commits aa87979 + 43ca303), FEEDBACK.md
+
+**Deferred to verify**: G.1 fix tested on a fresh lisastephens build kicked off 2026-05-06 23:40; Stage 2.5 should now complete in ~6 min total (~3 min Phase 2.5a + ~3 min Phase 2.5b parallel) if the imperative wording fixes the dispatch.
+
+---
+
 ## 2026-04-16 — V1.5 Ship: Stack Unification (Option A + Option B both on Astro 5 + Tailwind v4)
 **Feedback**: Conversation with the user about why Option B was pure HTML + Tailwind CDN. User asked: "why Option B is not Astro 5, why just Pure HTML? I do not know the pros and cons of Astro and Tailwind. Knowing what you know what should we be using for option A and Option B? I want to build efficiently and beautifully." After architectural review, user asked to "Ship V2.2 Changes now, call it V 1.5".
 **Root cause**: V1 Option B was originally pure static HTML + Tailwind CDN as a shortcut during early Stitch integration — Stitch outputs HTML, so HTML-out was the path of least resistance. But this meant Option B (pitched as the "conversion-optimized" version) actually shipped a worse product than Option A: 10–20× larger CSS bundle, no image optimization, duplicated nav/footer across every page, manual parallel `/es/*.html` files, worse Lighthouse scores. Stack asymmetry was a design bug, not a trade-off.
