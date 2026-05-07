@@ -187,12 +187,16 @@ Note: there is **NO Sonnet 4.7** — only 4.6. Both Opus 4.7 and Sonnet 4.6 defa
 
 Pick ONE preset at Stage 0 via `node scripts/configure-model.cjs $DOMAIN --cost-tier=<preset>`. Per-stage overrides allowed for fine control. **Haiku is reserved for LOW-quality-risk stages only** (multilingual translation, report formatting, scaffold) per user direction 2026-05-05 — never for per-page builds, fix-loops, brief, specs, or visual passes.
 
-**Default flipped from `baseline` to `balanced` 2026-05-07 (Phase K)**: cost-audit data showed Opus accounted for ~70% of build cost with Sonnet handling per-page volume. The validate-design-brief / validate-specs / validate-image-pool / validate-visual-pass gates + the Opus 4c-tris audit collectively enforce design quality regardless of which model runs the synthesis stages, so dropping brief/specs/visual-pass to Sonnet is a controlled ~30% cost reduction. Pass `--cost-tier=baseline` (or `--ab=baseline` for an A/B variant) to restore the pre-K behavior.
+**Phase K REVERTED 2026-05-07** — default is back to `baseline`. Phase K originally flipped the default from `baseline` to `balanced` (commit 505d1ed) for ~26% cost cut, empirically confirmed via johnsepticservice.com A/B test (balanced $3.99 vs baseline $5.38). User reviewed the deployed balanced build and called it "not acceptable" — visible design-quality drop even though validate-* gates passed. **Sonnet on brief / specs / visual-pass produces design synthesis below the quality bar.** The validate-* gates enforce a FLOOR (no fact-grounding errors, no chrome leaks, etc.) — they don't enforce a CEILING (taste, coherence, dramatic improvement). Gate-pass ≠ quality-bar-pass.
+
+The `balanced` preset still exists for opt-in experimentation (`--cost-tier=balanced` OR `--ab=balanced` for A/B builds) but is NOT the default. Current default requires Opus on synthesis-heavy stages.
+
+**Lesson captured**: cost-tier default flips MUST run a human-eyes-on quality A/B BEFORE flipping production. Audit numbers and gate-pass status don't capture design-grade quality. Always require visual review.
 
 | Preset | Brief / Specs | Per-page | Visual pass | 4c-tris | Orchestrator | Multilingual / Scaffold / Report | Cost vs baseline | Quality risk |
 |---|---|---|---|---|---|---|---|---|
-| `baseline` | **Opus 4.7 1M** (high effort) | Sonnet 4.6 (low) | Opus (medium) | Opus (high) | Opus 4.7 1M (max) | Sonnet (low) | 1.0× | Lowest |
-| `balanced` (**default since Phase K, 2026-05-07**) | **Sonnet 4.6** (high) | Sonnet (low) | **Sonnet** (medium) | Opus (high) | Opus 4.7 1M (high) | Sonnet (low) | ~0.7× (~30% cut) | Low — gates protect (validate-design-brief / specs / image-pool / visual-pass / 4c-tris stays Opus) |
+| `baseline` (**default since Phase K rollback, 2026-05-07**) | **Opus 4.7 1M** (high effort) | Sonnet 4.6 (low) | Opus (medium) | Opus (high) | Opus 4.7 1M (max) | Sonnet (low) | 1.0× | Lowest |
+| `balanced` (Phase K, NOT default — opt-in only after manual quality review) | **Sonnet 4.6** (high) | Sonnet (low) | **Sonnet** (medium) | Opus (high) | Opus 4.7 1M (high) | Sonnet (low) | ~0.74× (~26% cut empirical) | **Confirmed below quality bar 2026-05-07 on johnsepticservice.com** — gates pass, but visible design drop. Use only for non-customer-facing experimentation. |
 | `aggressive` | Sonnet (high) | Sonnet (low) | Sonnet (medium) | Opus (high) | **Sonnet** (high) | **Haiku 4.5** (low) | ~0.55× (~45% cut) | Medium — Sonnet orchestrator is the unproven dial; Haiku stays out of medium-risk stages |
 | `opus-everywhere` | Opus 1M (max) | **Opus** (medium) | Opus (high) | Opus (max) | Opus 1M (max) | Opus (medium) | ~3× | Highest / showcase only |
 

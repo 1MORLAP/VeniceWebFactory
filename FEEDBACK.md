@@ -14,6 +14,45 @@ Permanent log of user feedback and the skill improvements made in response. Ever
 
 ---
 
+## 2026-05-07 — Phase K REVERTED: balanced preset visibly below quality bar (gates passed)
+
+**Trigger**: After flipping default cost-tier from `baseline` to `balanced` (Phase K, commit 505d1ed) and running an A/B test on johnsepticservice.com (balanced via default + baseline via `--ab=baseline`), the user reviewed both deployed builds and concluded **balanced "looks terrible, not acceptable."** Cost data was favorable: balanced $3.99 vs baseline $5.38 = ~26% cheaper, matching the projected savings. But the quality drop was visible enough to overrule the cost win.
+
+**What changed in balanced vs baseline**:
+- Brief generation: Opus 4.7 1M (high) → Sonnet 4.6 (high)
+- Specs generation: Opus 4.7 1M (high) → Sonnet 4.6 (high)
+- Visual passes 4c-bis / 6c / 7g: Opus (medium) → Sonnet (medium)
+- Orchestrator effort: max → high
+- (Per-page workers, 4c-tris, multilingual / scaffold / report: unchanged)
+
+**What this means**: Sonnet on synthesis-heavy stages (brief, specs, visual-pass) produces design output below the quality bar even though every gate (`validate-design-brief` 70% richness, `validate-specs` fact-grounding, `validate-image-pool` chrome-leak, `validate-visual-pass` verdict structure) passed. **The gates enforce a FLOOR, not a CEILING.** Gate-pass means "no fabrication-grade errors" but does NOT mean "design quality matches Opus output."
+
+**Specific quality observations** (from earlier in session, screenshots reviewed at iPad + desktop viewports):
+- Balanced Option A: announcement bar text cut off at viewport edge ("4TH" became "H"), logo overlapping announcement bar (z-index/stacking), accidental cream gap between nav and hero, CTA button extending into right edge at 1920+ desktop
+- Balanced Option C: nav rendering twice (sticky-on-scroll variant + static both rendering at iPad-width)
+- Sonnet visual-pass verdict was `pass` 18/18 on every option — it didn't catch any of these
+
+**Action taken (commit pending)**:
+- Reverted default in scripts/configure-model.cjs from `balanced` back to `baseline`
+- Updated SKILL.md cost-tier table to mark balanced as "below quality bar — opt-in only"
+- The `balanced` preset still exists for non-customer-facing experimentation
+
+**Lesson captured (general principle)**: cost-tier default flips MUST run a human-eyes-on quality A/B BEFORE flipping production. Audit-cost numbers and gate-pass status don't capture design-grade quality. The validate-* gates were designed to catch fabrication-class regressions (made-up facts, chrome in portfolios, missing nav, etc.), not to enforce design taste. Treating gate-pass as a quality proxy was the planning error.
+
+**Open question**: which stage(s) specifically caused the visible quality drop? Most likely candidates ranked by suspected weight:
+1. **Specs on Sonnet** — spec quality determines all downstream worker output. Weakest spec → weakest pages.
+2. **Brief on Sonnet** — design synthesis foundation. Weak brief → weak specs.
+3. **Visual passes on Sonnet** — didn't CAUSE the bugs; FAILED to catch them.
+4. **Orchestrator effort drop** (max → high) — might affect dispatch quality but unlikely the dominant cause.
+
+A future Phase K-narrow experiment could try Sonnet on visual-pass only (where the cost-quality tradeoff is most favorable) while keeping Opus on brief + specs. Defer until: (a) we have new qa-check rules covering the iPad / overlap / edge-overflow gaps so a future test can isolate which stage's drop caused which class of bug, AND (b) the operator commits to a careful 5-customer A/B with manual visual review on each.
+
+**Files modified (revert commit pending)**: scripts/configure-model.cjs (default tier), SKILL.md (cost-tier table label), FEEDBACK.md (this entry).
+
+**Cost impact of revert**: per-build cost goes back up by ~$1.39 (johnsepticservice scale) → at 100 builds/day, ~+$140/day. Quality is non-negotiable; the revert stands.
+
+---
+
 ## 2026-05-07 — Phase J: Vercel Build CPU Minutes leak ($9.64/day → $120/day at scale)
 
 **Trigger**: User flagged Vercel Pro Plan Usage dashboard showing $33.87 on-demand charges this billing cycle, $9.64 on 2026-05-06 alone — almost entirely "Build CPU Minutes". Asked: investigate cause + ways to avoid by building locally.

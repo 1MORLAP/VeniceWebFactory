@@ -67,14 +67,28 @@ const REPO_ROOT = path.resolve(__dirname, '..');
 
 const args = process.argv.slice(2);
 let domain = null;
-// Phase K (2026-05-07): default flipped from `baseline` to `balanced`. The
-// `balanced` preset runs Sonnet on brief/specs/visual-pass and keeps Opus
-// on 4c-tris (taste call) + orchestrator (decision logic) — ~30% cost cut
-// vs `baseline` with low quality risk because the validate-* gates and
-// the Opus 4c-tris audit catch any drop in synthesis quality. To run
-// the legacy preset: pass `--cost-tier=baseline` explicitly OR
-// `--ab=baseline` for an A/B variant build.
-let costTier = 'balanced';
+// Phase K REVERTED 2026-05-07 — default is back to `baseline`.
+//
+// Phase K originally flipped the default from `baseline` to `balanced`
+// (commit 505d1ed) for ~26% cost cut (empirically confirmed via
+// johnsepticservice.com A/B test: balanced $3.99 vs baseline $5.38).
+// User reviewed the deployed balanced build and called it "not
+// acceptable" — design-quality dropped visibly even though the
+// validate-* gates passed. Sonnet on brief/specs/visual-pass produces
+// design synthesis below the quality bar this customer needs.
+//
+// The `balanced` preset still exists in PRESETS below for opt-in
+// experimentation (`--cost-tier=balanced` or `--ab=balanced` for A/B
+// builds), but it is NOT the default. The current quality bar requires
+// Opus on synthesis-heavy stages (brief, specs, visual passes) +
+// 4c-tris + orchestrator. The validate-* gates enforce a FLOOR not a
+// ceiling — gate-pass != quality-bar-pass.
+//
+// Lesson captured 2026-05-07: cost-tier default flips MUST run a
+// human-eyes-on quality A/B before flipping production. The audit
+// numbers ($3.99 vs $5.38) and gate-pass status DON'T capture
+// design-grade quality. Always require visual review.
+let costTier = 'baseline';
 const overrides = {};
 
 for (const a of args) {
