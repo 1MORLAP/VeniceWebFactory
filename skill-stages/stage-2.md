@@ -283,11 +283,6 @@ test -f jobs/$DOMAIN/specs/_shared.md && test -f jobs/$DOMAIN/specs/_image-pools
 
 ##### Phase 2.5b — Per-page specs (parallel)
 
-For each page in `manifest.pages`, spawn ONE sub-agent in parallel via the
-`Agent` tool. Single bash chain prepares the shared dispatch metadata,
-then the orchestrator emits N parallel `Agent` calls in a single message
-(per the standard parallel-dispatch idiom used at Stage 3 / 5 / 7d-build).
-
 ```bash
 PAGE_SLUGS=$(node -e "
 const m = require('./jobs/$DOMAIN/manifest.json');
@@ -340,6 +335,10 @@ without needing to read other specs.
 
 Reply to the orchestrator with: "Spec written: specs/{SLUG}.md, ~<linecount> lines, used <N> images from pool".
 ```
+
+**Spawn all N spec-author sub-agents in a SINGLE message with multiple `Agent` tool uses (parallel execution)** — same idiom as Stage 3 / 5 / 7d-build per-page dispatch. **Wall-clock for the whole batch is dominated by the slowest single spec-author (~2-3 min), regardless of N.**
+
+If the orchestrator emits the N `Agent` calls across separate turns instead of one batch, dispatch is effectively SEQUENTIAL and Phase 2.5b takes N × 2-3 min instead of max(N) × 2-3 min — wiping out G.1's wall-clock win. Real bug observed 2026-05-06 on arkansaswell.com test build: 5 page specs landed 2-3 min apart over 14 min (sequential) vs the intended ~3 min (parallel). The orchestrator self-reported `dispatcher=sub-agent-parallel` but the file-write timestamps proved sequential. Fix: this section's imperative wording, mirroring Stage 3's "Spawn all N agents in a SINGLE message" pattern that empirically works.
 
 After all N sub-agents return, run BOTH hard gates:
 
