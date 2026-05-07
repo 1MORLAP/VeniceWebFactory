@@ -2047,53 +2047,86 @@ CLI flag changes:
 
 ---
 
-#### REFERO REFERENCES (architectural — applies to Option C, Stage 4c-tris, and visual-pass diversity check ONLY)
+#### REFERO REFERENCES (architectural — local DESIGN.md library, used as INSPIRATION across Stages 2 / 2.5 / 3 / 4c-bis / 4c-tris / 6c / 7d / 7g)
 
-Refero is an MCP-installed semantic search database of UI screens from real shipped products. Available tools: `mcp__refero__refero_search_screens`, `mcp__refero__refero_get_similar_screens`, `mcp__refero__refero_get_screen_content`, `mcp__refero__refero_search_flows`, `mcp__refero__refero_get_flow`. Sub-agents at Stage 7d (plugin invocation), Stage 4c-tris (World-Class Audit), and the visual sanity passes (Stage 4c-bis / 6c / 7g) MAY query it for industry-relevant references. Added 2026-05-05 as Phase E.
+##### THE INSPIRATION VS SPECIFICATION RULE (read this first)
 
-##### When to use
+**Refero-styles entries are INSPIRATION, not SPECIFICATION.** Every DESIGN.md in the library contains exact CSS variables, exact hex colors, exact font families, exact font sizes, exact spacing values, and an "Agent Prompt Guide" with example component prompts. Those tokens belong to OTHER BRANDS (Stripe, Linear, Anthropic, ElevenLabs, Notion, Apple — each with its own market position, brand equity, and visual signature). They are EXAMPLES of what considered design looks like. They are NOT the design system for the WebFactory build.
 
-- **Stage 7d (Option C plugin invocation)** — query 5-10 references in the customer's industry direction, identify 2-3 that match the `industry-tokens.json → direction`, incorporate STRUCTURAL ideas (section order, hero composition, spacing rhythm) into C's design.
-- **Stage 4c-tris (World-Class Audit)** — query "industry top 5" as Axis 3 of the audit (alongside Axis 1 = design.md taxonomy, Axis 2 = inspiration library). The audit asks "is A in the same league as the industry top?" — not "does A look like Stripe." Refero is the optional axis; if dataset bias produces only SaaS clones for the customer's industry, abort Axis 3 and audit on Axes 1 + 2 only. Reshaped 2026-05-07 — pre-2026-05-07 the audit had a primary "original-vs-A" axis with Refero as a third comparison; the reshape demoted original-vs-A to context-only and elevated the three world-class reference axes.
-- **Stage 4c-bis / 6c / 7g visual-pass diversity check (item #18)** — pull 2-3 industry-relevant Refero references in addition to (or instead of) hardcoded peer-build PNGs.
+**The customer's `industry-tokens.json` (Option C) or `design-brief.json` (Option A) is the SPECIFICATION.** That file is the source of truth for: palette, typography, spacing scale, ornament, voice. Workers MUST execute against that spec.
 
-##### When NOT to use — the dataset bias caveat
+**What workers extract from refero-styles entries**:
+- ✅ Structural patterns — section order, hero composition, spacing rhythm, content density
+- ✅ Typographic hierarchy moves — display+body weight pairs, optical sizing usage, letter-spacing on caps
+- ✅ Color *roles* — "dominant + sharp accent + neutral surface" as a pattern; the brand's roles (e.g. Anthropic's `Vellum White`, `Ink Black`, `Terra Cotta`) inform HOW to think about palette roles, not which hexes to use
+- ✅ Component vocabulary — kinds of cards, kinds of buttons, kinds of dividers; the **principles** of each component
+- ✅ Do's & Don'ts — anti-pattern bans the brand learned (e.g. "no harsh shadows; subtle borders for depth")
+- ✅ Imagery direction — when photos vs illustrations vs typographic-only
 
-**Refero's dataset skews heavily toward B2B SaaS, fintech, productivity tools, marketplaces, and consumer apps.** WebFactory's customers are predominantly small-business contractors (tree services, monument shops, taxidermists, plumbers, HVAC, landscapers, auto body, dental). Those customers' websites are largely ABSENT from Refero's dataset.
+**What workers MUST NOT extract**:
+- ❌ Exact hex codes (Anthropic's `#faf9f5` is Anthropic's color — not your customer's)
+- ❌ Exact font families (Anthropic Serif and Anthropic Sans are licensed brand fonts)
+- ❌ Exact spacing scale (`8px / 16px / 24px / 32px / 40px / 48px / 64px / 80px / 96px` is Anthropic's rhythm — pick one for the customer based on the brief)
+- ❌ Exact border radii (`9.6px` is Anthropic's radii — not a universal token)
+- ❌ The "Quick Start" `:root { ... }` and Tailwind `@theme { ... }` CSS blocks — those are explicitly the brand's tokens; copying them ships an Anthropic-branded site
+- ❌ The "Agent Prompt Guide" component prompts as written — those would render Anthropic-branded components in a tree-service customer's site
 
-This matters because the failure mode WebFactory has been fighting for months is **editorial drift** — Option A drifting toward Stripe/Linear/Notion aesthetics when the customer is a small-business contractor. Naive Refero integration would AMPLIFY that drift. Hence the explicit don't-use-here list:
+**The recurring failure mode**: a worker reads `anthropic.md`'s "Vellum White on Ink Black, Anthropic Serif at weight 330, 9.6px radii" — feels confident, applies those exact values, ships an Anthropic-clone site for a tree service in Ohio. Refero-styles entries DESCRIBE world-class design well; that doesn't make them USABLE as someone else's spec. Inspiration, not specification.
 
-- **NEVER use Refero in Stage 2 Design Brief for Option A** — A's design must be grounded in the customer's actual brand and industry. Refero references would pull A toward SaaS aesthetics, violating IMAGE REUSE RULE / DESIGN QUALITY BAR / NUMBERED SECTION LABELS RULE.
-- **NEVER use Refero in Stage 3 / 5 / 7d-build per-page renders** — workers translate specs to .astro mechanically. They don't need design references at this layer.
-- **NEVER use Refero for Option B** — B inherits A's design verbatim. Querying Refero for B is meaningless; the design contract is "match A."
+When in doubt: ask "is this the customer's spec or someone else's?" If it's someone else's, extract the principle, then express it in the customer's vocabulary.
 
-##### How to filter
+##### Architecture: local library, no network
 
-When querying Refero for a small-business contractor industry:
+**Pivoted 2026-05-07 from MCP to local library.** Refero is now consumed via the on-disk mirror at `templates/inspiration/refero-styles/` — 1,226 DESIGN.md files (Tailwind v4 `@theme` variant) covering color tokens, typography, spacing, components, do's & don'ts, surfaces, elevation, imagery, layout, and an agent prompt guide per brand. Each file is ~10-15KB; the canonical index at `_index.json` is 1.36MB / ~50K lines. No network, no auth, no API key — the pipeline is fully offline-ready. Originally added 2026-05-05 as Phase E using `mcp__refero__*` tools; the MCP path was retired because (a) network dep on every build creates flake risk for unattended overnight batches, (b) auth + API key make first-time setup heavier, (c) determinism — the same query against the local index always returns the same picks.
 
-1. Start with the most specific query: `"{industry} services landing page"` or `"premium {industry} brand site"`.
-2. Get 5-10 results. Identify the 2-3 most industry-relevant.
-3. **REJECT results from these category prefixes** unless the customer is in that category: AI Tool, SaaS, Productivity, Marketplace, Project Management, Scheduling Tools, Telehealth.
-4. Prefer results from: Home & Decor (for trades-adjacent industries), Health & Wellness (for medical/dental), Travel & Booking (for hospitality), Food & Drink (for restaurants), Finance (for fintech-adjacent customers only).
-5. If ALL top results are SaaS-clone aesthetics, **abort the Refero axis entirely** for this build. Fall back to `templates/inspiration/<directory>/` and the customer's own scraped screenshots. Document the abort in `jobs/{domain}/option-c/build-design-decisions.md` ("Refero references rejected — dataset returned only SaaS aesthetics, used local inspiration directory instead").
+**Pre-selection script**: `scripts/select-refero-styles.cjs` — reads `_index.json` + the customer's industry direction (from `industry-tokens.json` for Option C or `design-brief.json` for Option A), word-boundary keyword-matches against each entry's `northStar`, applies a heavy SaaS penalty (-6 per SaaS phrase hit; +3 per unique industry-keyword hit), and writes a slim `jobs/{domain}/refero-style-priors-{a|c}.json` with up to 5 picks. Sub-agents read the priors file (small, ~5KB) instead of scanning the corpus themselves. Run by orchestrator BEFORE Stages 2 / 2.5 (Option A) and BEFORE Stage 7d (Option C); audit + visual-pass stages re-use whichever priors file exists.
 
-##### What "incorporating" Refero references means
+##### When to use (consumption sites + how)
+
+The `refero-design` SKILL at `~/.claude/skills/refero-design/SKILL.md` + its references (`anti-ai-slop.md`, `craft-details.md`, `typography.md`, `color.md`, `motion.md`, `copywriting.md`, `icons.md`) is **always-safe** to load — it's general taxonomy, not industry-specific. Loaded at every design-time stage as required input.
+
+The `refero-styles/` library (per-brand DESIGN.md inspirations) is **conditionally loaded** via the priors file — only consumed when the selector found industry-relevant picks (priors file non-empty). When it IS loaded, it's strictly inspiration per the rule above.
+
+| Stage | refero-design skill | refero-styles priors | Inspiration use |
+|---|---|---|---|
+| **Stage 2 — Design Brief (Option A)** (Phase N.1, 2026-05-07) | ALWAYS read SKILL.md + anti-ai-slop.md + typography.md + color.md + motion.md as universal anti-slop guard | OPTIONAL — read priors file for industry-relevant inspiration; extract structural patterns + role thinking, never copy tokens | Workers internalize anti-slop bans + draw structural inspiration; emit fresh palette/typography/etc. matching the customer |
+| **Stage 2.5 — Per-page specs** (Phase N.1) | ALWAYS read anti-ai-slop.md so specs explicitly forbid the bans | OPTIONAL — read priors file when available | Specs codify the bans + pull section-pattern ideas |
+| **Stage 3 — Per-page render (Option A)** (Phase N.2, 2026-05-07) | ALWAYS read anti-ai-slop.md + craft-details.md (focus states, form attributes, hit targets) | DO NOT read | Workers execute specs with anti-slop awareness; refero-styles inspiration was already absorbed at Stage 2 |
+| **Stage 4c-bis / 6c / 7g — Visual Sanity Pass** | OPTIONAL — anti-ai-slop.md is helpful for the diversity check | OPTIONAL — diversity check (item #18) uses priors as peer references | Sub-agent reads priors `northStar` + 1-2 full DESIGN.md files as inspiration peers |
+| **Stage 4c-tris — World-Class Audit** | ALWAYS — Axis 1 of the three reference axes | OPTIONAL — Axis 3 of the three reference axes when priors file non-empty | Audit evaluates A against world-class taxonomy + industry inspiration |
+| **Stage 7d — Option C plugin** (Phase E, pivoted 2026-05-07) | Plugin's call | ALWAYS — read refero-style-priors-c.json BEFORE invoking plugin | Plugin draws structural ideas; `industry-tokens.json` remains canonical for tokens |
+| **Stage 5 — Build Option B** | NOT loaded | NOT loaded | B inherits A's design verbatim; no fresh design choices |
+| **Stage 5b — Per-page text rewrite (Option B)** | NOT loaded | NOT loaded | Text rewrite is editorial, not design |
+
+##### How the selector filters
+
+`scripts/select-refero-styles.cjs` builds the keyword set from the customer's industry direction text (auto-derived from `industry-tokens.json → direction` for C, `design-brief.json → business.industry + design.style + design.inspiration` for A) plus an industry-keyword expansion table. Each refero-styles entry's `northStar` is matched word-boundary-only against the keyword set; +3 per unique keyword hit, +2 if `colorScheme` matches, -6 per SaaS-prior phrase hit (heavy — a single SaaS phrase needs 2+ industry hits to survive). Default `--min-score=3` requires at least one direct industry-keyword hit. Picks are written to `jobs/{domain}/refero-style-priors-{a|c}.json` with `score` + `matchedKeywords` for sub-agent inspection.
+
+The selector emits BEST-GUESS candidates from a noisy corpus. Sub-agents are explicitly required to **second-filter** at consumption time — read the `northStar` of each pick, reject obvious SaaS-metaphor matches (e.g., "typographic landscape" matching an outdoor industry's `landscape` keyword without being aesthetically relevant). The selector's job is to find plausible candidates; the sub-agent's job is to confirm relevance.
+
+When second-filtering rejects all picks (or the selector returned 0), gracefully degrade: Stage 7d falls back to `templates/inspiration/<directory>/` only; Stage 4c-tris audit Axis 3 returns `axis_verdicts.refero_industry_top: "skipped-dataset-bias"` or `"unavailable-no-corpus-matches"` and proceeds with Axes 1 + 2; visual-pass diversity check uses peer-build PNGs.
+
+##### What "incorporating" picks means
 
 - **Structure**: section order, hero layout pattern, spacing rhythm, typographic hierarchy, content density. Steal these.
 - **Visual style**: typography choices, color decisions, ornament/decoration. **Do NOT steal these verbatim** — those are industry-specific and would create editorial drift if borrowed across industries. The `industry-tokens.json` file is the canonical source for visual style.
 - **Conversion patterns**: hero CTA placement, social proof patterns, FAQ structure. Useful when industry-relevant.
-- **Reject**: anything that looks like generic SaaS chrome (status pills, dashboardy ornament, control-plane reflexes — see `skill-stages/visual-sanity-pass.md` Stage 7g extensions).
+- **Reject**: anything that looks like generic SaaS chrome (status pills, dashboardy ornament, control-plane reflexes — see `skill-stages/visual-sanity-pass.md` Stage 7g extensions; see also `~/.claude/skills/refero-design/references/anti-ai-slop.md`).
 
-##### MCP server installation
+##### Refresh / re-mirror
+
+The refero-styles directory is captured 2026-05-07. To refresh against the live styles.refero.design site:
 
 ```bash
-claude mcp add --transport http refero https://api.refero.design/mcp \
-  --header "Authorization: Bearer <REFERO_API_KEY>"
+node scripts/fetch-refero-styles.mjs               # fetch everything
+node scripts/fetch-refero-styles.mjs --limit 5     # smoke-test first 5 only
 ```
 
-The API key lives in `~/.claude.json` after install. Sub-agents inherit MCP servers from the parent session — no additional plumbing needed for Stage 4c-tris / 7d / visual-pass dispatches to call `mcp__refero__*` tools.
+Tunable via env: `REFERO_CONCURRENCY=10`, `REFERO_OUT_DIR=/some/path`, `REFERO_API_BASE=https://...`. The script enumerates the Refero API, fetches each style's rendered DESIGN.md, decodes HTML entities, and writes one file per style + the canonical `_index.json`. ~2 minutes for ~1,200 styles. Idempotent: re-running overwrites existing files with whatever Refero is currently serving.
 
-If the MCP server is NOT installed, all the Refero-using stages MUST gracefully degrade: Stage 7d falls back to `templates/inspiration/<directory>/` only; Stage 4c-tris drops Axis 3 (Refero industry top) and audits on Axis 1 (design.md) + Axis 2 (inspiration library) only; visual-pass diversity check uses peer-build PNGs as before. None of the Refero-using stages should HARD-FAIL when the MCP is absent — Refero is a quality-of-evidence enhancement, not a dependency.
+##### Refero MCP relationship
+
+The Refero MCP (`https://api.refero.design/mcp`) is still installed and useful for ad-hoc semantic search outside the WebFactory pipeline (e.g., the refero-design skill's interactive workflows). WebFactory's pipeline stages (4c-tris audit, 4c-bis/6c/7g visual passes, 7d Option C plugin) NO LONGER call the MCP — they read the local library. The MCP is no longer a pipeline dependency; uninstalling it would not break any WebFactory build.
 
 ---
 

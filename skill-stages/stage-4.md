@@ -197,7 +197,7 @@ This audit tests A against THREE world-class references — NOT against the cust
 
 1. **The Refero Design taxonomy** at `~/.claude/skills/refero-design/SKILL.md` (4036 lines across SKILL.md + 9 reference files: `references/{anti-ai-slop, craft-details, typography, color, motion, copywriting, icons, mcp-tools, example-workflow}.md`). Refero subscription's research-first design methodology — the canonical world-class rubric. The **anti-ai-slop.md** reference alone catches: indigo/violet defaults, cards-as-default-container, dark-mode-by-default, emoji-as-icons, decorative-left-accent-stripe, generic 3-column pricing, hero-with-left-text-right-image, perfect symmetry. The **craft-details.md** reference covers focus states, form inputs, hit targets, semantic markup. The **typography.md / color.md / motion.md** references are full taxonomies for each axis. This is **the design.md the user pays for**.
 2. **The inspiration library** at `templates/inspiration/` — WebFactory's curated, hand-built reference designs that A must look at home alongside.
-3. **Refero industry top** (when industry-relevant) — `mcp__refero__refero_search_screens` semantic search of real shipped products in similar industries. Aggressively filter; skip on dataset bias for small-business contractors.
+3. **Refero Styles library** at `templates/inspiration/refero-styles/` — local mirror of 1,226 DESIGN.md files (Tailwind v4 `@theme` variant) covering color tokens, typography, spacing, components, do's & don'ts, surfaces, elevation, imagery, layout, and agent prompt guide per brand. Pre-filtered by `scripts/select-refero-styles.cjs` based on the customer's industry direction; the selected priors live at `jobs/{domain}/refero-style-priors-{a|c}.json`. **No network dep, no MCP, no auth** — fully offline-ready. Was previously the Refero MCP (https://api.refero.design/mcp); pivoted to local 2026-05-07 for determinism + speed + cost.
 
 (Google Labs released a separate **DESIGN.md format spec** at https://github.com/google-labs-code/design.md — a YAML+markdown standard for projects to describe their design system to AI agents. WebFactory does not emit a DESIGN.md per build today; this audit doesn't consume one. If a future Phase ships per-build DESIGN.md emission, the audit can read it as a fourth axis. Mentioned for orientation only — not currently required.)
 
@@ -274,17 +274,26 @@ These are hand-built reference designs at the bar A must clear. Question:
 
 If yes — A is world-class. If no — articulate which world-class moves the inspiration directory has that A is missing.
 
-### Axis 3 — Refero industry top (optional, dataset-bias permitting)
+### Axis 3 — Refero Styles library (local DESIGN.md priors)
 
-If `mcp__refero__refero_search_screens` is available, query for industry-relevant references:
-- platform: "web"
-- query: "{INDUSTRY_DIRECTION} services homepage" OR "premium {INDUSTRY_DIRECTION} brand site"
-- Pull 5-10 results. Pick the 2-3 most industry-relevant.
-- Get screen content via `mcp__refero__refero_get_screen_content` for the chosen 1-2.
+The orchestrator runs the selector script BEFORE dispatching this sub-agent:
 
-**Filter aggressively.** Refero's dataset skews B2B SaaS / fintech / productivity. If all top results are Stripe/Linear/Notion clones for a small-business-contractor customer, ABORT this axis. Audit on Axes 1 + 2 only and note `axis_verdicts.refero_industry_top: "skipped-dataset-bias"`. See REFERO REFERENCES rule in SKILL.md.
+```bash
+node scripts/select-refero-styles.cjs {DOMAIN} --for=a --n=5
+```
 
-When industry-relevant results ARE available, the question is: **is A in the same league as those shipped products?** Not "does A look like Stripe" — does A look like considered work in the customer's industry.
+That writes `jobs/{DOMAIN}/refero-style-priors-a.json` (small, ~5KB) with up to 5 candidate DESIGN.md entries from the local `templates/inspiration/refero-styles/` library (1,226 brands — Stripe, Linear, Notion, Apple, Anthropic, ElevenLabs, plus food/clinical/architectural/agency/etc.). Each pick has: `slug, siteName, file, path, northStar, fonts, colors, colorScheme, score, matchedKeywords`.
+
+Read the priors file:
+- jobs/{DOMAIN}/refero-style-priors-a.json
+
+If `entries: []` is empty (no positive-score matches in the corpus for this customer's industry — common for small-business contractors / SMB trades since the corpus skews B2B SaaS / fintech / agency), Axis 3 is unavailable for this build. Note `axis_verdicts.refero_industry_top: "unavailable-no-corpus-matches"` and proceed with Axes 1 + 2 only.
+
+If `entries` has 1-5 picks, **second-filter at consumption time** — the selector emits best-guess candidates from a noisy corpus, but a SaaS metaphor like "typographic landscape" can match an outdoor industry's `landscape` keyword without being aesthetically relevant. Read the `northStar` line of each pick and reject obvious mismatches (SaaS / fintech aesthetic, dashboardy ornament, control-plane reflex — see anti-ai-slop.md for the full ban list). For each accepted pick, Read the actual DESIGN.md file at `entries[i].path` (each ~10-15KB, contains tokens + components + do's/don'ts + agent prompt guide).
+
+If after second-filter you have ≥ 1 industry-relevant pick, proceed with Axis 3. The question: **is A in the same league as those shipped products?** Not "does A look like Stripe" — does A look like considered work in the customer's industry alongside genuinely relevant references from the library.
+
+If after second-filter you have 0 industry-relevant picks, note `axis_verdicts.refero_industry_top: "skipped-dataset-bias"` and audit on Axes 1 + 2 only. The 2026-05-07 pivot from the MCP to the local library kept the dataset-bias guard — the corpus is the same content, just delivered locally.
 
 ## What else to read
 
