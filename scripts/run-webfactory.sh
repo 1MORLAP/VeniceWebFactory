@@ -138,37 +138,53 @@ LAUNCH
 # diagnostic note to the log so the operator can see the last lines
 # (which usually contain the prompt text).
 if [ "$NO_WATCHDOG" != "1" ]; then
+  # Phase F.5 v2 (2026-05-07): the prior watchdog watched only the wrapper
+  # stdout log file. That went silent during long Opus API waits (Stage
+  # 2.5 specs takes 7-15 min of subprocess sleep with no stdout). Real
+  # bug observed 2026-05-07: johnsepticservice A/B builds got killed at
+  # 30-min idle even though orchestration.log was actively growing
+  # (Stage 2.5 + Stage 3 progressing).
+  #
+  # Fix: watchdog also watches `jobs/{DOMAIN}*/orchestration.log` (glob
+  # so --ab=preset suffixed dirs are covered). If EITHER the wrapper
+  # log OR any matching orchestration.log was modified within IDLE_LIMIT,
+  # the build is alive. Only kill when BOTH have gone idle.
   nohup bash -c "
-    LAST_SIZE=0
+    LAST_TS=0
     IDLE_SECS=0
     while kill -0 $BUILD_PID 2>/dev/null; do
       sleep 60
-      CUR_SIZE=\$(stat -f '%z' '$LOG' 2>/dev/null || stat -c '%s' '$LOG' 2>/dev/null || echo 0)
-      if [ \"\$CUR_SIZE\" = \"\$LAST_SIZE\" ]; then
+      # Most-recent mtime across the wrapper log + any
+      # jobs/{DOMAIN}*/orchestration.log matching this domain.
+      LATEST=0
+      for path in '$LOG' /Users/tomasz/WebFactory/jobs/$DOMAIN/orchestration.log /Users/tomasz/WebFactory/jobs/$DOMAIN-ab-*/orchestration.log; do
+        if [ -f \"\$path\" ]; then
+          M=\$(stat -f '%m' \"\$path\" 2>/dev/null || stat -c '%Y' \"\$path\" 2>/dev/null || echo 0)
+          if [ \"\$M\" -gt \"\$LATEST\" ]; then LATEST=\$M; fi
+        fi
+      done
+      if [ \"\$LATEST\" -gt \"\$LAST_TS\" ]; then
+        IDLE_SECS=0
+        LAST_TS=\$LATEST
+      else
         IDLE_SECS=\$((IDLE_SECS + 60))
         if [ \"\$IDLE_SECS\" -ge $IDLE_LIMIT ]; then
           echo '' >> '$LOG'
           echo '═══════════════════════════════════════════════════════════════════════' >> '$LOG'
-          echo \"  ✗ WATCHDOG: log stale for $IDLE_LIMIT sec — killing PID $BUILD_PID\" >> '$LOG'
+          echo \"  ✗ WATCHDOG: wrapper-log AND orchestration.log both stale for $IDLE_LIMIT sec — killing PID $BUILD_PID\" >> '$LOG'
           echo '═══════════════════════════════════════════════════════════════════════' >> '$LOG'
-          echo '' >> '$LOG'
-          echo 'Last 50 lines of log preceding the kill:' >> '$LOG'
-          tail -50 '$LOG' >> '$LOG.tail-on-kill'
-          mv '$LOG.tail-on-kill' '$LOG.last-50-before-kill'
+          tail -50 '$LOG' > '$LOG.last-50-before-kill' 2>/dev/null
           kill -TERM $BUILD_PID 2>/dev/null
           sleep 5
           kill -KILL $BUILD_PID 2>/dev/null
           exit 1
         fi
-      else
-        IDLE_SECS=0
-        LAST_SIZE=\$CUR_SIZE
       fi
     done
   " > /dev/null 2>&1 &
   WATCHDOG_PID=$!
   disown $WATCHDOG_PID 2>/dev/null || true
-  echo "  Watchdog PID: $WATCHDOG_PID  (kills build if log stale >$IDLE_LIMIT sec)"
+  echo "  Watchdog PID: $WATCHDOG_PID  (kills build if wrapper-log AND orchestration.log both stale >$IDLE_LIMIT sec)"
 fi
 
 echo ""
