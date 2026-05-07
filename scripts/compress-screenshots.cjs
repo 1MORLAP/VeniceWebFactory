@@ -3,15 +3,15 @@
  * compress-screenshots.cjs — produce slim JPEG sidecars for vision-using stages (Phase L.1)
  *
  * Built 2026-05-07 as Phase L.1 of the cost-optimization plan. Visual
- * sanity pass sub-agents (Stage 4c-bis, 6c, 7g) and the 4c-tris audit
- * each read 12-24 PNG screenshots at full resolution. Each PNG is
- * typically 100-300 KB, decoded as ~50-100K vision tokens. Across the
- * 4 vision-using stages × ~18 screenshots, vision tokens dominate the
- * Opus visual-pass cost line item.
+ * sanity pass sub-agents (Stage 4c-bis, 6c, 7g) and the 4c-tris
+ * World-Class Audit each read 12-24 PNG screenshots at full resolution.
+ * Each PNG is typically 100-300 KB, decoded as ~50-100K vision tokens.
+ * Across the 4 vision-using stages × ~18 screenshots, vision tokens
+ * dominate the Opus visual-pass cost line item.
  *
  * The fix: 1280px-wide JPEG sidecars at quality 75. Same visual signal
- * the 18-item checklist and the dramatic-improvement audit work with;
- * just smaller. Typical reduction: 100-300 KB PNG → 30-60 KB JPEG
+ * the 18-item checklist and the World-Class Audit work with; just
+ * smaller. Typical reduction: 100-300 KB PNG → 30-60 KB JPEG
  * (~70-80% smaller). Vision token count drops proportionally.
  *
  * Quality risk: none-to-very-low. 1280px is the standard "design review"

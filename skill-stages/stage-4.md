@@ -79,7 +79,7 @@ node scripts/compress-screenshots.cjs jobs/{domain}/qa-option-a
 node scripts/compress-screenshots.cjs jobs/{domain}/assets/screenshots
 ```
 
-The first call compresses A's just-captured screenshots for the upcoming 4c-bis Visual Sanity Pass. The second compresses the original-site screenshots (captured at Stage 1) for the 4c-tris Dramatic Improvement Audit.
+The first call compresses A's just-captured screenshots for the upcoming 4c-bis Visual Sanity Pass. The second compresses the original-site screenshots (captured at Stage 1) — these feed the 4c-tris **World-Class Audit** as a SECONDARY context (so the audit can articulate what changed); the original site is NOT the audit's bar.
 
 Both produce `*.jpg` sidecars next to each `*.png`. Sub-agents in 4c-bis (visual-sanity-pass.md) and 4c-tris prefer `*.jpg` over `*.png` — see those prompt templates. PNGs are preserved on disk for human inspection / debugging.
 
@@ -141,7 +141,7 @@ A JSON object matching the schema in visual-sanity-pass.md (stage="4c-bis", opti
 ## What you do NOT do
 
 - DO NOT touch source code. The orchestrator handles fix-loops based on your JSON.
-- DO NOT run the Dramatic Improvement Audit (Stage 4c-tris) — that stays inline in the orchestrator.
+- DO NOT run the World-Class Audit (Stage 4c-tris) — that's a separate sub-agent dispatched by the orchestrator after this one returns.
 - DO NOT read the manifest, design-brief, industry-tokens, or .astro source files. Only screenshots + the checklist.
 - DO NOT write build-design-decisions.md. The orchestrator writes that file based on your JSON's summary + diversity-check observations.
 ```
@@ -173,7 +173,7 @@ This script (added 2026-05-04) is the Stage 4c-bis hard gate — it verifies the
 If the gate fails because the orchestrator deliberately ran inline (debug, special case), pass `--allow-inline` to the gate. This logs a warning but proceeds. Use sparingly — the default expectation is sub-agent dispatch.
 
 Then branch on `verdict`:
-- `pass` → continue to Stage 4c-tris (Dramatic Improvement Audit, still orchestrator-inline below).
+- `pass` → continue to Stage 4c-tris (World-Class Audit, separate Opus sub-agent dispatched below).
 - `fix` → run the Stage 4e fix-loop, scoped to the issues listed in the JSON. Pass the JSON's `issues` array forward as the punch list — no need to re-read screenshots.
 - `rebuild` → escalate (re-spec Option A; rare — design-language-level failures the fix-loop can't reach). The gate will exit 2 on `rebuild`, blocking the deploy until you address.
 
@@ -187,11 +187,23 @@ This file is the audit trail for the inspiration-only architecture. If two build
 
 **Self-improvement loop**: any bug class the sub-agent surfaces that isn't already on the checklist in `visual-sanity-pass.md` goes into FEEDBACK.md AND becomes either (a) a new item on the checklist OR (b) a new programmatic check in qa-check.js. The deterministic and visual layers are co-evolving — every shipped bug eventually graduates from "the model has to spot it" to "the gate catches it deterministically."
 
-#### 4c-tris. Dramatic Improvement Audit (delegated to a sub-agent — Phase D of context-optimization, 2026-05-05)
+#### 4c-tris. World-Class Audit (delegated to a sub-agent — Phase D of context-optimization, 2026-05-05; reshaped 2026-05-07)
 
-**The vision says A is "same site, suddenly expensive" — a dramatic transformation, not a polish.** If A ships as "same layout, slightly nicer fonts, a touch more padding" — that's a polish, not an $80k rebuild. The customer's reaction should be "wait, is that the same site?" not "oh, that's nice."
+**The vision says A is "same site, suddenly expensive" — but "expensive" doesn't mean "better than the original."** The customer's old site is typically a 2009-era CMS template (Hibu, GoDaddy, Squarespace default, Wix template). Beating that floor is trivial; it's not the bar.
 
-**Pre-2026-05-05** this audit ran inline in the orchestrator (the carve-out from Tier 2). With Phase D enabling tiered model selection — including Sonnet orchestrator builds — this is now the LAST subjective taste call that needs a sub-agent so quality stays Opus regardless of orchestrator tier.
+**The bar is world-class.** Could A be a reference design someone else's project would draw from? Would a designer point to it as an example of considered work in this industry? Is the design *differentiated* and *memorable*, or is it generic-but-cleaner-than-the-2009-original?
+
+This audit tests A against THREE world-class references — NOT against the customer's old site:
+
+1. **The Refero Design taxonomy** at `~/.claude/skills/refero-design/SKILL.md` (4036 lines across SKILL.md + 9 reference files: `references/{anti-ai-slop, craft-details, typography, color, motion, copywriting, icons, mcp-tools, example-workflow}.md`). Refero subscription's research-first design methodology — the canonical world-class rubric. The **anti-ai-slop.md** reference alone catches: indigo/violet defaults, cards-as-default-container, dark-mode-by-default, emoji-as-icons, decorative-left-accent-stripe, generic 3-column pricing, hero-with-left-text-right-image, perfect symmetry. The **craft-details.md** reference covers focus states, form inputs, hit targets, semantic markup. The **typography.md / color.md / motion.md** references are full taxonomies for each axis. This is **the design.md the user pays for**.
+2. **The inspiration library** at `templates/inspiration/` — WebFactory's curated, hand-built reference designs that A must look at home alongside.
+3. **Refero industry top** (when industry-relevant) — `mcp__refero__refero_search_screens` semantic search of real shipped products in similar industries. Aggressively filter; skip on dataset bias for small-business contractors.
+
+(Google Labs released a separate **DESIGN.md format spec** at https://github.com/google-labs-code/design.md — a YAML+markdown standard for projects to describe their design system to AI agents. WebFactory does not emit a DESIGN.md per build today; this audit doesn't consume one. If a future Phase ships per-build DESIGN.md emission, the audit can read it as a fourth axis. Mentioned for orientation only — not currently required.)
+
+The original-vs-A comparison is preserved as a SECONDARY context (so the audit can articulate what changed and the dramatic-transformation story still holds), but the audit's verdict is "is this world-class?" — not "is this better than the floor?"
+
+**Pre-2026-05-07 framing**: this audit was the "Dramatic Improvement Audit," verdict-on-original-vs-A. That framing measured the right axis (transformation) but used the wrong bar (floor). Reshaped to use world-class references as the bar; the floor is preserved as context only. The user's framing: *"the original is so terrible that I don't really see a point — is a dramatic improvement over original. I think this should say, is it a world-winning design? ... is this differentiated? World class amazing and how to get there — not is it better than the original."*
 
 Read the per-stage model assignment first:
 
@@ -206,90 +218,168 @@ Spawn ONE sub-agent via the `Agent` tool — same dispatch shape as Tier 2 visua
 
 - `subagent_type: 'general-purpose'`
 - `model: '$MODEL'`  (resolves to opus per default)
-- Prompt template (substitute `{DOMAIN}`):
+- Prompt template (substitute `{DOMAIN}` and `{INDUSTRY_DIRECTION}` from `industry-tokens.json` if present, else from `design-brief.json → industry`):
 
 ```
 ## Charter
 
-You are running the **Stage 4c-tris Dramatic Improvement Audit** on Option A for {DOMAIN}. The vision is "same site, suddenly expensive" — a dramatic transformation, not a polish. Your job is to certify or reject A's dramatic-improvement bar.
+You are running the **Stage 4c-tris World-Class Audit** on Option A for {DOMAIN}. The vision tagline is "same site, suddenly expensive." Your job is to certify A as world-class — on par with the Refero Design taxonomy ("design.md") at `~/.claude/skills/refero-design/`, the curated inspiration library at `templates/inspiration/`, and (where industry-relevant) with Refero MCP's catalog of shipped products in similar industries.
 
-## What to read
+The customer's old site is a FLOOR, not a bar. Don't measure A against it. Measure A against the world-class references below.
 
-**Phase L.1 (2026-05-07): prefer the `*.jpg` sidecars over `*.png`** — the orchestrator runs `compress-screenshots.cjs` on both `assets/screenshots/` (original-site shots) and `qa-option-a/` (A's shots) before this audit, producing 1280px JPEG-Q75 versions next to each PNG. Read JPG; PNG is the larger fallback when a sidecar is missing.
+## Reference axes (in priority order)
 
-- jobs/{DOMAIN}/assets/screenshots/home.{jpg,png} — the ORIGINAL site's homepage
+### Axis 1 — Refero Design taxonomy ("design.md")
+
+Read the world-class-design rubric the Refero subscription provides:
+- /Users/tomasz/.claude/skills/refero-design/SKILL.md (research-first methodology + craft litmus tests)
+- /Users/tomasz/.claude/skills/refero-design/references/anti-ai-slop.md (THE primary AI-slop checklist — indigo/violet defaults, cards-as-default, dark-mode-by-default, emoji-as-icons, decorative left-accent stripe, generic 3-column pricing, perfect symmetry, hero-with-left-text-right-image, the Card / Image / Brand / Copy / Identity litmus tests)
+- /Users/tomasz/.claude/skills/refero-design/references/craft-details.md (focus states, form attributes, hit targets, semantic markup, accessibility details)
+- /Users/tomasz/.claude/skills/refero-design/references/typography.md (font pairing, hierarchy, letter-spacing on caps, weight pairs)
+- /Users/tomasz/.claude/skills/refero-design/references/color.md (dominant + accent, not evenly distributed, semantic meaning)
+- /Users/tomasz/.claude/skills/refero-design/references/motion.md (high-impact moments, not scattered micro-interactions)
+
+(The frontend-design plugin's SKILL.md at `~/.claude/plugins/cache/claude-plugins-official/frontend-design/1.0.0/skills/frontend-design/SKILL.md` is a thinner secondary reference — read it only as a sanity-check supplement, not as the primary axis.)
+
+Internalize from Refero's anti-ai-slop checklist (the most concrete rubric):
+- **Indigo/Violet ban**: NEVER `#6366f1`, `#8b5cf6`, `#7c3aed` unless the brand explicitly requires it. AI's universal fingerprint.
+- **Cards justified by interaction only**: removing border/shadow/background/radius shouldn't break the design. If it does — it's not a card, remove the card chrome.
+- **Light mode is the baseline**: dark-by-default is an AI fingerprint.
+- **No emoji as icons**: 😀🚀💡🎯 = "AI-generated." Use icon library (Lucide/Phosphor/Heroicons), Unicode (→ • ◆), or SVG.
+- **No decorative left-accent stripe**: only when it carries meaning (status, priority, owner, selection).
+- **Typography intentional**: distinctive display + refined body. Letter-spacing on ALL CAPS. NEVER Inter/Roboto/Arial as the only fonts.
+- **Color hierarchy**: dominant + sharp accent. NOT timid evenly-distributed pastels. NOT purple-gradient-on-white.
+- **Layout has tension**: asymmetry, overlap, grid-breaking, OR generous negative space (intentional, not accidental).
+- **One memorable detail**: per Refero's identity test, *"if the first viewport could belong to any other company → branding is too weak."*
+
+Run the **Refero litmus tests** (from anti-ai-slop.md) on A's homepage:
+- **Card test**: removing border/shadow/background/radius from "card" elements — does the design still work? If yes, the cards aren't doing work — chrome is decoration.
+- **Image test**: does the first viewport work without the hero image? If yes, the image is too weak. Make it dominant or remove it.
+- **Brand test**: hide the nav. Does the brand still come through (logo prominence, brand color, distinctive type)? If not — hierarchy is too weak.
+- **Identity test**: could the first viewport belong to any other company? If yes — branding is generic.
+
+If A fails any litmus test, OR triggers any anti-ai-slop pattern (indigo/violet, cards-by-default, dark-by-default, emoji-icons, decorative left stripe, generic 3-column, hero-with-left-text-right-image) — it FAILS Axis 1.
+
+### Axis 2 — Inspiration library (the curated reference floor)
+
+Read the relevant inspiration directory's README + sample homepage based on the customer's industry:
+- /Users/tomasz/WebFactory/templates/inspiration/README.md (the index)
+- For trades / contractor (Option A): /Users/tomasz/WebFactory/templates/inspiration/industrial-trades-photo-led/README.md + /Users/tomasz/WebFactory/templates/inspiration/industrial-trades-photo-led/src/pages/index.astro
+- For SaaS / professional services / tech: /Users/tomasz/WebFactory/templates/inspiration/saas-default/README.md + sample page
+- For other industries (food, clinical, architectural, garage): see the README — directory may not exist yet; in that case audit on the closest available reference + Axis 1.
+
+These are hand-built reference designs at the bar A must clear. Question:
+
+  *"Would A look at home in this library? If it sat alongside the existing inspiration designs as `{industry}-photo-led-v2`, would the next worker pick it up as a reference?"*
+
+If yes — A is world-class. If no — articulate which world-class moves the inspiration directory has that A is missing.
+
+### Axis 3 — Refero industry top (optional, dataset-bias permitting)
+
+If `mcp__refero__refero_search_screens` is available, query for industry-relevant references:
+- platform: "web"
+- query: "{INDUSTRY_DIRECTION} services homepage" OR "premium {INDUSTRY_DIRECTION} brand site"
+- Pull 5-10 results. Pick the 2-3 most industry-relevant.
+- Get screen content via `mcp__refero__refero_get_screen_content` for the chosen 1-2.
+
+**Filter aggressively.** Refero's dataset skews B2B SaaS / fintech / productivity. If all top results are Stripe/Linear/Notion clones for a small-business-contractor customer, ABORT this axis. Audit on Axes 1 + 2 only and note `axis_verdicts.refero_industry_top: "skipped-dataset-bias"`. See REFERO REFERENCES rule in SKILL.md.
+
+When industry-relevant results ARE available, the question is: **is A in the same league as those shipped products?** Not "does A look like Stripe" — does A look like considered work in the customer's industry.
+
+## What else to read
+
+**Phase L.1 (2026-05-07): prefer the `*.jpg` sidecars over `*.png`** — the orchestrator runs `compress-screenshots.cjs` before this audit. Read JPG; PNG is the larger fallback.
+
 - jobs/{DOMAIN}/qa-option-a/desktop-home.{jpg,png} — A's rebuilt homepage (desktop)
 - jobs/{DOMAIN}/qa-option-a/mobile-home.{jpg,png} — A's rebuilt homepage (mobile)
-- /Users/tomasz/WebFactory/SKILL.md "DESIGN QUALITY BAR" section — the bar A must clear
-- (OPTIONAL — Phase E benchmark axis) Refero references: query
-  `mcp__refero__refero_search_screens` with platform="web" and a query like
-  "{industry} services homepage" or "{industry} contractor brand site" to
-  pull 3-5 industry-leading benchmark examples. Get screen content via
-  `mcp__refero__refero_get_screen_content` for the most relevant 1-2.
-  These are the "industry top 5" benchmark — A doesn't need to BEAT them,
-  but it should be in the same league. **Filter Refero results aggressively**
-  — its dataset skews B2B SaaS / fintech / productivity, which is the wrong
-  aesthetic for most WebFactory customers (small-business contractors). If
-  all top results are Stripe/Linear/Notion clones, skip the benchmark axis
-  and audit on original-vs-A only. See REFERO REFERENCES rule in SKILL.md.
+- jobs/{DOMAIN}/qa-option-a/desktop-{other}.{jpg,png} — at least 1-2 secondary pages so the audit isn't homepage-only
+- jobs/{DOMAIN}/assets/screenshots/home.{jpg,png} — the ORIGINAL site's homepage (CONTEXT only — for articulating what changed; NOT the bar)
+- /Users/tomasz/WebFactory/SKILL.md "DESIGN QUALITY BAR" section — the 8 internal bar items (typography, whitespace, hero treatment, palette, distinctive element, micro-interaction, $80k smell test, ornament budget)
 
 ## What to do
 
-Articulate, in writing, three SPECIFIC dramatic improvements from the original to A's rebuild. Not abstract ("looks more modern") — concrete and visual:
-- "Original hero was a flat green box; A's hero is a full-bleed photo with Fraunces display headline and labeled '01 // RESIDENTIAL' section number"
-- "Original nav was a centered horizontal list of 9 links; A's nav is a sticky 4-item with yellow CTA pill and mono section indices"
-- "Original services were 12 stacked paragraphs; A's services are a 3-column grid with icons, hover scale, and consistent treatment"
+For each axis, write one paragraph in your markdown report evaluating A against that axis:
 
-If you CANNOT articulate three specific dramatic improvements — if the differences are vague ("better fonts," "more spacing") OR merely cosmetic — A FAILED the bar. Recommend `verdict: "rebuild"` with specific guidance on which axes need more ambition (hero layering, section variety, typography, spacing, palette).
+1. **Axis 1 (Refero design taxonomy)**: does A clear the anti-ai-slop checklist + the four litmus tests (Card, Image, Brand, Identity)? Cite specific evidence — typography family + foundry, palette role-naming + accent hierarchy, hero composition, spatial tension, motion intent. Anti-slop tells alone trigger Axis 1 fail: indigo/violet defaults, cards-as-default-container, dark-mode-by-default, emoji-as-icons, decorative left-accent stripe, generic 3-column, hero-with-left-text-right-image-by-default, perfect symmetry. If A relies on system Inter/Arial, fails Axis 1. If palette is timid evenly-distributed, fails Axis 1.
+
+2. **Axis 2 (inspiration library)**: would A look at home alongside the existing inspiration designs? Could it become a reference itself? If yes — what's the new vocabulary it adds (display-italic-emphasis? annotated-photo grid? section eyebrow with hairline rule?). If no — what's missing relative to the curated reference?
+
+3. **Axis 3 (Refero industry top)**: in the same league? Skipped-dataset-bias? Unavailable?
+
+Then articulate THE THREE WORLD-CLASS QUALITIES A demonstrates — concrete and citable, NOT abstract:
+- ✅ "Typography: Fraunces 92pt display + Inter 17pt body + JetBrains Mono section eyebrows. Considered weight pairs, optical sizing visible at 92pt." (citable: visible in desktop-home.jpg)
+- ❌ "Looks much nicer than the old site." (not citable, not world-class — a floor comparison)
+- ✅ "Hero: full-bleed work photo + italic-rust display headline + lower-left mono caption '01 / RESIDENTIAL · 30+ YEARS'. Three-layer composition with textural depth." (citable: visible in desktop-home.jpg)
+- ❌ "Hero is now full-bleed instead of a flat green box." (citable but a floor comparison — beats the original; doesn't prove world-class)
+- ✅ "Distinctive element: 'A craftsman's portfolio — photographed honestly' gallery grid. Repeated mono captions create rhythm not present in any other inspiration directory; this is the build's signature move." (citable, differentiated)
+
+Then articulate **THE ONE THING**.
+
+Per the frontend-design taxonomy: *"Differentiation: What's the one thing someone will remember?"* Name it. One sentence. If you can't name a memorable one-thing, A is generic — that fails the audit regardless of axis-1/2/3 scores.
+
+## Decision
+
+- **`pass`** if A clears Axes 1 + 2 (Axis 3 may be unavailable or skipped-dataset-bias) AND has a memorable one-thing.
+- **`rebuild`** if A fails Axis 1 (system fonts, timid palette, generic composition), OR Axis 2 (would not earn an inspiration-library spot), OR has no memorable one-thing.
+
+If the only thing you can say about A is "much better than the original," that's a `rebuild` trigger — the audit found a floor improvement, not a world-class result.
 
 ## Output
 
 Write your full report to:
-- jobs/{DOMAIN}/dramatic-improvement-audit.md (markdown — original-vs-A comparison + 3 specific improvements + screenshot references; or rebuild guidance if the bar isn't met)
+- jobs/{DOMAIN}/world-class-audit.md (markdown — three-axis evaluation + three world-class qualities + the-one-thing + rebuild guidance if applicable)
 
 Then return a JSON object to the orchestrator:
 
 {
   "verdict": "pass | rebuild",
-  "improvements": [
-    "specific concrete improvement #1",
-    "specific concrete improvement #2",
-    "specific concrete improvement #3"
+  "world_class_qualities": [
+    "specific quality #1 with citation",
+    "specific quality #2 with citation",
+    "specific quality #3 with citation"
   ],
-  "rebuild_axes": ["hero" | "sections" | "typography" | "spacing" | "palette" | ...],   // only if verdict=rebuild
-  "summary": "1-line takeaway",
-  "industry_benchmark": "1-line note on whether A is in the same league as the Refero industry-top references — or 'skipped — Refero results not industry-relevant' if the dataset bias prevented a useful comparison"
+  "the_one_thing": "single sentence naming the memorable signature move",
+  "axis_verdicts": {
+    "refero_design_taxonomy": "pass | fail — short reason citing anti-ai-slop / litmus test outcomes",
+    "inspiration_library": "pass | fail — short reason",
+    "refero_industry_top": "pass | fail | skipped-dataset-bias | unavailable — short reason"
+  },
+  "rebuild_axes": ["typography" | "palette" | "hero" | "spatial" | "distinctive_element" | "motion" | "differentiation" | ...],   // only if verdict=rebuild
+  "summary": "1-line takeaway"
 }
 
-~300 tokens of output is the target. Keep prose concise — the dramatic-improvement-audit.md file holds the longform.
+~400 tokens of output is the target. Keep prose concise — the world-class-audit.md file holds the longform.
 
 ## What you do NOT do
 
 - DO NOT touch source code. Verdict-only role.
 - DO NOT re-run the Stage 4c-bis 18-item Visual Sanity Pass — that's a separate sub-agent, already complete.
 - DO NOT spawn further sub-agents.
+- DO NOT measure A against the customer's original site as the primary axis. The original is a FLOOR, not a bar. Use it for context only ("here's what changed"), never for the verdict.
 ```
 
-**Hard gate** (added 2026-05-05 alongside Phase D):
+**Hard gate** (added 2026-05-05 alongside Phase D, event renamed 2026-05-07):
 
 ```bash
-node scripts/log-decision.cjs $DOMAIN 4c-tris dramatic-improvement-audit-verdict --detail verdict=$VERDICT --detail model=$MODEL --detail thinkingBudget=$THINK
-test -f jobs/$DOMAIN/dramatic-improvement-audit.md   # gate: file MUST exist post-dispatch
+node scripts/log-decision.cjs $DOMAIN 4c-tris world-class-audit-verdict --detail verdict=$VERDICT --detail model=$MODEL --detail thinkingBudget=$THINK
+test -f jobs/$DOMAIN/world-class-audit.md   # gate: file MUST exist post-dispatch
 ```
 
 If the verdict is `rebuild`, escalate — don't proceed to Stage 5. The orchestrator must address the named `rebuild_axes` and re-spawn the build before B/C derive from A.
 
-**Why this exists**: too many shipped builds were "merely better than original." The customer's $80k expectation was set by the vision tagline; the build needs to deliver on it. This audit forces an explicit "yes the bar is met, here are the three reasons" OR a rebuild — no silent "fine, ship it."
+**Why this exists**: too many shipped builds were "merely better than the original." The customer's old site is a 2009-era template floor — beating it doesn't prove world-class craft. The vision tagline ("same site, suddenly expensive") set an $80k expectation; the build needs to deliver on it. This audit forces explicit articulation of *world-class* qualities (cited from the screenshots, evaluated against design.md + the inspiration library + Refero) AND a memorable one-thing. If the audit can't find them, that's a `rebuild` — not a silent "fine, ship it."
+
+**Back-compat note (2026-05-07)**: pre-reshape, this audit wrote `dramatic-improvement-audit.md` and emitted `dramatic-improvement-audit-verdict`. Both are renamed to the World-Class versions. Old logs from prior builds remain searchable under the original event name; new builds log the new name. `audit-cost.cjs` recognizes both during the transition.
 
 #### 4d. ~~Plugin critique~~ — REMOVED 2026-04-26 (Option A is intentionally plugin-free)
 
-> **Architectural decision 2026-04-26**: Option A does NOT use the `frontend-design` plugin. The whole point of the A vs C customer comparison is **worker-designed (A) vs plugin-designed (C)** with content held constant via B as the bridge. If both A and C invoked the plugin, the comparison would muddle. A's design quality is the worker's responsibility — driven by the design brief, REQUIRED-PATTERNS.md, the chosen inspiration directory, the DESIGN QUALITY BAR rule, the 18-item Visual Sanity Pass (Stage 4c-bis), and the Dramatic Improvement Audit (Stage 4c-tris). No external plugin invocation needed.
+> **Architectural decision 2026-04-26**: Option A does NOT use the `frontend-design` plugin. The whole point of the A vs C customer comparison is **worker-designed (A) vs plugin-designed (C)** with content held constant via B as the bridge. If both A and C invoked the plugin, the comparison would muddle. A's design quality is the worker's responsibility — driven by the design brief, REQUIRED-PATTERNS.md, the chosen inspiration directory, the DESIGN QUALITY BAR rule, the 18-item Visual Sanity Pass (Stage 4c-bis), and the World-Class Audit (Stage 4c-tris). No external plugin invocation needed.
 >
 > **Plugin-free A is non-negotiable.** If a future skill-owner is tempted to re-add the plugin to A "for one more design opinion," the cost is the comparison's value. Don't.
 >
 > The QA work that this stage used to perform — design critique — is now distributed across:
 > - **Stage 4c-bis Visual Sanity Pass** (18 items including Item #16 "$80k smell test" and Item #18 diversity check)
-> - **Stage 4c-tris Dramatic Improvement Audit** (original vs A side-by-side, must articulate 3 specific dramatic improvements)
+> - **Stage 4c-tris World-Class Audit** (three axes — design.md taxonomy + inspiration library + Refero industry top — must articulate 3 world-class qualities + one memorable signature move)
 > - **Programmatic qa-check.js** (27 deterministic rules including text-contrast, design-quality-fonts, mobile-overflow, mobile-tap-target, hero contrast, image resolution)
 >
 > Combined, those three layers replace what the plugin invocation here was nominally trying to add. **The plugin's expertise IS still applied to WebFactory output — exclusively in Option C** (Stages 7d build + 7g critique). Keeping it confined there is what makes the A vs C comparison meaningful.

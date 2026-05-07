@@ -138,6 +138,8 @@ function modelFor(event) {
   if (event.event === 'sub-agent-dispatched') return 'sonnet';
   if (event.event === 'fix-loop-iter') return 'sonnet';
   if (event.event === 'storefront-registered' || event.event === 'deploy-recorded') return 'sonnet';
+  // 4c-tris audit — both event names (renamed 2026-05-07; old name kept for back-compat with pre-rename logs).
+  if (event.event === 'world-class-audit-verdict') return 'opus';
   if (event.event === 'dramatic-improvement-audit-verdict') return 'opus';
   return 'opus';   // conservative
 }

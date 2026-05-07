@@ -4,9 +4,9 @@
  *
  * Built 2026-05-06 as Phase F.2 after the idahoequinehospital test build
  * exposed the structural failure: orchestrators silently skip QA stages
- * (Stage 4/6/7g visual passes, Stage 4c-tris audit, Stage 7d plugin gate)
- * AND the documented hard gates aren't called. The build deployed without
- * having run any of the gates we'd previously shipped.
+ * (Stage 4/6/7g visual passes, Stage 4c-tris World-Class Audit, Stage 7d
+ * plugin gate) AND the documented hard gates aren't called. The build
+ * deployed without having run any of the gates we'd previously shipped.
  *
  * This script is the single chokepoint that prevents un-QA'd deploys. It
  * runs before Stage 8b's `vercel deploy --prebuilt` and HARD-FAILS if any
@@ -29,10 +29,13 @@
  *   7d/validate-stage7-plugin-pass          — Stage 7 plugin gate (skip if --skip-c)
  *   7g/visual-pass-verdict (option=c)       — Stage 7g visual pass (skip if --skip-c)
  *
- * Note on Stage 4c-tris (Dramatic Improvement Audit): not currently
- * required because the script doesn't self-instrument (it's a sub-agent
- * dispatch, not a deterministic script). When that pattern stabilizes,
- * add `4c-tris/dramatic-improvement-audit-verdict` to the required list.
+ * Note on Stage 4c-tris (World-Class Audit, renamed from Dramatic
+ * Improvement Audit 2026-05-07): not currently required because the
+ * audit is a sub-agent dispatch, not a deterministic script. When that
+ * pattern stabilizes, add `4c-tris/world-class-audit-verdict` (new
+ * canonical event name) to the required list. Old logs may contain
+ * `dramatic-improvement-audit-verdict` — leave that in audit-cost.cjs
+ * for back-compat indefinitely.
  *
  * --skip-c handling: if jobs/{domain}/option-c/dist/index.html is absent,
  * skip the Stage 7d + 7g requirements automatically. Explicit on-disk

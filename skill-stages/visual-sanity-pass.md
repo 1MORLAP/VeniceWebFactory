@@ -6,7 +6,7 @@
 >
 > **Model contract**: this sub-agent runs `model: 'opus'`. Visual passes were calibrated for Opus's design critique; Tier 2 keeps that calibration by construction (the work moved off main, the model didn't change). DO NOT change the dispatch model to Sonnet.
 >
-> **Carve-out**: Stage 4c-tris (Dramatic Improvement Audit) does NOT use this sub-agent. It stays inline in the orchestrator. The audit is a subjective taste call ("does this feel suddenly expensive?") and the orchestrator needs direct visual confirmation of A's quality before B and C derive from it. Three screenshot reads, ~50–80K tokens — affordable, and the audit's role would be undermined by going through a JSON summary.
+> **Carve-out**: Stage 4c-tris (World-Class Audit, renamed from Dramatic Improvement Audit 2026-05-07) does NOT use this sub-agent. It uses a separate Opus sub-agent dispatched by the orchestrator (Phase D delegation 2026-05-05) — see `skill-stages/stage-4.md` for the audit's prompt template. The audit is a world-class-design-bar taste call ("could this be a reference design?") evaluated against three axes: (Axis 1) the **Refero Design taxonomy** ("design.md") at `~/.claude/skills/refero-design/SKILL.md` + 9 reference files (anti-ai-slop, craft-details, typography, color, motion, etc.) — the canonical world-class rubric the user subscribes to via Refero; (Axis 2) the curated `templates/inspiration/` library; (Axis 3, optional) Refero MCP's industry-top references when industry-relevant. It is a DIFFERENT critique than the 18-item visual sanity pass — different prompt, different references, different verdict schema. Keep the two passes architecturally separate so they don't drift into each other.
 
 ## What the sub-agent does
 
@@ -22,7 +22,7 @@ For the option being checked (A, B, or C):
 ## What the sub-agent does NOT do
 
 - Does NOT touch source code. The orchestrator handles fix-loops based on the returned JSON.
-- Does NOT run Stage 4c-tris (Dramatic Improvement Audit) — that stays inline in the orchestrator.
+- Does NOT run Stage 4c-tris (World-Class Audit) — that's a separate sub-agent dispatched by the orchestrator after this pass returns.
 - Does NOT read manifest.json, design-brief.json, `.astro` source files, or `industry-tokens.json`. Only screenshots.
 - Does NOT spawn further sub-agents. One pass, one JSON return.
 - Does NOT modify or write `build-design-decisions.md`. The orchestrator writes that file based on the JSON's `summary` and any items the sub-agent flagged in the diversity check.

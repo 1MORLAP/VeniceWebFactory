@@ -41,7 +41,7 @@ If you encounter an unexpected situation not covered by this skill, choose the s
 1. Scrape & Extract        →  manifest.json + assets/screenshots/ + assets/img/
 2. Analyze & Design Brief  →  design-brief.json
 3. Build Option A          →  jobs/{domain}/option-a/{src,dist}
-4. Visual QA Option A      →  qa-check passes + Visual Sanity Pass + Dramatic Improvement Audit
+4. Visual QA Option A      →  qa-check passes + Visual Sanity Pass + World-Class Audit
 5. Build Option B          →  jobs/{domain}/option-b/{src,dist}
 6. Visual QA Option B      →  qa-check passes + testimonial-tampering check
 7. Build Option C          →  jobs/{domain}/option-c/{src,dist}  (skipped if --skip-c)
@@ -216,7 +216,7 @@ The `balanced` preset still exists for opt-in experimentation (`--cost-tier=bala
 | 3 / 5 / 7d-build | Per-page render | **Sonnet** | N parallel sub-agents | Mechanical: spec → .astro file. Spec carries design judgment |
 | 4b / 6b / 7e | qa-check | (script) | deterministic | No model |
 | 4c-bis / 6c / 7g | Visual Sanity Pass | **Opus** | sub-agent (Tier 2) | Vision + structured 18-item checklist |
-| 4c-tris | Dramatic Improvement Audit | **Opus** | sub-agent (Phase D delegated 2026-05-05) | Subjective taste call — kept on Opus + thinking budget regardless of cost-tier |
+| 4c-tris | World-Class Audit | **Opus** | sub-agent (Phase D delegated 2026-05-05; reshaped 2026-05-07) | World-class-bar taste call — design.md taxonomy + inspiration library + Refero industry top. Kept on Opus + thinking budget regardless of cost-tier |
 | 4e / 6e / 7f | Fix loop (per-page) | **Sonnet** | sub-agent per affected page | Mechanical fix per qa-check directive. Validate-fix-loop-classification gate |
 | 4e / 6e / 7f | Fix loop (shared component) | Sonnet | inline | One Edit benefits all pages |
 | 7d | Frontend Design plugin | **Opus** | Skill tool invocation | Plugin owns the design system |
@@ -563,7 +563,7 @@ done
 - Stage 4/6 shared-component fix-loops.
 - Stage 7 (Build C) — plugin orchestration.
 - Stage 4c-bis Visual Sanity Pass (vision capability + design taste).
-- Stage 4c-tris Dramatic Improvement Audit (vision capability + critical comparison).
+- Stage 4c-tris World-Class Audit (vision capability + world-class-bar critical reference comparison — design.md taxonomy + inspiration library + Refero industry top).
 - Stage 10 final report.
 
 ### Cost projection (rough, 6-page small-business site, **English-only baseline since 2026-04-30**; per-language additions itemized separately)
@@ -2049,12 +2049,12 @@ CLI flag changes:
 
 #### REFERO REFERENCES (architectural — applies to Option C, Stage 4c-tris, and visual-pass diversity check ONLY)
 
-Refero is an MCP-installed semantic search database of UI screens from real shipped products. Available tools: `mcp__refero__refero_search_screens`, `mcp__refero__refero_get_similar_screens`, `mcp__refero__refero_get_screen_content`, `mcp__refero__refero_search_flows`, `mcp__refero__refero_get_flow`. Sub-agents at Stage 7d (plugin invocation), Stage 4c-tris (Dramatic Improvement Audit), and the visual sanity passes (Stage 4c-bis / 6c / 7g) MAY query it for industry-relevant references. Added 2026-05-05 as Phase E.
+Refero is an MCP-installed semantic search database of UI screens from real shipped products. Available tools: `mcp__refero__refero_search_screens`, `mcp__refero__refero_get_similar_screens`, `mcp__refero__refero_get_screen_content`, `mcp__refero__refero_search_flows`, `mcp__refero__refero_get_flow`. Sub-agents at Stage 7d (plugin invocation), Stage 4c-tris (World-Class Audit), and the visual sanity passes (Stage 4c-bis / 6c / 7g) MAY query it for industry-relevant references. Added 2026-05-05 as Phase E.
 
 ##### When to use
 
 - **Stage 7d (Option C plugin invocation)** — query 5-10 references in the customer's industry direction, identify 2-3 that match the `industry-tokens.json → direction`, incorporate STRUCTURAL ideas (section order, hero composition, spacing rhythm) into C's design.
-- **Stage 4c-tris (Dramatic Improvement Audit)** — query "industry top 5" as a third comparison axis alongside original-vs-A. The audit asks "is A in the same league as the industry top?" — not "does A look like Stripe."
+- **Stage 4c-tris (World-Class Audit)** — query "industry top 5" as Axis 3 of the audit (alongside Axis 1 = design.md taxonomy, Axis 2 = inspiration library). The audit asks "is A in the same league as the industry top?" — not "does A look like Stripe." Refero is the optional axis; if dataset bias produces only SaaS clones for the customer's industry, abort Axis 3 and audit on Axes 1 + 2 only. Reshaped 2026-05-07 — pre-2026-05-07 the audit had a primary "original-vs-A" axis with Refero as a third comparison; the reshape demoted original-vs-A to context-only and elevated the three world-class reference axes.
 - **Stage 4c-bis / 6c / 7g visual-pass diversity check (item #18)** — pull 2-3 industry-relevant Refero references in addition to (or instead of) hardcoded peer-build PNGs.
 
 ##### When NOT to use — the dataset bias caveat
@@ -2093,7 +2093,7 @@ claude mcp add --transport http refero https://api.refero.design/mcp \
 
 The API key lives in `~/.claude.json` after install. Sub-agents inherit MCP servers from the parent session — no additional plumbing needed for Stage 4c-tris / 7d / visual-pass dispatches to call `mcp__refero__*` tools.
 
-If the MCP server is NOT installed, all the Refero-using stages MUST gracefully degrade: Stage 7d falls back to `templates/inspiration/<directory>/` only; Stage 4c-tris drops the third comparison axis; visual-pass diversity check uses peer-build PNGs as before. None of the Refero-using stages should HARD-FAIL when the MCP is absent — Refero is a quality-of-evidence enhancement, not a dependency.
+If the MCP server is NOT installed, all the Refero-using stages MUST gracefully degrade: Stage 7d falls back to `templates/inspiration/<directory>/` only; Stage 4c-tris drops Axis 3 (Refero industry top) and audits on Axis 1 (design.md) + Axis 2 (inspiration library) only; visual-pass diversity check uses peer-build PNGs as before. None of the Refero-using stages should HARD-FAIL when the MCP is absent — Refero is a quality-of-evidence enhancement, not a dependency.
 
 ---
 
@@ -2326,18 +2326,18 @@ Pattern detected: `<Footer[^>]*class="[^"]*\bmt-\d`. Pattern in component CSS: s
 
 > **Detail**: see `skill-stages/stage-4.md` (extracted 2026-05-04 as Tier 1a of the context-optimization plan).
 >
-> Most critical stage. Two QA layers, BOTH mandatory: (1) deterministic `qa-check.js` at desktop+mobile (29+ rules — logo legibility, broken images, hero contrast, generic text contrast, social-link destinations, fact grounding, testimonial tampering, image reuse ≥ 90% for A, mobile overflow, tap targets, design-quality fonts, etc.), and (2) visual layer — Opus reviews screenshots with the 18-item Visual Sanity Pass checklist (mobile FIRST, active nav state, image quality + content match, card grid consistency, the "$80k smell test", editorial-drift check for C, diversity check vs peer builds). Plus the **Dramatic Improvement Audit (4c-tris)**: open original screenshot vs A side-by-side, articulate 3 SPECIFIC dramatic improvements in writing — if you can't, A failed the bar; rebuild with more ambition.
+> Most critical stage. Two QA layers, BOTH mandatory: (1) deterministic `qa-check.js` at desktop+mobile (29+ rules — logo legibility, broken images, hero contrast, generic text contrast, social-link destinations, fact grounding, testimonial tampering, image reuse ≥ 90% for A, mobile overflow, tap targets, design-quality fonts, etc.), and (2) visual layer — Opus reviews screenshots with the 18-item Visual Sanity Pass checklist (mobile FIRST, active nav state, image quality + content match, card grid consistency, the "$80k smell test", editorial-drift check for C, diversity check vs peer builds). Plus the **World-Class Audit (4c-tris)**: a separate Opus sub-agent evaluates A against three reference axes — (Axis 1) the **Refero Design taxonomy** at `~/.claude/skills/refero-design/SKILL.md` + 9 reference files (anti-ai-slop, craft-details, typography, color, motion, etc. — "the design.md the user pays for via the Refero subscription"), (Axis 2) the curated `templates/inspiration/` library, and (Axis 3, when industry-relevant) Refero's industry-top MCP search of shipped products — and articulates three world-class qualities + one memorable signature move. Anti-slop tells (indigo/violet defaults, cards-by-default, dark-by-default, emoji-icons, decorative left-stripe, generic 3-column, hero-left-text-right-image, perfect symmetry) are auto-fail on Axis 1. The four litmus tests (Card / Image / Brand / Identity) from anti-ai-slop.md are part of Axis 1's pass criteria. Original-vs-A is preserved as CONTEXT only (the original is a floor, not a bar). If the audit can't find world-class qualities, A failed the bar; rebuild with more ambition. **Reshaped 2026-05-07** from "Dramatic Improvement Audit" — old framing measured "better than the 2009-era CMS template," which is too low a bar. Google Labs' DESIGN.md format spec (https://github.com/google-labs-code/design.md) is mentioned in the audit as a forward-reference; WebFactory does not emit a DESIGN.md per build today.
 >
 > **Decomposed mode fix-loop split**: shared-component bugs → Opus fixes once; per-page bugs → N parallel Sonnet sub-agents.
 >
 > **Inputs**: option-a/dist, dev server on `optionA` port, `manifest.json` (fact grounding).
-> **Outputs**: option-a passes qa-check at desktop+mobile, punch-list cleared, `build-design-decisions.md` + `dramatic-improvement-audit.md` written.
+> **Outputs**: option-a passes qa-check at desktop+mobile, punch-list cleared, `build-design-decisions.md` + `world-class-audit.md` written.
 > **Model**: Opus orchestrator runs visual review + design judgment; Sonnet sub-agents dispatched for fix-loop in decomposed mode.
 >
 > Continue to Stage 5 — build Option B (rewrite of A's text).
 ---
 
-> **→ NEXT: Stage 5 — Build Option B.** Stage 4 (QA Option A) just completed — A passes qa-check at desktop+mobile, Visual Sanity Pass done, Dramatic Improvement Audit logged. Continue IMMEDIATELY to Stage 5. Do NOT ask the user "happy with A? ready for B?" Do NOT pause to compare. Just start B. (See PIPELINE COMPLETION CONTRACT at top.)
+> **→ NEXT: Stage 5 — Build Option B.** Stage 4 (QA Option A) just completed — A passes qa-check at desktop+mobile, Visual Sanity Pass done, World-Class Audit logged. Continue IMMEDIATELY to Stage 5. Do NOT ask the user "happy with A? ready for B?" Do NOT pause to compare. Just start B. (See PIPELINE COMPLETION CONTRACT at top.)
 
 ### Stage 5: Build Option B (Canonical Conversion-Tuned Rewrite)
 
