@@ -130,14 +130,25 @@ You are running **Stage 2: Design Brief** for WebFactory build {DOMAIN}. Read /U
 - DO NOT modify manifest.json.
 ```
 
-After the sub-agent returns, run the hard gate:
+After the sub-agent returns, run the hard gate AND extract brief essentials:
 
 ```bash
 node scripts/validate-design-brief.cjs $DOMAIN
 node scripts/log-decision.cjs "$DOMAIN" 2 design-brief-written --detail dispatcher=sub-agent --detail model=$BRIEF_MODEL --detail effort=$BRIEF_EFFORT
+
+# Phase G.5 (2026-05-07): extract a slim downstream brief for per-page workers.
+# The full design-brief.json is ~25-35KB (target audience reasoning, hero
+# direction prose, distinctive-element rationale, brand signature inventory
+# provenance, currentSite SWOT, etc.). Per-page sub-agents at Phase 2.5b /
+# Stage 3 / 7d-build only need: business identity + palette + typography +
+# top layout patterns + style. Slim version: ~3-5KB. Reduces Phase 2.5b
+# input by ~25KB × N parallel calls.
+node scripts/extract-brief-essentials.cjs $DOMAIN
 ```
 
 The gate verifies the brief has the required fields (typography, palette, hero, distinctive-elements, micro-interactions, mobile-first, brand-signature) per the DESIGN QUALITY BAR. Soft no-op if the file is missing — that's a separate failure mode handled by Stage 2.5b's dependency check.
+
+`extract-brief-essentials.cjs` self-instruments via Phase F (`2-post/brief-essentials-extracted` event with full + slim byte counts). The full brief stays on disk for audit + skill-owner review; only the slim version reaches per-page workers.
 
 If the orchestrator deliberately runs Stage 2 inline (smaller sites, debugging), pass `--allow-inline` to the gate. Use sparingly.
 
@@ -329,11 +340,11 @@ the DESIGN QUALITY BAR rules.
 ## What to read
 
 - jobs/{DOMAIN}/specs/_shared.md — cross-page tokens, prohibitions, component sigs (READ THIS FIRST)
-- jobs/{DOMAIN}/design-brief.json — the brief from Stage 2
+- jobs/{DOMAIN}/brief-essentials.json — slim brief (palette + typography + business identity + top layout patterns). Phase G.5 extract. **Use this, NOT `design-brief.json`** — the full brief contains ~25KB of audit prose (hero direction reasoning, distinctive-element rationale, brand signature inventory) that's overhead in the per-page worker's context window.
 - jobs/{DOMAIN}/page-manifests/{SLUG}.json — your specific page's manifest slice (text, images, backgrounds, sections, navigation, footer, social, business identity). This is the slim per-page extract from Phase G.2 — DO NOT read the full `manifest.json`; the slice is ~8KB vs the full manifest's ~35-80KB and contains everything you need.
 - jobs/{DOMAIN}/specs/_image-pools.json[{SLUG}] — your image-pool assignments
 - /Users/tomasz/WebFactory/templates/REQUIRED-PATTERNS.md — non-negotiable structural patterns
-- /Users/tomasz/WebFactory/templates/inspiration/<directory>/ — chosen inspiration (named in design-brief.json)
+- /Users/tomasz/WebFactory/templates/inspiration/<directory>/ — chosen inspiration (named in brief-essentials.json's `design.style` and inspirationLead)
 
 ## What to write
 
