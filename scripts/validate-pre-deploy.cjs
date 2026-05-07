@@ -93,6 +93,45 @@ for (const line of fs.readFileSync(logPath, 'utf8').split('\n')) {
 // Check whether option-c was built (determines whether 7d / 7g are required)
 const optionCBuilt = fs.existsSync(path.join(jobDir, 'option-c/dist/index.html'));
 
+// Phase F.6 (2026-05-07): Count expected per-page dispatches by reading
+// jobs/<domain>/specs/. The orchestrator should dispatch N parallel
+// sub-agents at Stages 3 / 5 / 7d-build (one per spec). Sometimes the
+// orchestrator goes monolithic instead (single sub-agent for all pages,
+// or no per-page events at all). The chokepoint must catch this so the
+// audit-trail-of-decomposition is reliable.
+//
+// Real bug 2026-05-07 (lisastephens G.1-fix): Stage 3, 5, and 7d-build
+// each emitted ZERO per-page dispatch events. The orchestrator built
+// the pages monolithically, deploys still happened, but the audit
+// showed silent monolithic regression. This rule prevents that.
+//
+// We match per-page dispatch by `option=` AND `page=<slug>` (NOT
+// `page=all` or `page=all-monolithic-subagent` or `page=batch` — those
+// are the monolithic-fallback labels we want to flag).
+const specsDir = path.join(jobDir, 'specs');
+let expectedPageCount = 0;
+if (fs.existsSync(specsDir)) {
+  const specFiles = fs.readdirSync(specsDir).filter(f =>
+    f.endsWith('.md') && !f.startsWith('_')
+  );
+  expectedPageCount = specFiles.length;
+}
+
+function countPerPageDispatches(events, stage, option) {
+  // Match events that have a real page slug — exclude the monolithic
+  // fallback labels.
+  const MONOLITHIC_LABELS = new Set(['all', 'all-monolithic-subagent', 'all-pages-rewrite', 'batch']);
+  const seen = new Set();
+  for (const e of events) {
+    if (e.stage !== stage || e.event !== 'sub-agent-dispatched') continue;
+    const d = e.details || {};
+    if (d.option !== option) continue;
+    if (!d.page || MONOLITHIC_LABELS.has(d.page)) continue;
+    seen.add(d.page);
+  }
+  return seen.size;
+}
+
 // Required-event spec: each entry says which event must exist + an
 // optional details predicate (e.g., option=a) + skip condition.
 const REQUIRED = [
@@ -117,6 +156,30 @@ const REQUIRED = [
     match: e => e.stage === '2.5c' && e.event === 'validate-image-pool-pass',
   },
   {
+    label: 'Stage 3 per-page sub-agent dispatch (option=a, decomposed)',
+    skipIf: () => expectedPageCount === 0,
+    skipReason: 'no specs/ — monolithic mode or build never reached Stage 2.5',
+    customCheck: events => {
+      const got = countPerPageDispatches(events, '3', 'a');
+      return {
+        pass: got >= expectedPageCount,
+        message: `dispatched ${got}/${expectedPageCount} pages (Phase F.6 decomposed-mode requirement)`,
+      };
+    },
+  },
+  {
+    label: 'Stage 5 per-page sub-agent dispatch (option=b, decomposed)',
+    skipIf: () => expectedPageCount === 0,
+    skipReason: 'no specs/ — monolithic mode',
+    customCheck: events => {
+      const got = countPerPageDispatches(events, '5', 'b');
+      return {
+        pass: got >= expectedPageCount,
+        message: `dispatched ${got}/${expectedPageCount} pages (Phase F.6 decomposed-mode requirement)`,
+      };
+    },
+  },
+  {
     label: 'Stage 4c-bis visual-pass-verdict (option=a)',
     match: e => e.stage === '4c-bis' && e.event === 'visual-pass-verdict' && (e.details || {}).option === 'a',
   },
@@ -129,6 +192,23 @@ const REQUIRED = [
     match: e => e.stage === '7d' && e.event === 'validate-stage7-plugin-pass',
     skipIf: () => !optionCBuilt,
     skipReason: 'option-c not built (--skip-c mode or C skipped)',
+  },
+  {
+    label: 'Stage 7d-build per-page sub-agent dispatch (option=c, decomposed)',
+    skipIf: () => !optionCBuilt || expectedPageCount === 0,
+    skipReason: 'option-c not built or no specs/',
+    customCheck: events => {
+      // Stage 7d-build dispatches use stage="7d-build" OR "7d" depending on
+      // whether the orchestrator emits with the build stage suffix. Accept either.
+      const got = Math.max(
+        countPerPageDispatches(events, '7d-build', 'c'),
+        countPerPageDispatches(events, '7d', 'c'),
+      );
+      return {
+        pass: got >= expectedPageCount,
+        message: `dispatched ${got}/${expectedPageCount} pages (Phase F.6 decomposed-mode requirement)`,
+      };
+    },
   },
   {
     label: 'Stage 7g visual-pass-verdict (option=c)',
@@ -145,11 +225,21 @@ for (const req of REQUIRED) {
     results.push({ ...req, status: 'skipped', reason: req.skipReason });
     continue;
   }
-  const found = events.some(req.match);
-  if (found) {
-    results.push({ ...req, status: 'pass' });
+  // Two check modes:
+  //   - `match`: predicate that returns true if at least one event matches
+  //   - `customCheck`: returns { pass, message } — used for count-based checks
+  let pass, message;
+  if (req.customCheck) {
+    const r = req.customCheck(events);
+    pass = r.pass;
+    message = r.message;
   } else {
-    results.push({ ...req, status: 'fail' });
+    pass = events.some(req.match);
+  }
+  if (pass) {
+    results.push({ ...req, status: 'pass', message });
+  } else {
+    results.push({ ...req, status: 'fail', message });
     missingCount++;
   }
 }
@@ -159,9 +249,10 @@ console.log(`  Pre-deploy gate audit for ${domain}`);
 console.log(`  ${events.length} log events read; ${REQUIRED.length} required checks`);
 console.log('═══════════════════════════════════════════════════════════════════════');
 for (const r of results) {
-  if (r.status === 'pass')      console.log(`  ✓ ${r.label}`);
+  const detail = r.message ? `  [${r.message}]` : '';
+  if (r.status === 'pass')      console.log(`  ✓ ${r.label}${detail}`);
   else if (r.status === 'skipped') console.log(`  ⏭️  ${r.label}  (${r.reason})`);
-  else                           console.log(`  ✗ ${r.label}  ← MISSING`);
+  else                           console.log(`  ✗ ${r.label}${detail}  ← MISSING`);
 }
 console.log('');
 
