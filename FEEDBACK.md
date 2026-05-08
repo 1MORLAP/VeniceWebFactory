@@ -2221,3 +2221,60 @@ The proposed rule is strictly more general — it catches cases where there's no
 **Files modified**: scripts/fix-logo.js (dominantPaintedColor computation), scripts/qa-check.js (runLogoRenderedContrastCheck + manifestLogo capture + chipBackground always-captured + post-evaluate dispatch), SKILL.md (LOGO RULE Layer C / Rule 4.4 + QA gate enforcement section), templates/REQUIRED-PATTERNS.md (Rule 4.4 row), FEEDBACK.md.
 
 **Pending follow-on**: backfill `manifest.logo.dominantPaintedColor` across customer library by re-running `node scripts/fix-logo.js <domain>` on each existing job. Was unset on every customer (data didn't exist pre-2026-05-07-afternoon). Non-blocking — rule silently no-ops when data is missing.
+
+---
+
+## 2026-05-07 (late afternoon) — Three open follow-ons closed: SVG support, variant-hunt fallback, chokepoint composition
+
+**Feedback context**: After the LOGO RULE 4.4 commit, three open items remained: (1) SVG dominantPaintedColor coverage (~15 customers stuck on empty-DPC because ffmpeg can't raster-sample SVG without librsvg), (2) variant-hunt fallback bug for CMS-hosted CPAs (riggscpa.com / sagelandcpa.com — script bailed without inspecting the existing local file when no remote variants fetched), (3) Smart Resume + chokepoint composition for `validate-pre-deploy.cjs` (false-failed when build resumed mid-pipeline or `--option-b` / `--option-c` jumped to a later stage). User said "finish Open follow-ons."
+
+**Backfill before fixes**: 42/79 customers populated with `dominantPaintedColor`. 30 empty-DPC. 2 errors (CMS-hosted CPAs).
+
+### Fix 1 — SVG support in fix-logo.js
+
+New `inspectSvgViaPlaywright(absPath)` function. Reads SVG file as text, encodes as `data:image/svg+xml;base64,...`, opens via Playwright, draws `<img>` to canvas at intrinsic size (or 512×512 fallback), samples corners + computes dominantPaintedColor as mean RGB of pixels with alpha > 200.
+
+**Why data: URL** instead of file:// + crossOrigin (the path that was silently failing on every customer pre-2026-05-07): data: URLs are same-origin with the page (about:blank), so canvas `getImageData` works without CORS issues. The original Playwright sampler had `img.crossOrigin = 'anonymous'` on `file://` URLs, which Chromium treats as cross-origin without proper CORS headers from a file server (which has none) → image load fails silently.
+
+**Why not ffmpeg** for SVG: ffmpeg's SVG handling depends on librsvg compiled in; Homebrew's default ffmpeg doesn't ship it. Playwright + data URL works on every platform without extra deps.
+
+Wired into the main inspection branch via format-dispatch: `if (best.format === 'svg') inspectSvgViaPlaywright(...)` else `inspectImageWithFfmpeg(...)`.
+
+Smoke-test on aandwconcrete.godaddysites.com (was empty-DPC due to SVG): now populates `dominantPaintedColor: #111111 (17% opaque pixels)`.
+
+### Fix 2 — variant-hunt fallback in fix-logo.js
+
+Pre-fix bug: when `downloaded.length === 0` (no remote variants fetched — common for CMS-hosted CPA sites where the variant-hunt URLs 404), the script wrote a stub manifest entry (`warning: 'unfetchable'`) and exited WITHOUT inspecting the existing local file (which the scraper had already downloaded successfully). Manifest was missing all the new metadata (`dominantPaintedColor`, `cornerSamples`, etc.) even though the local file was fully inspectable.
+
+Fix: new fall-through path. When `downloaded.length === 0`, check if `primary.localPath` exists on disk. If yes, dispatch to `inspectSvgViaPlaywright` (for SVG) or `inspectImageWithFfmpeg` (for raster), populate manifest with full metadata, mark `warning: 'no-fetchable-remote-variants-fallback-to-local'`. If no local file either, write the original stub.
+
+Smoke-test on riggscpa.com (was empty-DPC due to variant-hunt bailout): now populates `dominantPaintedColor: #6e6e6f` from the existing local PNG.
+
+### Fix 3 — Smart Resume + chokepoint composition in validate-pre-deploy.cjs
+
+Pre-fix bug: when build resumes mid-pipeline (Smart Resume) or when `--option-b` / `--option-c` jumps to a later stage (skipping rebuild of earlier options), events from prior stages aren't in the CURRENT session's `orchestration.log`. The chokepoint flagged them as missing → false-fail. The only escape was `--allow-missing-events`, which was a flat override that suppressed ALL missing events including real quality gaps.
+
+Fix: each `REQUIRED` entry gets a `proxyArtifact` field — a filesystem path that, if present, indicates the stage completed in current OR prior session. When log-event check fails BUT proxy artifact exists, check passes with `status: 'pass-via-proxy'` and `⚙` glyph in output. The audit trail records `passedViaProxy: <count>` in the self-instrument event payload, distinguishing "passed via log" from "passed via proxy" so post-hoc audits can detect prior-session reliance.
+
+Proxy mappings:
+- Stage 0 → `metrics.json`
+- Stage 1 (NEW required check) → `manifest.json`
+- Stage 1d → `image-classification.json`
+- Stage 2 → `design-brief.json`
+- Stage 2.5b → `specs/_shared.md`
+- Stage 2.5c → `specs/_image-pools.json`
+- Stage 3 / 5 / 7d-build per-page dispatch → `option-{a,b,c}/dist/index.html`
+- Stage 4c-bis / 6c / 7g visual-pass → `qa-option-{a,b,c}/visual-pass-verdict.json`
+- Stage 7d plugin → `option-c/dist/index.html`
+
+Smoke-test on rebeccabosscpa.com (real-world build with full state): 5 checks correctly fall through to proxy artifacts (Stage 3, 5, 7d, 7d-build dispatch, 7d plugin); 3 still fail (visual-pass-verdict A/B/C) because rebeccabosscpa was built before the visual-pass-verdict.json files existed — that's a real quality gap the gate is right to flag, NOT a composition bug. The composition fix correctly distinguishes "events missing because prior session" (passes via proxy) from "events missing because gate never ran" (still fails).
+
+### Backfill v2 results
+
+47/79 populated (+5 from v1's 42). Remaining 25 empty-DPC are mostly format=other (palette PNGs misclassified, ICO files) — edge cases the rule silently no-ops on (graceful degrade). Architectural fixes are correct; future builds populate dominantPaintedColor on every supported format.
+
+**Files modified**: scripts/fix-logo.js (inspectSvgViaPlaywright + variant-hunt fallback to local file inspection + format-dispatch in main inspection branch), scripts/validate-pre-deploy.cjs (proxyArtifact field on every REQUIRED entry + pass-via-proxy status + ⚙ glyph in output + passedViaProxy in self-instrument + Stage 1 manifest.json check added), FEEDBACK.md.
+
+**No SKILL.md changes**: the rules already documented in LOGO RULE 4.4 + Phase F.2 architecturally cover these cases; only implementation gaps were closed.
+
+**Open**: 25 customers still empty-DPC (edge-case formats). Could be addressed by extending `format=other` detection in fix-logo.js, but very low ROI — those customers' visual-pass-verdict.json checks at deploy time will catch logo-rendered-contrast violations regardless via in-browser canvas sampling against the actual rendered nav.

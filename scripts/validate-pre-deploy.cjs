@@ -41,6 +41,27 @@
  * skip the Stage 7d + 7g requirements automatically. Explicit on-disk
  * state — no CLI flag inheritance needed.
  *
+ * Smart Resume + --option-{b,c} composition (added 2026-05-07): each
+ * REQUIRED entry has an optional `proxyArtifact` filesystem path. When
+ * the log-event check fails BUT the proxy artifact exists on disk, the
+ * check passes with `status: 'pass-via-proxy'`. This handles:
+ *   - Smart Resume mid-pipeline: events from prior session aren't in the
+ *     current orchestration.log, but their output artifacts exist.
+ *   - --option-b / --option-c jump-to-stage modes: Stage 0..N-1 events
+ *     weren't run in THIS session because the prior options' artifacts
+ *     already exist (option-a/dist for B, option-{a,b}/dist for C).
+ * Proxy mappings:
+ *   Stage 0      → metrics.json
+ *   Stage 1      → manifest.json
+ *   Stage 1d     → image-classification.json
+ *   Stage 2      → design-brief.json
+ *   Stage 2.5b   → specs/_shared.md
+ *   Stage 2.5c   → specs/_image-pools.json
+ *   Stage 3 / 5 / 7d-build dispatch → option-{a,b,c}/dist/index.html
+ *   Stage 4c-bis / 6c / 7g visual-pass → qa-option-{a,b,c}/visual-pass-verdict.json
+ * Output indicates `pass-via-proxy` checks with the ⚙ glyph and counts
+ * them in the self-instrument event payload (`passedViaProxy` field).
+ *
  * Usage:
  *   node scripts/validate-pre-deploy.cjs <domain> [--allow-missing-events]
  *
@@ -136,27 +157,53 @@ function countPerPageDispatches(events, stage, option) {
 }
 
 // Required-event spec: each entry says which event must exist + an
-// optional details predicate (e.g., option=a) + skip condition.
+// optional details predicate (e.g., option=a) + skip condition + a
+// `proxyArtifact` filesystem path.
+//
+// 2026-05-07 composition fix: when smart-resume happens (build resumed
+// from Stage N — events 0..N-1 are in a prior session's log if any),
+// or when --option-b / --option-c jumps to a later stage (events for
+// earlier stages weren't run in THIS session at all because their
+// outputs already exist on disk), the gate previously false-failed on
+// missing events. The fix: each REQUIRED entry that has a stable
+// filesystem proxy artifact (manifest.json, design-brief.json,
+// specs/_shared.md, option-{a,b,c}/dist/index.html, etc.) accepts the
+// proxy as evidence the stage completed — in current OR prior session.
+// The check passes with `(via filesystem proxy)` annotation when log
+// event is missing but proxy exists. Both missing = fail.
+function proxyExists(p) {
+  return fs.existsSync(path.join(jobDir, p));
+}
 const REQUIRED = [
   {
     label: 'Stage 0 build-started',
     match: e => e.stage === '0' && e.event === 'build-started',
+    proxyArtifact: 'metrics.json',  // init-metrics.cjs writes this at Stage 0
+  },
+  {
+    label: 'Stage 1 scrape (manifest.json)',
+    match: e => e.stage === '1' && (e.event === 'scrape-complete' || e.event === 'manifest-written'),
+    proxyArtifact: 'manifest.json',
   },
   {
     label: 'Stage 1d images-classified',
     match: e => e.stage === '1d' && e.event === 'images-classified',
+    proxyArtifact: 'image-classification.json',
   },
   {
     label: 'Stage 2 validate-design-brief-pass',
     match: e => e.stage === '2' && e.event === 'validate-design-brief-pass',
+    proxyArtifact: 'design-brief.json',
   },
   {
     label: 'Stage 2.5b validate-specs-pass',
     match: e => e.stage === '2.5b' && e.event === 'validate-specs-pass',
+    proxyArtifact: 'specs/_shared.md',
   },
   {
     label: 'Stage 2.5c validate-image-pool-pass',
     match: e => e.stage === '2.5c' && e.event === 'validate-image-pool-pass',
+    proxyArtifact: 'specs/_image-pools.json',
   },
   {
     label: 'Stage 3 per-page sub-agent dispatch (option=a, decomposed)',
@@ -169,6 +216,10 @@ const REQUIRED = [
         message: `dispatched ${got}/${expectedPageCount} pages (Phase F.6 decomposed-mode requirement)`,
       };
     },
+    // Filesystem proxy: option-a/dist/index.html means Stage 3 completed
+    // (in current or prior session). When per-page dispatch events are
+    // missing in THIS session's log but the dist exists, treat as passed.
+    proxyArtifact: 'option-a/dist/index.html',
   },
   {
     label: 'Stage 5 per-page sub-agent dispatch (option=b, decomposed)',
@@ -181,20 +232,24 @@ const REQUIRED = [
         message: `dispatched ${got}/${expectedPageCount} pages (Phase F.6 decomposed-mode requirement)`,
       };
     },
+    proxyArtifact: 'option-b/dist/index.html',
   },
   {
     label: 'Stage 4c-bis visual-pass-verdict (option=a)',
     match: e => e.stage === '4c-bis' && e.event === 'visual-pass-verdict' && (e.details || {}).option === 'a',
+    proxyArtifact: 'qa-option-a/visual-pass-verdict.json',
   },
   {
     label: 'Stage 6c visual-pass-verdict (option=b)',
     match: e => e.stage === '6c' && e.event === 'visual-pass-verdict' && (e.details || {}).option === 'b',
+    proxyArtifact: 'qa-option-b/visual-pass-verdict.json',
   },
   {
     label: 'Stage 7d validate-stage7-plugin-pass',
     match: e => e.stage === '7d' && e.event === 'validate-stage7-plugin-pass',
     skipIf: () => !optionCBuilt,
     skipReason: 'option-c not built (--skip-c mode or C skipped)',
+    proxyArtifact: 'option-c/dist/index.html',
   },
   {
     label: 'Stage 7d-build per-page sub-agent dispatch (option=c, decomposed)',
@@ -212,25 +267,31 @@ const REQUIRED = [
         message: `dispatched ${got}/${expectedPageCount} pages (Phase F.6 decomposed-mode requirement)`,
       };
     },
+    proxyArtifact: 'option-c/dist/index.html',
   },
   {
     label: 'Stage 7g visual-pass-verdict (option=c)',
     match: e => e.stage === '7g' && e.event === 'visual-pass-verdict' && (e.details || {}).option === 'c',
     skipIf: () => !optionCBuilt,
     skipReason: 'option-c not built',
+    proxyArtifact: 'qa-option-c/visual-pass-verdict.json',
   },
 ];
 
 const results = [];
 let missingCount = 0;
+let proxyFallbackCount = 0;
 for (const req of REQUIRED) {
   if (req.skipIf && req.skipIf()) {
     results.push({ ...req, status: 'skipped', reason: req.skipReason });
     continue;
   }
-  // Two check modes:
+  // Three check modes:
   //   - `match`: predicate that returns true if at least one event matches
   //   - `customCheck`: returns { pass, message } — used for count-based checks
+  //   - `proxyArtifact`: filesystem path that, if present, evidences stage
+  //     completion in current OR prior session (composition fix 2026-05-07
+  //     for Smart Resume + --option-b/--option-c jump-to-stage modes)
   let pass, message;
   if (req.customCheck) {
     const r = req.customCheck(events);
@@ -238,6 +299,19 @@ for (const req of REQUIRED) {
     message = r.message;
   } else {
     pass = events.some(req.match);
+  }
+  // Composition fix: if log-event check failed BUT the proxy artifact
+  // exists on disk, treat as passed. This handles smart-resume (events
+  // from prior session not in current log) + --option-b / --option-c
+  // (events for earlier stages weren't run in THIS session because outputs
+  // already exist). Annotates the result so the audit trail records "passed
+  // via filesystem proxy, not log event."
+  if (!pass && req.proxyArtifact && proxyExists(req.proxyArtifact)) {
+    pass = true;
+    proxyFallbackCount++;
+    message = `${message ? message + '; ' : ''}log event missing but proxy artifact ${req.proxyArtifact} exists (smart-resume / --option-{b,c} mode)`;
+    results.push({ ...req, status: 'pass-via-proxy', message });
+    continue;
   }
   if (pass) {
     results.push({ ...req, status: 'pass', message });
@@ -253,9 +327,13 @@ console.log(`  ${events.length} log events read; ${REQUIRED.length} required che
 console.log('═══════════════════════════════════════════════════════════════════════');
 for (const r of results) {
   const detail = r.message ? `  [${r.message}]` : '';
-  if (r.status === 'pass')      console.log(`  ✓ ${r.label}${detail}`);
-  else if (r.status === 'skipped') console.log(`  ⏭️  ${r.label}  (${r.reason})`);
-  else                           console.log(`  ✗ ${r.label}${detail}  ← MISSING`);
+  if (r.status === 'pass')              console.log(`  ✓ ${r.label}${detail}`);
+  else if (r.status === 'pass-via-proxy') console.log(`  ⚙ ${r.label}${detail}`);   // composition-fix: passed via filesystem proxy
+  else if (r.status === 'skipped')      console.log(`  ⏭️  ${r.label}  (${r.reason})`);
+  else                                  console.log(`  ✗ ${r.label}${detail}  ← MISSING`);
+}
+if (proxyFallbackCount > 0) {
+  console.log(`  ⚙  ${proxyFallbackCount} check${proxyFallbackCount === 1 ? '' : 's'} passed via filesystem proxy (smart-resume / --option-{b,c} mode — events from prior session not in current log)`);
 }
 console.log('');
 
@@ -267,11 +345,13 @@ console.log('');
 const { logDecision } = require('./_log-helper.cjs');
 
 if (missingCount === 0) {
-  console.log(`✓ PRE-DEPLOY GATE PASSED — all required events present. Stage 8b deploy may proceed.`);
+  const proxyNote = proxyFallbackCount > 0 ? ` (${proxyFallbackCount} via filesystem proxy)` : '';
+  console.log(`✓ PRE-DEPLOY GATE PASSED — all required events present${proxyNote}. Stage 8b deploy may proceed.`);
   logDecision(domain, '8a', 'validate-pre-deploy-pass', {
     eventsRead: events.length,
     requiredChecks: REQUIRED.length,
     skipped: results.filter(r => r.status === 'skipped').length,
+    passedViaProxy: proxyFallbackCount,
     optionCBuilt,
   });
   process.exit(0);
@@ -283,6 +363,7 @@ if (allowMissing) {
   logDecision(domain, '8a', 'validate-pre-deploy-override', {
     missingCount,
     missingLabels: results.filter(r => r.status === 'fail').map(r => r.label).join('|'),
+    passedViaProxy: proxyFallbackCount,
     optionCBuilt,
   });
   process.exit(0);

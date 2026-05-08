@@ -28,6 +28,7 @@
  */
 
 import { readFile, writeFile, stat, open } from 'fs/promises';
+import { existsSync } from 'fs';
 import { join, resolve, dirname, basename, extname } from 'path';
 import { spawnSync } from 'child_process';
 
@@ -568,6 +569,162 @@ async function inspectImageWithBrowser(absPath) {
   return inspectImageWithFfmpeg(absPath);
 }
 
+/**
+ * SVG corner-sampling + dominantPaintedColor extraction via Playwright with
+ * a data: URL (sidesteps the file:// + crossOrigin issue that broke the
+ * pre-2026-05-07 Playwright sampler — data URLs are same-origin with the
+ * page so canvas getImageData works).
+ *
+ * 2026-05-07 follow-on: ffmpeg can rasterize SVG only with librsvg
+ * compiled in; Homebrew's default ffmpeg doesn't ship it. Playwright
+ * renders SVG natively via `<img src=data:...>` — most reliable path on
+ * any platform. Returns same shape as inspectImageWithFfmpeg so the
+ * caller can use the result interchangeably.
+ *
+ * SVG-specific behavior:
+ *   - Renders at the SVG's natural size (or 512×512 fallback)
+ *   - Most SVG logos have transparent backgrounds → backgroundColor null,
+ *     hasTransparency=true, cornersAgree=true (all corners are alpha=0)
+ *   - dominantPaintedColor populated from opaque pixels (the actual logo
+ *     content) — the value the LOGO RULE 4.4 contrast check uses
+ */
+async function inspectSvgViaPlaywright(absPath) {
+  let chromium;
+  try {
+    ({ chromium } = await import('playwright'));
+  } catch {
+    return { hasTransparency: null, backgroundColor: null, error: 'playwright not installed (required for SVG inspection)' };
+  }
+  let svgText;
+  try {
+    svgText = await readFile(absPath, 'utf8');
+  } catch (e) {
+    return { hasTransparency: null, backgroundColor: null, error: `read failed: ${e.message}` };
+  }
+  // data: URL = same-origin with page → no crossOrigin issue
+  const dataUrl = 'data:image/svg+xml;base64,' + Buffer.from(svgText, 'utf8').toString('base64');
+
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    const result = await page.evaluate(async (url) => {
+      return new Promise((res) => {
+        const img = new Image();
+        img.onload = () => {
+          // SVGs have intrinsic dims via viewBox. Use them; fall back to
+          // 512×512 if the SVG didn't declare any (rare).
+          const W = Math.max(1, img.naturalWidth || 512);
+          const H = Math.max(1, img.naturalHeight || 512);
+          const c = document.createElement('canvas');
+          c.width = W;
+          c.height = H;
+          const ctx = c.getContext('2d');
+          ctx.drawImage(img, 0, 0, W, H);
+
+          const corners = [
+            [0, 0],
+            [W - 1, 0],
+            [0, H - 1],
+            [W - 1, H - 1],
+          ].map(([x, y]) => {
+            const d = ctx.getImageData(x, y, 1, 1).data;
+            return { r: d[0], g: d[1], b: d[2], a: d[3] };
+          });
+
+          // Sample 5x5 grid for transparency detection
+          let anyTransparent = corners.some(c => c.a < 250);
+          if (!anyTransparent) {
+            const stepX = Math.max(1, Math.floor(W / 5));
+            const stepY = Math.max(1, Math.floor(H / 5));
+            for (let y = 0; y < H && !anyTransparent; y += stepY) {
+              for (let x = 0; x < W && !anyTransparent; x += stepX) {
+                const d = ctx.getImageData(x, y, 1, 1).data;
+                if (d[3] < 250) anyTransparent = true;
+              }
+            }
+          }
+
+          // Dominant painted color (mean RGB of opaque pixels)
+          const fullData = ctx.getImageData(0, 0, W, H).data;
+          let totalR = 0, totalG = 0, totalB = 0, count = 0;
+          for (let i = 0; i < fullData.length; i += 4) {
+            if (fullData[i + 3] > 200) {
+              totalR += fullData[i];
+              totalG += fullData[i + 1];
+              totalB += fullData[i + 2];
+              count++;
+            }
+          }
+          const dpc = count > 0 ? {
+            r: Math.round(totalR / count),
+            g: Math.round(totalG / count),
+            b: Math.round(totalB / count),
+            opaquePixelCount: count,
+            totalPixelCount: W * H,
+          } : null;
+
+          res({ corners, anyTransparent, width: W, height: H, dpc });
+        };
+        img.onerror = (e) => res({ error: 'svg load failed', message: String(e) });
+        img.src = url;
+      });
+    }, dataUrl);
+
+    if (result.error) {
+      return { hasTransparency: null, backgroundColor: null, error: result.error };
+    }
+
+    const corners = result.corners;
+    const allAgreeStrict = corners.every(c =>
+      Math.abs(c.r - corners[0].r) < 5 &&
+      Math.abs(c.g - corners[0].g) < 5 &&
+      Math.abs(c.b - corners[0].b) < 5
+    );
+    const allAgreeLoose = corners.every(c =>
+      Math.abs(c.r - corners[0].r) < 15 &&
+      Math.abs(c.g - corners[0].g) < 15 &&
+      Math.abs(c.b - corners[0].b) < 15
+    );
+    let backgroundColor = null;
+    let backgroundColorConfidence = null;
+    if (!result.anyTransparent && allAgreeStrict) {
+      const c = corners[0];
+      backgroundColor = '#' + [c.r, c.g, c.b].map(n => n.toString(16).padStart(2, '0')).join('');
+      backgroundColorConfidence = 'high';
+    } else if (!result.anyTransparent && allAgreeLoose) {
+      const c = corners[0];
+      backgroundColor = '#' + [c.r, c.g, c.b].map(n => n.toString(16).padStart(2, '0')).join('');
+      backgroundColorConfidence = 'low (corners disagreed by 5-15 RGB units)';
+    }
+
+    let dominantPaintedColor = null;
+    if (result.dpc) {
+      const d = result.dpc;
+      dominantPaintedColor = {
+        r: d.r, g: d.g, b: d.b,
+        hex: '#' + [d.r, d.g, d.b].map(n => n.toString(16).padStart(2, '0')).join(''),
+        opaquePixelCount: d.opaquePixelCount,
+        totalPixelCount: d.totalPixelCount,
+        opaqueRatio: d.opaquePixelCount / d.totalPixelCount,
+      };
+    }
+
+    return {
+      hasTransparency: result.anyTransparent,
+      backgroundColor,
+      backgroundColorConfidence,
+      cornersAgree: allAgreeStrict,
+      cornersAgreeLoose: allAgreeLoose,
+      cornerSamples: corners,
+      dominantPaintedColor,
+      width: result.width,
+      height: result.height,
+    };
+  } finally {
+    await browser.close();
+  }
+}
+
 // ---------- Main ----------
 
 async function main() {
@@ -741,15 +898,53 @@ async function main() {
   }
 
   if (downloaded.length === 0) {
-    console.log('\n✗ No fetchable logo variants. Manifest will keep the original local file.');
-    manifest.logo = {
-      src: primary.src,
-      localPath: primary.localPath,
-      width: 0,
-      height: 0,
-      warning: 'unfetchable',
-    };
-    await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+    // 2026-05-07 fix (was real bug for riggscpa.com + sagelandcpa.com):
+    // pre-fix the script wrote a stub manifest entry and exited without
+    // inspecting the EXISTING local file (which the scraper had already
+    // downloaded). That meant `manifest.logo` was missing
+    // `dominantPaintedColor`, `cornerSamples`, etc. — even though the
+    // local file was present and inspectable. Now: when variant-hunt
+    // returns no remote files, fall through to inspecting the existing
+    // local file (primary.localPath was set by scraper) so the manifest
+    // gets the same level of metadata as a successful variant-fetch.
+    console.log('\n⚠ No fetchable remote logo variants — falling through to inspect existing local file.');
+    const localPathAbs = primary.localPath ? join(jobDir, primary.localPath) : null;
+    if (localPathAbs && existsSync(localPathAbs)) {
+      const localFormat = (extname(primary.localPath) || '.png').slice(1).toLowerCase();
+      const localFormatNorm = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'ico'].includes(localFormat) ? localFormat : 'other';
+      const inspection = localFormatNorm === 'svg'
+        ? await inspectSvgViaPlaywright(localPathAbs)
+        : await inspectImageWithFfmpeg(localPathAbs);
+      manifest.logo = {
+        src: primary.src,
+        localPath: primary.localPath,
+        width: inspection.width || 0,
+        height: inspection.height || 0,
+        format: localFormatNorm,
+        hasTransparency: inspection.hasTransparency === true || localFormatNorm === 'svg',
+        backgroundColor: inspection.backgroundColor || null,
+        backgroundColorConfidence: inspection.backgroundColorConfidence || null,
+        cornerSamples: inspection.cornerSamples || null,
+        cornersAgree: inspection.cornersAgree ?? null,
+        cornersAgreeLoose: inspection.cornersAgreeLoose ?? null,
+        dominantPaintedColor: inspection.dominantPaintedColor || null,
+        inspectionError: inspection.error || null,
+        warning: 'no-fetchable-remote-variants-fallback-to-local',
+      };
+      await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+      console.log(`  ✓ Inspected local ${localFormatNorm} file at ${primary.localPath}`);
+      console.log(`    dominantPaintedColor: ${manifest.logo.dominantPaintedColor?.hex || 'null'}`);
+    } else {
+      console.log('✗ No local file either. Writing stub manifest entry.');
+      manifest.logo = {
+        src: primary.src,
+        localPath: primary.localPath,
+        width: 0,
+        height: 0,
+        warning: 'unfetchable',
+      };
+      await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+    }
     return;
   }
 
@@ -792,10 +987,24 @@ async function main() {
   await writeFile(finalAbs, best.buf);
   console.log(`  Wrote ${best.buf.length} bytes to ${finalLocal}`);
 
-  // Inspect the chosen file with a real browser to detect transparency + sample corners
+  // Inspect the chosen file: dispatch on format. PNG/JPG/WebP/etc → ffmpeg
+  // sampler (introduced 2026-05-07 to replace the silent-failing Playwright
+  // file:// + crossOrigin path). SVG → Playwright with data: URL (introduced
+  // 2026-05-07 follow-on; ffmpeg's SVG support depends on librsvg which the
+  // Homebrew default doesn't ship — Playwright + data URL works on every
+  // platform without extra deps).
   console.log(`\nInspecting final logo file for transparency + background colour...`);
   let inspection = { hasTransparency: best.hasAlphaChannel, backgroundColor: null };
-  if (best.format !== 'svg') {
+  if (best.format === 'svg') {
+    inspection = await inspectSvgViaPlaywright(finalAbs);
+    console.log(`  format=svg, inspected via Playwright data URL`);
+    console.log(`  hasTransparency: ${inspection.hasTransparency}`);
+    if (inspection.dominantPaintedColor) {
+      console.log(`  dominantPaintedColor: ${inspection.dominantPaintedColor.hex} (${(inspection.dominantPaintedColor.opaqueRatio * 100).toFixed(0)}% opaque pixels)`);
+    } else if (inspection.error) {
+      console.log(`  ⚠ inspection error: ${inspection.error}`);
+    }
+  } else {
     inspection = await inspectImageWithBrowser(finalAbs);
     console.log(`  hasTransparency: ${inspection.hasTransparency}`);
     console.log(`  cornersAgree: ${inspection.cornersAgree}`);
@@ -804,8 +1013,9 @@ async function main() {
     } else if (inspection.cornersAgree === false) {
       console.log(`  Corners disagree — logo has variable/photographic background. No single colour to match.`);
     }
-  } else {
-    console.log(`  SVG — assumed transparent and infinitely scalable.`);
+    if (inspection.dominantPaintedColor) {
+      console.log(`  dominantPaintedColor: ${inspection.dominantPaintedColor.hex} (${(inspection.dominantPaintedColor.opaqueRatio * 100).toFixed(0)}% opaque pixels)`);
+    }
   }
 
   // Final manifest entry for the logo
