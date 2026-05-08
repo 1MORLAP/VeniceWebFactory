@@ -61,3 +61,14 @@ templates/inspiration/*/node_modules/
 templates/inspiration/*/dist/
 templates/inspiration/*/.astro/
 templates/scaffold/node_modules/
+
+# ─── Lead-funnel runtime data ─────────────────────────────────────────
+# SQLite lead database is per-machine state, not code
+leads.db
+leads.db-journal
+lead-funnel/leads.db
+lead-funnel/leads.db-journal
+lead-funnel/.env
+
+# ─── Claude Code runtime locks ────────────────────────────────────────
+.claude/scheduled_tasks.lock

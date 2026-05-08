@@ -33,19 +33,62 @@ const EMAIL_FALSE_POSITIVE_PATTERNS = [
   /\.(png|jpg|jpeg|gif|svg|webp|ico|css|js)$/i,
   // Test / dev placeholders
   /^sentry@|^admin@example|^test@/i,
+  // Vendor placeholder emails (mirror filter.js — added 2026-05-07)
+  /^info@ndiscovered\.com$/i, /@ndiscovered\.com$/i,
+  /^emaildemo@hostopia\.com$/i, /@hostopia\.com$/i,
 ];
 
 function isFalsePositive(email) {
   return EMAIL_FALSE_POSITIVE_PATTERNS.some(re => re.test(email));
 }
 
+// Mirror of cleanEmailString in filter.js — strip URL-encoding, doubled @,
+// trailing punctuation; fix common TLD/provider typos. Returns null if the
+// cleaned string doesn't look like a valid email.
+const TLD_TYPO_FIXES = [
+  [/\.con$/i, '.com'], [/\.cmo$/i, '.com'], [/\.cm$/i, '.com'],
+  [/\.ney$/i, '.net'], [/\.ner$/i, '.net'], [/\.nrt$/i, '.net'],
+  [/\.og$/i, '.org'], [/\.ogr$/i, '.org'], [/\.orgg$/i, '.org'],
+];
+const PROVIDER_TYPO_FIXES = [
+  [/@gmial\.com$/i, '@gmail.com'], [/@gmal\.com$/i, '@gmail.com'],
+  [/@gnail\.com$/i, '@gmail.com'], [/@gmailcom$/i, '@gmail.com'],
+  [/@gmail\.cm$/i, '@gmail.com'],
+  [/@yaho\.com$/i, '@yahoo.com'], [/@yahho\.com$/i, '@yahoo.com'],
+  [/@yahoocom$/i, '@yahoo.com'],
+  [/@hotmial\.com$/i, '@hotmail.com'], [/@hotmal\.com$/i, '@hotmail.com'],
+  [/@hotmailcom$/i, '@hotmail.com'],
+  [/@outlok\.com$/i, '@outlook.com'], [/@outlookcom$/i, '@outlook.com'],
+  [/@aol\.con$/i, '@aol.com'],
+  [/@sbcgloba\.net$/i, '@sbcglobal.net'],
+];
+function cleanEmailString(raw) {
+  if (!raw) return null;
+  let s = raw;
+  try { s = decodeURIComponent(s); } catch {}
+  s = s.trim().replace(/^[\s,;:<>"'()\[\]{}]+|[\s,;:<>"'()\[\]{}.!?]+$/g, '');
+  s = s.toLowerCase().replace(/@@+/g, '@');
+  for (const [re, fix] of TLD_TYPO_FIXES) {
+    const next = s.replace(re, fix);
+    if (next !== s) { s = next; break; }
+  }
+  for (const [re, fix] of PROVIDER_TYPO_FIXES) {
+    const next = s.replace(re, fix);
+    if (next !== s) { s = next; break; }
+  }
+  if (!/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(s)) return null;
+  return s;
+}
+
 function extractContactEmail(html, siteUrl) {
-  const mailtoMatches = [...html.matchAll(/mailto:([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/gi)];
+  const mailtoMatches = [...html.matchAll(/mailto:([^"'\s>]+@[^"'\s>]+)/gi)];
   const plainMatches = [...html.matchAll(/\b([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\b/g)];
   const candidates = [
-    ...mailtoMatches.map(m => ({ email: m[1].toLowerCase(), priority: 1 })),
-    ...plainMatches.map(m => ({ email: m[1].toLowerCase(), priority: 2 })),
-  ].filter(c => !isFalsePositive(c.email));
+    ...mailtoMatches.map(m => ({ raw: m[1], priority: 1 })),
+    ...plainMatches.map(m => ({ raw: m[1], priority: 2 })),
+  ]
+    .map(c => ({ ...c, email: cleanEmailString(c.raw) }))
+    .filter(c => c.email && !isFalsePositive(c.email));
   if (candidates.length === 0) return null;
 
   let siteApex = null;

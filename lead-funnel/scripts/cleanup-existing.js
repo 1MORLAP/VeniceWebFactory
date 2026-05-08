@@ -72,6 +72,16 @@ const COMPLEX_TECH_TOKENS = [
   'opentable.com', 'opentable.us', 'resy.com', 'tock.com', 'exploretock.com',
   'yelp.com/reservations',
   'dentrix.com', 'athenanet.athenahealth.com',
+  // Funeral home obituary / tribute / send-flowers / sign-guestbook platforms
+  'tukios.com', 'tukioswebsites',
+  'tributecenter.com', 'tributepartner.com', 'tributetech',
+  'frazerconsultants.com', 'frazer-consultants',
+  'cfsbb.com', 'consolidatedfuneralservices',
+  'frontrunnerpro.com', 'frontrunner360.com', 'frontrunnerpro',
+  'funeralone.com', 'funeralnet.com',
+  'funeralinnovations.com', 'passare.com',
+  'forevermissed.com', 'tributearchive.com',
+  'legacy.com/obituaries',
 ];
 
 // ---- Predicates -----------------------------------------------------------
@@ -110,6 +120,142 @@ const detectExternalStorefront = lower => {
   for (const tok of EXTERNAL_STOREFRONT_DOMAINS) if (lower.includes(tok)) return tok;
   return null;
 };
+
+// Mirror of detectSelfHostedEcommerce in filter.js — combo-signal detector
+// for sites that have BOTH user accounts AND a cart on-domain (real bug
+// 2026-05-05 — cindysantiqueart.com: custom PHP cart with /account.php +
+// /cart.php missed by the platform-specific ECOMMERCE_TOKENS list).
+const ACCOUNT_HREF_TOKENS = [
+  '/account.php', '/account.html', '/account/',
+  '/myaccount', '/my-account', '/my_account',
+  '/create_account', '/create-account', '/createaccount',
+  '/register.php', '/register.html', '/register/',
+  '/signup', '/sign-up', '/sign_up',
+  'href="/login', "href='/login",
+];
+const CART_HREF_TOKENS = [
+  '/cart.php', '/cart.html', '/cart/',
+  '/shopping-cart', '/shopping_cart', '/shoppingcart',
+  '/checkout.php', '/checkout.html', '/checkout/',
+];
+const CART_TEXT_TOKENS = [
+  '>add to cart<', '>add to bag<', '>buy now<', '>view cart<',
+  '>your cart<', '>shopping cart<',
+];
+const detectSelfHostedEcommerce = lower => {
+  const hasAccount = ACCOUNT_HREF_TOKENS.some(t => lower.includes(t));
+  const hasCart = CART_HREF_TOKENS.some(t => lower.includes(t)) ||
+                  CART_TEXT_TOKENS.some(t => lower.includes(t));
+  if (hasAccount && hasCart) return 'account+cart';
+  const cartPaths = CART_HREF_TOKENS.filter(t => lower.includes(t)).length;
+  if (cartPaths >= 2) return 'cart+checkout';
+  return null;
+};
+
+// Mirror of obituary-CMS detector in filter.js. Funeral homes that have an
+// active obituary listing run a CMS — same complexity as ecommerce. Funeral
+// homes WITHOUT an obituary section are fine.
+const OBITUARY_PATH_TOKENS = [
+  '/obituaries/', '/obituary/',
+  '/tributes/', '/tribute/',
+  '/memorials/', '/memorial/',
+  '/recent-obituaries', '/current-obituaries', '/past-services',
+  '/in-memoriam', '/recent-services',
+  '/tribute-wall', '/memorial-wall',
+  // Closing-quote forms catch both relative `href="/obituaries"` AND
+  // absolute `href="https://...com/obituaries"` (common on IIS funeral CMSes).
+  '/obituaries"', "/obituaries'",
+  '/obituary"', "/obituary'",
+  '/tributes"', "/tributes'",
+  '/tribute"', "/tribute'",
+  '/memorials"', "/memorials'",
+  '/memorial"', "/memorial'",
+];
+const OBITUARY_ENTRY_ANCHOR_RE = /href\s*=\s*["'][^"']*\/(?:obituar(?:y|ies)|tributes?|memorials?)\/[a-z0-9][a-z0-9_.-]+[^"']*["']/gi;
+const DEATH_DATE_RANGE_RE = /(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2},?\s+(?:19|20)\d{2}\s*[-–—]\s*(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2},?\s+(?:19|20)\d{2}/gi;
+const YEAR_RANGE_RE = /\b(?:19|20)\d{2}\s*[-–—]\s*(?:19|20)\d{2}\b/g;
+const SINGLE_DEATH_DATE_RE = /(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2},?\s+(?:19|20)\d{2}/gi;
+
+function detectObituaryCMS(lower) {
+  const hasPath = OBITUARY_PATH_TOKENS.some(t => lower.includes(t));
+  if (!hasPath) return null;
+  const entryAnchors = (lower.match(OBITUARY_ENTRY_ANCHOR_RE) || []).length;
+  if (entryAnchors >= 1) return `entries_${entryAnchors}`;
+  const fullDates = (lower.match(DEATH_DATE_RANGE_RE) || []).length;
+  if (fullDates >= 1) return `dates_${fullDates}`;
+  const yearRanges = (lower.match(YEAR_RANGE_RE) || []).length;
+  if (yearRanges >= 3) return `years_${yearRanges}`;
+  return null;
+}
+function detectObituaryNavLink(lower) {
+  return OBITUARY_PATH_TOKENS.find(t => lower.includes(t)) || null;
+}
+function detectObituaryCMSDeep(lower) {
+  const v = detectObituaryCMS(lower);
+  if (v) return v;
+  const singleDates = (lower.match(SINGLE_DEATH_DATE_RE) || []).length;
+  if (singleDates >= 5) return `single_dates_${singleDates}`;
+  return null;
+}
+// Funeral-tech vendor fingerprints visible in JS bundles / SDK script src on
+// CMS-driven /obituaries sub-pages but often absent from the static homepage.
+const FUNERAL_VENDOR_TOKENS_DEEP = [
+  'tukios', 'tributecenter', 'tributepartner', 'tributetech',
+  'tributearchive', 'tributestore',
+  'frazerconsultants', 'frazer-consultants',
+  'cfsbb', 'consolidatedfuneralservices',
+  'frontrunnerpro', 'frontrunner360',
+  'funeralone', 'funeralnet', 'funeralinnovations', 'funeralinnov',
+  'passare.com', 'forevermissed',
+  'legacy.com/obituaries',
+];
+function detectFuneralVendorDeep(lower) {
+  for (const tok of FUNERAL_VENDOR_TOKENS_DEEP) {
+    if (lower.includes(tok)) return tok;
+  }
+  return null;
+}
+async function probeObituaryDeep(siteUrl, navHint, homepageHtml = null) {
+  let origin;
+  try { origin = new URL(siteUrl).origin; } catch { return null; }
+  const candidates = new Set();
+  // Extract on-domain obituary URLs from the homepage HTML when available —
+  // catches custom slugs like Duda's `/our-of-obituaries` that the static
+  // fallback list won't try.
+  if (homepageHtml) {
+    const urlRe = /href\s*=\s*["']([^"']*(?:obituar|tribute|memorial|in-memoriam|recent-services|past-services)[^"']*)["']/gi;
+    let m;
+    while ((m = urlRe.exec(homepageHtml)) !== null) {
+      try {
+        const abs = new URL(m[1], siteUrl);
+        if (abs.origin === origin) candidates.add(abs.pathname || '/');
+      } catch {}
+    }
+  }
+  const m = navHint && navHint.match(/href\s*=\s*["']([^"']+)["']/);
+  if (m) candidates.add(m[1]);
+  if (navHint && navHint.startsWith('/')) {
+    // Strip trailing quote (token may be `/obituaries"`) and any trailing slash.
+    candidates.add(navHint.replace(/["'\/]+$/, ''));
+  }
+  candidates.add('/obituaries');
+  candidates.add('/obituary');
+  candidates.add('/tributes');
+  candidates.add('/memorials');
+  for (const path of candidates) {
+    if (!path || !path.startsWith('/')) continue;
+    const probeUrl = `${origin}${path}`;
+    const html = await fetchHtml(probeUrl);
+    if (!html) continue;
+    const lower = html.toLowerCase();
+    const v = detectObituaryCMSDeep(lower);
+    if (v) return v;
+    const vendor = detectFuneralVendorDeep(lower);
+    if (vendor) return `vendor_${vendor.split('.')[0]}`;
+    return null;  // first real page didn't fire — don't keep guessing
+  }
+  return null;
+}
 
 function apexDomain(url) {
   if (!url) return null;
@@ -259,7 +405,7 @@ for (const [apex, leads] of byApex) {
 const stillPassed = listAllLeads().filter(l => l.filter_status === 'passed' && l.website);
 console.log(`\n[cleanup] re-probing ${stillPassed.length} passed leads for complex-tech + size + videos`);
 
-let complexCount = 0, sizeCount = 0, videoCount = 0, htmlMiss = 0, storefrontCount = 0;
+let complexCount = 0, sizeCount = 0, videoCount = 0, htmlMiss = 0, storefrontCount = 0, selfHostedShopCount = 0, obituaryCount = 0;
 for (const lead of stillPassed) {
   try {
     const html = await fetchHtml(lead.website);
@@ -278,16 +424,49 @@ for (const lead of stillPassed) {
 
     const tok = detectComplexTech(lower);
     const storefront = detectExternalStorefront(lower);
+    const selfHostedShop = detectSelfHostedEcommerce(lower);
+    const obituary = detectObituaryCMS(lower);
+    const obituaryNav = obituary ? null : detectObituaryNavLink(lower);
     if (tok) {
       updates.filter_status = 'rejected';
       updates.filter_reason = `complex_integration:${tok.split('.')[0]}`;
       complexCount++;
       console.log(`  · complex_integration:${tok.split('.')[0]}: ${lead.business_name}`);
+    } else if (selfHostedShop) {
+      updates.filter_status = 'rejected';
+      updates.filter_reason = `ecommerce_self_hosted_${selfHostedShop}`;
+      selfHostedShopCount++;
+      console.log(`  · ecommerce_self_hosted (${selfHostedShop}): ${lead.business_name} [${lead.website}]`);
     } else if (storefront) {
       updates.filter_status = 'rejected';
       updates.filter_reason = `ecommerce_external_storefront:${storefront}`;
       storefrontCount++;
       console.log(`  · ecommerce_external_storefront (${storefront}): ${lead.business_name} [${lead.website}]`);
+    } else if (obituary) {
+      updates.filter_status = 'rejected';
+      updates.filter_reason = `obituary_cms_${obituary}`;
+      obituaryCount++;
+      console.log(`  · obituary_cms (${obituary}): ${lead.business_name} [${lead.website}]`);
+    } else if (obituaryNav) {
+      // Homepage links to /obituaries but didn't show entries inline — deep-probe
+      // the linked page to confirm whether it's an active CMS.
+      const deep = await probeObituaryDeep(lead.website, obituaryNav, html);
+      if (deep) {
+        updates.filter_status = 'rejected';
+        updates.filter_reason = `obituary_cms_deep_${deep}`;
+        obituaryCount++;
+        console.log(`  · obituary_cms_deep (${deep}): ${lead.business_name} [${lead.website}]`);
+      } else if (linkCount > SITE_SIZE_ANCHOR_LIMIT) {
+        updates.filter_status = 'rejected';
+        updates.filter_reason = `site_too_big_${linkCount}_links`;
+        sizeCount++;
+        console.log(`  · site_too_big (${linkCount} links): ${lead.business_name} [${lead.website}]`);
+      } else if (videos > VIDEO_LIMIT) {
+        updates.filter_status = 'rejected';
+        updates.filter_reason = `too_many_videos_${videos}`;
+        videoCount++;
+        console.log(`  · too_many_videos (${videos}): ${lead.business_name} [${lead.website}]`);
+      }
     } else if (linkCount > SITE_SIZE_ANCHOR_LIMIT) {
       updates.filter_status = 'rejected';
       updates.filter_reason = `site_too_big_${linkCount}_links`;
@@ -307,4 +486,4 @@ for (const lead of stillPassed) {
 
 if (sharedBrowser) await sharedBrowser.close().catch(() => {});
 
-console.log(`\n[cleanup] legal_risk=${legalCount} association=${assocCount} blocklist_law=${lawIndustry} gov=${govCount} duplicate_domain=${dupCount} complex_integration=${complexCount} ext_storefront=${storefrontCount} site_too_big=${sizeCount} too_many_videos=${videoCount} html_miss=${htmlMiss}`);
+console.log(`\n[cleanup] legal_risk=${legalCount} association=${assocCount} blocklist_law=${lawIndustry} gov=${govCount} duplicate_domain=${dupCount} complex_integration=${complexCount} self_hosted_shop=${selfHostedShopCount} ext_storefront=${storefrontCount} obituary_cms=${obituaryCount} site_too_big=${sizeCount} too_many_videos=${videoCount} html_miss=${htmlMiss}`);

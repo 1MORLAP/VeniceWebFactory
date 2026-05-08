@@ -21,8 +21,54 @@ Two filters are PERMANENT — no `--explore` flag bypasses them:
    reservation systems (OpenTable, Resy, Tock). Plain `<form>` posting to email
    and PDF downloads ARE fine.
 
-Both lists are in `lead-funnel/filter.js` (`LAW_NAME_PATTERNS`, `COMPLEX_TECH_TOKENS`)
-and applied at filter time. Add new exclusions there + update HYPOTHESES.md.
+3. **Self-hosted ecommerce** — sites with on-domain account creation + cart
+   (e.g. `/login` + `/cart.php` + `/checkout.php`) are content-managed stores;
+   rebuilding a brochure version doesn't move the needle for the owner.
+   Detected by combo signal: account-href tokens AND cart-href / cart-text
+   tokens. See `detectSelfHostedEcommerce` in `filter.js`.
+
+4. **External white-label storefronts** — when the customer's REAL store runs
+   on Sanmar / companycasuals / SSactivewear / .myshopify.com / etsy / square.site
+   and the brochure site only links out, we drop. Brochure rebuild won't help.
+   See `detectExternalStorefront` / `EXTERNAL_STOREFRONT_DOMAINS` in `filter.js`.
+
+5. **Funeral homes with active obituary CMS** (added 2026-05-07) — obituary
+   listings are a content management system; the owner adds each deceased
+   entry the way ecommerce owners add products, often with photo / biography /
+   send-flowers / sign-card / livestream-funeral controls. WebFactory rebuilds
+   marketing sites; it can't replicate a CMS the owner actively manages.
+   Funeral homes **without** an active obituary listing (just a static
+   "we serve families" page) ARE fine. Monument / headstone / memorial-product
+   makers are also fine — they sell physical products, not run obituary listings.
+
+   Detection has THREE stages:
+   - **Homepage check** — path tokens (relative `/obituaries/` AND closing-quote
+     forms `/obituaries"` that catch absolute URLs `href="https://...com/obituaries"`)
+     combined with entry-anchor / date-range / year-range counts. Catches sites
+     that embed recent obituaries on the homepage.
+   - **Deep probe (custom-slug-aware)** — when the homepage links to an
+     obituary-related URL but doesn't show entries inline, fetch the linked
+     page itself. The probe extracts on-domain hrefs containing `obituar` /
+     `tribute` / `memorial` / `in-memoriam` / `recent-services` / `past-services`
+     from the homepage HTML and tries each, falling back to standard paths.
+     Catches non-standard slugs like Duda's `/our-of-obituaries`, ASP.NET's
+     `/obituaries/obituary-listings`, etc.
+   - **Vendor SDK fingerprint check on deep page** — Frazer / FrontRunner /
+     Tribute Tech / Tukios / FuneralOne / Passare vendor SDKs often appear in
+     the JS bundle of the listings sub-page but NOT on the homepage. The deep
+     probe checks for these on the fetched sub-page even when content signals
+     fail (JS-rendered listings).
+
+   See `detectObituaryCMS` / `probeObituaryDeep` / `FUNERAL_VENDOR_TOKENS_DEEP`
+   in `filter.js`. Mirrored in `scripts/cleanup-existing.js` so the rule can
+   be retroactively applied.
+
+All lists are in `lead-funnel/filter.js` (`LAW_NAME_PATTERNS`, `COMPLEX_TECH_TOKENS`,
+`ACCOUNT_HREF_TOKENS`, `CART_HREF_TOKENS`, `EXTERNAL_STOREFRONT_DOMAINS`,
+`OBITUARY_PATH_TOKENS`, `FUNERAL_VENDOR_TOKENS_DEEP`) and applied at filter
+time. The same constants are mirrored in `scripts/cleanup-existing.js` so we
+can retroactively scrub already-passed leads when a new rule lands. Add new
+exclusions in BOTH files + update HYPOTHESES.md.
 
 ## 🎯 Mission (read this every time)
 

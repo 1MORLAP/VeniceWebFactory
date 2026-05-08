@@ -90,6 +90,24 @@ const COMPLEX_TECH_TOKENS = [
   // (NOT including patient-intake form vendors like Phreesia — those are forms.)
   'dentrix.com',
   'athenanet.athenahealth.com',
+  // Funeral home obituary / tribute platforms — same complexity as ecommerce.
+  // Provide: dynamic obituary listings, "send flowers", "send a card", "sign
+  // guestbook", "upload photo", "light a candle", video tributes, condolence
+  // streams, in-memoriam donations, livestream funeral services. Static rebuild
+  // can't replicate any of this. Funeral home that has these = drop.
+  // (Plain funeral home with mailto + obituary text page = keep.)
+  'tukios.com', 'tukioswebsites',
+  'tributecenter.com', 'tributepartner.com', 'tributetech',
+  'frazerconsultants.com', 'frazer-consultants',
+  'cfsbb.com', 'consolidatedfuneralservices',
+  'frontrunnerpro.com', 'frontrunner360.com', 'frontrunnerpro',
+  'funeralone.com', 'funeralnet.com',
+  'funeralinnovations.com',
+  'passare.com',
+  'forevermissed.com',
+  'tributearchive.com',
+  // Legacy.com obituary syndication — embedded condolence books / send flowers
+  'legacy.com/obituaries',
 ];
 
 function detectComplexIntegration(html) {
@@ -447,6 +465,54 @@ function detectEcommerceFromHtml(html) {
   return null;
 }
 
+// Self-hosted ecommerce detector — independent of any specific platform.
+//
+// Real bug 2026-05-05 (cindysantiqueart.com): site had no Shopify/WooCommerce
+// markers (it's a custom PHP cart system) but DID have on-domain user
+// accounts + cart. WebFactory can't rebuild a site that requires database +
+// auth + checkout — that's outside V1 scope.
+//
+// We need TWO independent signals because either alone produces too many
+// false positives:
+//   - "Login" alone: many small-business sites have an admin login link
+//   - "Cart" alone: rare, but could be a single buyable downloadable product
+//
+// The combination — same site has BOTH user account creation AND a cart UI
+// — is the unambiguous "this is an actual store" signal.
+//
+// We look for href paths (most reliable; survives JS obfuscation), with a
+// lightweight visible-text fallback (catches `<button>Add to Cart</button>`
+// patterns that aren't anchored hrefs).
+const ACCOUNT_HREF_TOKENS = [
+  '/account.php', '/account.html', '/account/',
+  '/myaccount', '/my-account', '/my_account',
+  '/create_account', '/create-account', '/createaccount',
+  '/register.php', '/register.html', '/register/',
+  '/signup', '/sign-up', '/sign_up',
+  'href="/login', "href='/login",
+];
+const CART_HREF_TOKENS = [
+  '/cart.php', '/cart.html', '/cart/',
+  '/shopping-cart', '/shopping_cart', '/shoppingcart',
+  '/checkout.php', '/checkout.html', '/checkout/',
+];
+const CART_TEXT_TOKENS = [
+  '>add to cart<', '>add to bag<', '>buy now<', '>view cart<',
+  '>your cart<', '>shopping cart<',
+];
+
+function detectSelfHostedEcommerce(lower) {
+  const hasAccount = ACCOUNT_HREF_TOKENS.some(t => lower.includes(t));
+  const hasCart = CART_HREF_TOKENS.some(t => lower.includes(t)) ||
+                  CART_TEXT_TOKENS.some(t => lower.includes(t));
+  if (hasAccount && hasCart) return 'account+cart';
+  // Even without account creation, two separate cart paths = real store
+  // (e.g. /cart.php AND /checkout.php both present)
+  const cartPaths = CART_HREF_TOKENS.filter(t => lower.includes(t)).length;
+  if (cartPaths >= 2) return 'cart+checkout';
+  return null;
+}
+
 // White-label / external storefronts the customer's site links OUT to as their
 // "shop" — common with screen printers, promo/apparel, embroidery, taxidermy
 // supply, etc. The brochure site stays small and mailto-friendly, but the
@@ -484,6 +550,124 @@ function detectExternalStorefront(html) {
   return null;
 }
 
+// ---- Obituary CMS detector ------------------------------------------------
+//
+// Funeral homes that have an OBITUARY LISTING are running a CMS — the owner
+// adds new obituaries the way an ecommerce owner adds new products. Each
+// entry typically includes deceased name, photo, biography, service info,
+// online guestbook / send-flowers / sign-card / livestream-funeral controls.
+// WebFactory rebuilds MARKETING sites (mailto + photo gallery + service area
+// + reviews); it cannot replicate a CMS that the customer actively manages.
+//
+// Funeral homes WITHOUT an active obituary section are FINE — those are
+// brochure sites we can rebuild like any other small business.
+//
+// Two-stage detection:
+//   1. Homepage check (cheap): path-token + entry-anchors / date-ranges /
+//      year-ranges. Catches sites that embed recent obituaries on the homepage.
+//   2. Deep probe (only when homepage has nav link to /obituaries but no
+//      embedded entries): fetch the /obituaries page itself, count entry
+//      anchors + single death dates. Catches sites whose obituaries live on
+//      a sub-page only.
+//
+// Both stages use the same content predicate: presence of multiple deceased
+// entries (anchors to obit slugs, full date ranges, or many year ranges).
+const OBITUARY_PATH_TOKENS = [
+  // Trailing-slash forms (subdirectory)
+  '/obituaries/', '/obituary/',
+  '/tributes/', '/tribute/',
+  '/memorials/', '/memorial/',
+  '/recent-obituaries', '/current-obituaries', '/past-services',
+  '/in-memoriam', '/recent-services',
+  '/tribute-wall', '/memorial-wall',
+  // Closing-quote forms — catch both relative `href="/obituaries"` AND
+  // absolute `href="https://...com/obituaries"` (common on Microsoft-IIS /
+  // ASP.NET funeral CMSes that emit canonical absolute URLs in nav). The
+  // pattern `/obituaries"` requires `/` before the term and `"` after,
+  // which essentially only matches inside a quoted attribute.
+  '/obituaries"', "/obituaries'",
+  '/obituary"', "/obituary'",
+  '/tributes"', "/tributes'",
+  '/tribute"', "/tribute'",
+  '/memorials"', "/memorials'",
+  '/memorial"', "/memorial'",
+];
+
+// Anchors pointing at INDIVIDUAL obituary entries (slug after path)
+// e.g. href="/obituaries/john-smith-1945-2026" or "/tribute/jane-doe"
+const OBITUARY_ENTRY_ANCHOR_RE = /href\s*=\s*["'][^"']*\/(?:obituar(?:y|ies)|tributes?|memorials?)\/[a-z0-9][a-z0-9_.-]+[^"']*["']/gi;
+
+// Death-date range — most common funeral-listing format. Highly unambiguous.
+//   "January 5, 1945 - April 3, 2026"
+//   "March 15, 1950 — February 28, 2026"
+const DEATH_DATE_RANGE_RE = /(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2},?\s+(?:19|20)\d{2}\s*[-–—]\s*(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2},?\s+(?:19|20)\d{2}/gi;
+
+// Bare year range — noisier (matches copyright "© 2020-2026", stat ranges,
+// etc.). Only fires at threshold ≥ 3 to avoid those.
+const YEAR_RANGE_RE = /\b(?:19|20)\d{2}\s*[-–—]\s*(?:19|20)\d{2}\b/g;
+
+// Single full date — "January 5, 2026". Used ONLY on deep-probe pages
+// (where the URL itself is /obituaries), at threshold ≥ 5, since an
+// obituary-listing page virtually always shows the date for each deceased.
+const SINGLE_DEATH_DATE_RE = /(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2},?\s+(?:19|20)\d{2}/gi;
+
+function detectObituaryCMS(lower) {
+  const hasPath = OBITUARY_PATH_TOKENS.some(t => lower.includes(t));
+  if (!hasPath) return null;
+  const entryAnchors = (lower.match(OBITUARY_ENTRY_ANCHOR_RE) || []).length;
+  if (entryAnchors >= 1) return `entries_${entryAnchors}`;
+  const fullDates = (lower.match(DEATH_DATE_RANGE_RE) || []).length;
+  if (fullDates >= 1) return `dates_${fullDates}`;
+  const yearRanges = (lower.match(YEAR_RANGE_RE) || []).length;
+  if (yearRanges >= 3) return `years_${yearRanges}`;
+  return null;
+}
+
+function detectObituaryNavLink(lower) {
+  // Returns the first nav-link path token found (or null). Used to decide
+  // whether the deep-probe is worth the extra request.
+  return OBITUARY_PATH_TOKENS.find(t => lower.includes(t)) || null;
+}
+
+// On a deep-probe /obituaries page we accept softer signals because the URL
+// itself disambiguates context: ANY page at /obituaries with multiple dated
+// entries is by definition a CMS-driven listing.
+function detectObituaryCMSDeep(lower) {
+  const v = detectObituaryCMS(lower);
+  if (v) return v;
+  const singleDates = (lower.match(SINGLE_DEATH_DATE_RE) || []).length;
+  if (singleDates >= 5) return `single_dates_${singleDates}`;
+  return null;
+}
+
+// Funeral-tech vendor fingerprints found in JS bundles / SDK script src on
+// CMS-driven /obituaries sub-pages. These often DON'T appear on the homepage
+// (which is mostly static brochure content), so the homepage-level
+// `detectComplexIntegration` misses them. The deep probe checks these on
+// the /obituaries page itself.
+//
+// Subset of COMPLEX_TECH_TOKENS, broadened to common slug forms (e.g.
+// 'tributestore' from a CDN URL even when 'tributestore.com' isn't on the
+// page). Only used inside obituary deep-probe context where false positives
+// on these tokens are essentially impossible.
+const FUNERAL_VENDOR_TOKENS_DEEP = [
+  'tukios', 'tributecenter', 'tributepartner', 'tributetech',
+  'tributearchive', 'tributestore',
+  'frazerconsultants', 'frazer-consultants',
+  'cfsbb', 'consolidatedfuneralservices',
+  'frontrunnerpro', 'frontrunner360',
+  'funeralone', 'funeralnet', 'funeralinnovations', 'funeralinnov',
+  'passare.com', 'forevermissed',
+  'legacy.com/obituaries',
+];
+
+function detectFuneralVendorDeep(lower) {
+  for (const tok of FUNERAL_VENDOR_TOKENS_DEEP) {
+    if (lower.includes(tok)) return tok;
+  }
+  return null;
+}
+
 // Domains that look like emails in HTML but aren't real contact addresses
 // (analytics, error tracking, CDN, vendor support, etc.).
 const EMAIL_FALSE_POSITIVE_PATTERNS = [
@@ -508,23 +692,97 @@ const EMAIL_FALSE_POSITIVE_PATTERNS = [
   /\.(png|jpg|jpeg|gif|svg|webp|ico|css|js)$/i,
   // Test / dev placeholders
   /^sentry@|^admin@example|^test@/i,
+  // Vendor placeholder emails — website-builder demo / template addresses
+  // that leak into scraped sites. Adding 2026-05-07 after finding 7 unrelated
+  // businesses all listing info@ndiscovered.com (NDiscovered vendor demo)
+  // and emaildemo@hostopia.com (Hostopia website-builder demo).
+  /^info@ndiscovered\.com$/i, /@ndiscovered\.com$/i,
+  /^emaildemo@hostopia\.com$/i, /@hostopia\.com$/i,
 ];
 
 function isFalsePositiveEmail(email) {
   return EMAIL_FALSE_POSITIVE_PATTERNS.some(re => re.test(email));
 }
 
+// Common typo → correct mappings for the TLD and well-known providers.
+// Keep this conservative — only fix patterns where the right answer is
+// unambiguous. We never invent a domain that wasn't on the page.
+const TLD_TYPO_FIXES = [
+  [/\.con$/i, '.com'],   // info@example.con → .com
+  [/\.cmo$/i, '.com'],   // .cmo → .com
+  [/\.cm$/i, '.com'],    // .cm (when not actually .cm Cameroon) → .com — safe because Cameroon SMBs aren't in our funnel
+  [/\.ney$/i, '.net'],   // .ney → .net
+  [/\.ner$/i, '.net'],   // .ner → .net
+  [/\.nrt$/i, '.net'],   // .nrt → .net
+  [/\.og$/i, '.org'],    // .og → .org
+  [/\.ogr$/i, '.org'],   // .ogr → .org
+  [/\.orgg$/i, '.org'],  // .orgg → .org
+];
+const PROVIDER_TYPO_FIXES = [
+  [/@gmial\.com$/i, '@gmail.com'],
+  [/@gmal\.com$/i, '@gmail.com'],
+  [/@gnail\.com$/i, '@gmail.com'],
+  [/@gmailcom$/i, '@gmail.com'],
+  [/@gmail\.cm$/i, '@gmail.com'],
+  [/@yaho\.com$/i, '@yahoo.com'],
+  [/@yahho\.com$/i, '@yahoo.com'],
+  [/@yahoocom$/i, '@yahoo.com'],
+  [/@hotmial\.com$/i, '@hotmail.com'],
+  [/@hotmal\.com$/i, '@hotmail.com'],
+  [/@hotmailcom$/i, '@hotmail.com'],
+  [/@outlok\.com$/i, '@outlook.com'],
+  [/@outlookcom$/i, '@outlook.com'],
+  [/@aol\.con$/i, '@aol.com'],
+  [/@sbcgloba\.net$/i, '@sbcglobal.net'],
+];
+
+// Strip URL-encoding artifacts and trailing punctuation that scraped HTML
+// often introduces around mailto links and freeform email mentions:
+//   ` info@x.com`     ← leading space (from "%20info@x.com" decoded)
+//   `%20info@x.com`   ← raw URL-encoded space prefix
+//   `info@x.com,`     ← trailing comma from "Email: info@x.com, Phone: ..."
+//   `info@x.com.`     ← trailing period (end of sentence)
+//   `info@x.com>`     ← trailing angle bracket (mailto:foo@bar> in href)
+function cleanEmailString(raw) {
+  if (!raw) return null;
+  let s = raw;
+  // URL decode (%20 → space, %40 → @, etc.) — try once; bail on bad input
+  try { s = decodeURIComponent(s); } catch {}
+  // Strip whitespace + leading/trailing punctuation that's not valid in addresses
+  s = s.trim().replace(/^[\s,;:<>"'()\[\]{}]+|[\s,;:<>"'()\[\]{}.!?]+$/g, '');
+  // Lowercase
+  s = s.toLowerCase();
+  // Collapse doubled @ (rare scraper artifact: `info@@example.com`)
+  s = s.replace(/@@+/g, '@');
+  // Apply TLD typo fixes
+  for (const [re, fix] of TLD_TYPO_FIXES) {
+    const next = s.replace(re, fix);
+    if (next !== s) { s = next; break; }
+  }
+  // Apply provider typo fixes
+  for (const [re, fix] of PROVIDER_TYPO_FIXES) {
+    const next = s.replace(re, fix);
+    if (next !== s) { s = next; break; }
+  }
+  // Final shape check — must look like a real email
+  if (!/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(s)) return null;
+  return s;
+}
+
 // Extract the best contact email from page HTML.
 // Priority: mailto: links > plain-text emails matching the site's own domain.
 function extractContactEmail(html, siteUrl) {
-  // 1. Pull all candidates
-  const mailtoMatches = [...html.matchAll(/mailto:([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/gi)];
+  // 1. Pull all candidates — generous regex that includes %-encoded chars,
+  //    we clean each candidate before deciding.
+  const mailtoMatches = [...html.matchAll(/mailto:([^"'\s>]+@[^"'\s>]+)/gi)];
   const plainMatches = [...html.matchAll(/\b([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\b/g)];
 
   const candidates = [
-    ...mailtoMatches.map(m => ({ email: m[1].toLowerCase(), priority: 1 })),
-    ...plainMatches.map(m => ({ email: m[1].toLowerCase(), priority: 2 })),
-  ].filter(c => !isFalsePositiveEmail(c.email));
+    ...mailtoMatches.map(m => ({ raw: m[1], priority: 1 })),
+    ...plainMatches.map(m => ({ raw: m[1], priority: 2 })),
+  ]
+    .map(c => ({ ...c, email: cleanEmailString(c.raw) }))
+    .filter(c => c.email && !isFalsePositiveEmail(c.email));
 
   if (candidates.length === 0) return null;
 
@@ -655,15 +913,95 @@ function analyzeHtml(html, url) {
   const techAge = scoreTechAge(html);
   const reachability = detectReachability(html, lower, url);
   const ecommerce = detectEcommerceFromHtml(lower);
+  const selfHostedEcommerce = detectSelfHostedEcommerce(lower);
   const externalStorefront = detectExternalStorefront(lower);
+  const obituaryCMS = detectObituaryCMS(lower);
+  const obituaryNavLink = obituaryCMS ? null : detectObituaryNavLink(lower);
   const chainHtml = detectChainFromHtml(lower);
   const complexTech = detectComplexIntegration(lower);
   const linkCount = countAnchors(html);
   const videoCount = countVideos(html);
   return {
-    lower, techAge, reachability, ecommerce, externalStorefront, chainHtml, complexTech,
+    lower, techAge, reachability, ecommerce, selfHostedEcommerce,
+    externalStorefront, obituaryCMS, obituaryNavLink,
+    chainHtml, complexTech,
     linkCount, videoCount, html_len: html.length,
   };
+}
+
+// Deep probe: when the homepage has a nav link to /obituaries but no embedded
+// entries, fetch the linked page directly and run the (softer) deep detector.
+// Reuses the same fetch + Playwright fallback pattern as probeSite. Returns
+// the verdict string or null.
+//
+// `homepageHtml` (optional) is the raw homepage HTML. When passed, we extract
+// the actual on-domain obituary-related hrefs from it instead of guessing.
+// This catches non-standard slugs like Duda's `/our-of-obituaries` or
+// vendor-specific paths like `/obituaries/obituary-listings`.
+async function probeObituaryDeep(siteUrl, navHint, homepageHtml = null) {
+  let origin;
+  try { origin = new URL(siteUrl).origin; } catch { return null; }
+
+  // Build candidate path list. Order: hrefs extracted from homepage first
+  // (they're the actual links — more likely to be the real CMS URL), then
+  // the navHint, then standard fallbacks.
+  const candidates = new Set();
+  if (homepageHtml) {
+    const urlRe = /href\s*=\s*["']([^"']*(?:obituar|tribute|memorial|in-memoriam|recent-services|past-services)[^"']*)["']/gi;
+    let m;
+    while ((m = urlRe.exec(homepageHtml)) !== null) {
+      try {
+        const abs = new URL(m[1], siteUrl);
+        // Same-origin only — we don't probe newspaper obituary syndication
+        // links (those are external services, not the customer's CMS).
+        if (abs.origin === origin) candidates.add(abs.pathname || '/');
+      } catch {}
+    }
+  }
+  const m = navHint && navHint.match(/href\s*=\s*["']([^"']+)["']/);
+  if (m) candidates.add(m[1]);
+  if (navHint && navHint.startsWith('/')) {
+    // Strip trailing quote (token may be `/obituaries"`) and any trailing slash.
+    candidates.add(navHint.replace(/["'\/]+$/, ''));
+  }
+  candidates.add('/obituaries');
+  candidates.add('/obituary');
+  candidates.add('/tributes');
+  candidates.add('/memorials');
+
+  for (const path of candidates) {
+    if (!path || !path.startsWith('/')) continue;
+    const probeUrl = `${origin}${path}`;
+    let html = null;
+    try {
+      const res = await fetch(probeUrl, {
+        method: 'GET',
+        redirect: 'follow',
+        headers: { 'User-Agent': PROBE_USER_AGENT },
+        signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+      });
+      if (res.ok) html = await res.text();
+      else if (PLAYWRIGHT_FALLBACK_STATUSES.has(res.status)) {
+        const pw = await fetchHtmlViaPlaywright(probeUrl);
+        if (pw.ok) html = pw.html;
+      }
+    } catch {
+      const pw = await fetchHtmlViaPlaywright(probeUrl).catch(() => ({ ok: false }));
+      if (pw.ok) html = pw.html;
+    }
+    if (!html) continue;
+    const lower = html.toLowerCase();
+    const v = detectObituaryCMSDeep(lower);
+    if (v) return v;
+    // Funeral-tech vendor fingerprint check — catches IIS/ASP.NET sites where
+    // the listings render via JS (Frazer / FrontRunner / Tribute Tech etc.).
+    const vendor = detectFuneralVendorDeep(lower);
+    if (vendor) return `vendor_${vendor.split('.')[0]}`;
+    // First candidate already gave us a real page — don't keep guessing
+    // (avoid 404-loop on sites that don't use /obituaries).
+    return null;
+  }
+  return null;
 }
 
 // When the homepage has no email, try common /contact variants. We don't
@@ -728,9 +1066,16 @@ async function probeSite(url) {
   // Always return size signals so we can store them even when probe rejects.
   const size = { link_count: a.linkCount, html_bytes: a.html_len, video_count: a.videoCount };
   if (a.ecommerce) return { ok: false, reason: 'ecommerce', tech_age: a.techAge, reachability: a.reachability, size };
+  if (a.selfHostedEcommerce) return { ok: false, reason: `ecommerce_self_hosted_${a.selfHostedEcommerce}`, tech_age: a.techAge, reachability: a.reachability, size };
   if (a.externalStorefront) return { ok: false, reason: `ecommerce_external_storefront:${a.externalStorefront}`, tech_age: a.techAge, reachability: a.reachability, size };
+  if (a.obituaryCMS) return { ok: false, reason: `obituary_cms_${a.obituaryCMS}`, tech_age: a.techAge, reachability: a.reachability, size };
   if (a.chainHtml) return { ok: false, reason: 'multi_location', tech_age: a.techAge, reachability: a.reachability, size };
   if (a.complexTech) return { ok: false, reason: `complex_integration:${a.complexTech.split('.')[0]}`, tech_age: a.techAge, reachability: a.reachability, size };
+  // Nav link to /obituaries but no homepage entries — confirm via deep probe.
+  if (a.obituaryNavLink) {
+    const deep = await probeObituaryDeep(url, a.obituaryNavLink, html);
+    if (deep) return { ok: false, reason: `obituary_cms_deep_${deep}`, tech_age: a.techAge, reachability: a.reachability, size };
+  }
   if (a.linkCount > SITE_SIZE_ANCHOR_LIMIT) return { ok: false, reason: `site_too_big_${a.linkCount}_links`, tech_age: a.techAge, reachability: a.reachability, size };
   if (a.videoCount > VIDEO_LIMIT) return { ok: false, reason: `too_many_videos_${a.videoCount}`, tech_age: a.techAge, reachability: a.reachability, size };
   return { ok: true, html_len: a.html_len, tech_age: a.techAge, reachability: a.reachability, size };

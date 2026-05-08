@@ -237,6 +237,9 @@ const allowedUpdateFields = new Set([
   'purchase_offered_at', 'purchased_at', 'purchase_amount_usd',
   'dead_at', 'dead_reason',
   'status', 'status_changed_at', 'notes',
+  'email_status', 'email_verified_at', 'email_verify_reason',
+  'site_status', 'site_status_reason', 'site_status_at',
+  'last_review_at', 'recency_checked_at',
 ]);
 
 export function updateLead(id, fields) {
