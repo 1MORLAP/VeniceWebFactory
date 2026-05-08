@@ -133,6 +133,25 @@ Each build must produce something visually distinct from prior builds in the sam
 
 ---
 
+## 11b. Stock-image substitutions (Option C only — verify before download)
+
+Per OPTION C IMAGE-QUALITY ESCAPE HATCH (SKILL.md), Option C may substitute Unsplash / Pexels / curated AI imagery when customer photos can't carry C's design language. **Six rules apply, all mandatory**:
+
+| Rule | What MUST hold | qa-check |
+|---|---|---|
+| 11b.1 Thematically tight | Image depicts customer's actual industry/service. Generic "happy professional" / "modern building" stock is FORBIDDEN. | (manual at Visual Sanity Pass) |
+| 11b.2 Aesthetically compatible | Matches industry-tokens direction (workwear-grit on trades, editorial-restraint on professional services, etc.) | (manual at Visual Sanity Pass) |
+| 11b.3 Quality genuinely high | ≥ 1500px wide, no AI-uncanny tells | (manual + `image-low-resolution` qa-check rule) |
+| 11b.4 **VERIFIED VISUALLY before use** | The download-by-ID workflow is BANNED. Required protocol: search → review preview → download → **open with Read tool to SEE the actual image** → keep-or-discard. Real bug 2026-05-07 (tedderequipmentinc.com): worker downloaded by Unsplash photo ID without opening files; tractors-card was a sea turtle, cutters-card was a Japanese street, trailers-card was a sports car. Never trust an Unsplash photo ID without seeing the actual image. | (process — enforced by Rule 11b.6 log requirement) |
+| 11b.5 Customer-context match | Substituted images match the customer's specific brand context — not just industry median. USED equipment dealer ≠ showroom-pristine new tractor. Luxury dental practice ≠ worn 1980s dental chair. Read design-brief's `business.industry` + `business.subIndustry` + `design.style` and substitute to that context. | (manual at Visual Sanity Pass) |
+| 11b.6 Documented in image-substitutions.md | `jobs/{domain}/option-c/image-substitutions.md` MUST exist. Each substituted basename MUST appear in the file with a verification entry (slot purpose, content description from Read, customer-context fit assessment, source URL). Template at `templates/image-substitutions-template.md`. | `image-substitutions-log` (FAIL — added 2026-05-07) |
+
+**Forbidden sources**: random Google Images results, generic AI prompts producing stock-photo aesthetic, photos of competitors / other businesses, anything depicting a different industry.
+
+**NEVER substitute**: owner / crew / team photos, actual logo. If no headshot exists in the manifest, OMIT the section — do not invent a stock owner.
+
+---
+
 ## 12. Multilingual support (Options B and C — opt-in)
 
 **English-only by default.** Initial `/webfactory <url>` builds B and C as English-only — no `/<lang>/` directories. Translations are explicit opt-in: `--languages <iso-codes>` at initial build OR `--add-language <name|iso> --to <b|c|both>` post-build.

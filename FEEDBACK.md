@@ -2278,3 +2278,53 @@ Smoke-test on rebeccabosscpa.com (real-world build with full state): 5 checks co
 **No SKILL.md changes**: the rules already documented in LOGO RULE 4.4 + Phase F.2 architecturally cover these cases; only implementation gaps were closed.
 
 **Open**: 25 customers still empty-DPC (edge-case formats). Could be addressed by extending `format=other` detection in fix-logo.js, but very low ROI — those customers' visual-pass-verdict.json checks at deploy time will catch logo-rendered-contrast violations regardless via in-browser canvas sampling against the actual rendered nav.
+
+---
+
+## 2026-05-07 (evening) — /webfactory-learn intake: Verify-before-download for Option C image substitutions
+
+**Feedback**: User showed a screenshot of `tedderequipmentinc-com-option-c.vercel.app` rendering with three category cards showing completely off-topic Unsplash images: "Tractors" → SEA TURTLE, "Cutters & Mowers" → Japanese street scene, "Trailers" → sports car. Quote from user:
+
+> "If you're going to add images that are not original, which I think is fine for option C, those images have to match the context. Tractors use two- and four-wheel drive; units should not be TURTLE. ... You cannot download Unsplash photos without verifying what they are. You need to always verify before downloading. ... I expect used tractors because that's what it's supposed to be, not new tractors, right?"
+
+**Two distinct rules to encode**:
+
+1. **VERIFY BEFORE DOWNLOAD**: Workers must NEVER download a stock photo by ID alone. The actual image content must be visually verified to match the topic before commit.
+2. **CUSTOMER-CONTEXT MATCH**: Substituted images must match the customer's specific brand context, not just industry median. For Tedder Equipment Inc — a USED tractor / refurbished dealer per their design-brief — images must show working/used equipment with character, not gleaming showroom-new tractors.
+
+**Investigation**:
+
+The deployed-screenshot bug (turtle/Japan/sports-car) was real BUT the local files in `jobs/tedderequipmentinc.com/option-c/public/images/` had ALREADY been corrected in a prior session. A previous Claude session apologized in chat for the blind-download mistake, fixed the local files (verified topical: red plow + JD tractor with grain silos for tractors-card; JD with red cutter at sunset for cutters-card; red livestock trailer with 1985 photo date stamp for trailers-card; JD 568 round baler for hay-card; etc.), but never ran `vercel deploy` to push the fixed dist live. Result: deploy was stale, screenshot was stale-bug, local files were correct.
+
+So the immediate damage was: stale deploy. Fixed by running `node scripts/deploy-with-gate.cjs tedderequipmentinc.com c --allow-missing-events` — new URL: `https://tedderequipmentinc-com-option-h6jsjstfx-tomek-group.vercel.app`.
+
+The deeper issue is that NOTHING in the pipeline would have prevented the original blind-download bug from shipping (or recurring in future builds). No qa-check rule, no skill rule explicitly required visual verification before download, no log file documented the substitutions. The escape hatch's existing four substitution criteria (thematic-tight / aesthetic-compatible / quality / documented-in-build-design-decisions.md) covered the surface but not the failure mode.
+
+**Customer-context confirmation**: Per `jobs/tedderequipmentinc.com/design-brief.json`, Tedder Equipment is the *"Used 2- and 4-wheel-drive units — refurbished and shop-tested. New tractors when stock won't do"* business. Their value prop is *"shop-tested quality"*. So images should show working equipment in active use, not showroom-pristine. The current set lands there: especially trailers-card (real photo date stamp from 1985 — unmistakably used-equipment vibe) and hay-card (specific older JD 568 model in active use).
+
+**Structural fix shipped**:
+
+1. **SKILL.md OPTION C IMAGE-QUALITY ESCAPE HATCH**: extended substitution criteria from four to SIX. Added Rule 4 (VERIFY VISUALLY BEFORE USE — explicit 6-step protocol: identify topic + customer context, search, review preview, download, open with Read tool to confirm, log) and Rule 5 (customer-context match — match brand context not just industry median). Renamed Rule 6's documentation requirement from "build-design-decisions.md" to a dedicated `jobs/{domain}/option-c/image-substitutions.md` file. Added Visual Sanity Pass check that scopes all six criteria. Added explicit qa-check.js enforcement section.
+
+2. **scripts/qa-check.js NEW RULE `image-substitutions-log`** (FAIL): scans `option-c/dist/*.html` for image src paths starting with `/images/`. Cross-references basenames against the manifest's image inventory. Any image NOT in the manifest is a stock substitution (per OPTION C IMAGE-QUALITY ESCAPE HATCH). The build then requires `jobs/{domain}/option-c/image-substitutions.md` to exist AND each substituted basename to be referenced in that file. If the file is missing OR a substituted file is undocumented, the build FAILS the chokepoint. Skips logo / favicon paths (those have their own LOGO RULE handling). Scope: only fires when `--option=c`.
+
+3. **templates/image-substitutions-template.md**: new template file workers populate per build. Includes the verification-protocol checklist + substitutions table format.
+
+4. **templates/REQUIRED-PATTERNS.md Section 11b**: new section "Stock-image substitutions (Option C only — verify before download)" with the six-rule table mapping each rule to qa-check enforcement.
+
+5. **jobs/tedderequipmentinc.com/option-c/image-substitutions.md**: created retroactively. Documents all 9 substituted images with verified content descriptions + customer-context-fit assessments + sources. Used as the smoke-test fixture for the new qa-check rule.
+
+**Smoke-test on tedderequipmentinc.com**:
+- WITH log present: ✓ image-substitutions-log passes (no fail emitted)
+- WITHOUT log (renamed temporarily to /tmp): ✗ FAIL emitted listing all 9 substituted basenames + the canonical bug-pattern guidance + remediation path
+
+**Hot-fix on the deployed build**:
+- Rebuilt + redeployed Option C — local files were already correct, just needed `vercel deploy` to push them live
+- New deploy URL: `https://tedderequipmentinc-com-option-h6jsjstfx-tomek-group.vercel.app`
+- The previously-shipped turtle/Japan/sports-car bug is now replaced with the verified topical imagery (red plow + JD tractor / JD with cutter at sunset / red livestock trailer / JD 568 baler / etc.)
+
+**Files modified**: SKILL.md (OPTION C IMAGE-QUALITY ESCAPE HATCH extended from 4 to 6 substitution criteria + Visual Sanity Pass check + qa-check.js enforcement section), scripts/qa-check.js (new image-substitutions-log rule), templates/REQUIRED-PATTERNS.md (new Section 11b), templates/image-substitutions-template.md (new), jobs/tedderequipmentinc.com/option-c/image-substitutions.md (new — retroactive log), FEEDBACK.md (this entry).
+
+**Notable absence**: no model-side enforcement of "Read the file before committing the substitution." That stays in the prompt / skill prose. The deterministic Layer-1 backstop is the qa-check rule that requires the LOG (which the protocol forces the worker to populate AFTER reading). If the log lies (worker fills it in without actually opening the files), the bug can still ship — but at that point it's not a tooling gap, it's a worker integrity issue, and the visual sanity pass + audit will catch it.
+
+**Open**: image-substitutions.md backfill across other Option C builds in the customer library that might also lack documentation. Non-blocking — the new qa-check rule will catch any future build that ships without a log; existing builds aren't being re-deployed.

@@ -1674,12 +1674,21 @@ The escape hatch only applies to C. **Option A and Option B always use the custo
 - Worker wants to make the page "feel premium" by replacing real work with stock. Customer recognizes their own jobs in A and not seeing them in C reads as "you replaced our work with stock photos." Failure mode.
 - The escape would substitute the **owner / crew / team / actual logo** — those are brand-truth, never substitute. If no headshot exists, omit the section.
 
-##### Substitution criteria — must be all four
+##### Substitution criteria — must be all SIX (was four pre-2026-05-07)
 
 1. **Thematically tight**: a tree-service C uses tree-work stock; a plumber C uses plumbing-fixture stock. Generic stock photos of "happy professional" or "modern building" fail this. The substituted image must depict the customer's actual industry / service.
 2. **Aesthetically compatible with the design language**: editorial restraint on a refined-modern brand; workwear-grit on a trades brand. The substitute must match C's industry-tokens direction, not just the industry.
 3. **Quality genuinely high**: ≥ 1500px wide, no AI-uncanny tells (extra fingers, melted textures, generic stock-photo lighting). Use Unsplash, Pexels, or curated AI sources only — not raw model output.
-4. **Documented in `jobs/{domain}/option-c/build-design-decisions.md`**: every substitution gets a single line stating which slot was substituted, what the original was (source URL, dimensions), why it was substituted, what the replacement is (source URL or AI prompt). Customer can audit.
+4. **VERIFIED VISUALLY BEFORE COMMITTING TO USE** (NEW 2026-05-07 — added in response to tedderequipmentinc.com bug). The download-by-photo-ID workflow is BANNED. The required protocol:
+   1. Identify the topic from the slot's purpose AND the customer context (e.g., "USED tractor in active farm use" — not just "tractor", because "tractor" can mean a gleaming dealer-floor JD that won't match a USED-equipment dealer's brand).
+   2. Search the stock site / source. Find candidate photo IDs.
+   3. Open each candidate's preview / description / tags page BEFORE download.
+   4. Download to `public/images/`.
+   5. **Open the downloaded file with the Read tool to VISUALLY CONFIRM it matches both the slot purpose AND the customer context.** The Read tool renders images visually. If what you see doesn't match what you expected (e.g., you queried "tractor" and got a turtle, or you queried "used tractor" and got a showroom-pristine new model), DELETE the file and pick again.
+   6. Only after visual confirmation → log + use.
+   The blind-download failure mode (real bug 2026-05-07): a worker session searched "tractor" on Unsplash, picked photo IDs by alt text alone, downloaded blind, didn't open the files. Result: `tractors-card.jpg` was a SEA TURTLE, `cutters-card.jpg` was a Japanese street scene, `trailers-card.jpg` was a sports car. Never trust an Unsplash photo ID without seeing the actual image.
+5. **Customer context match** (NEW 2026-05-07). Substituted images must match the customer's specific brand context — not just the industry. For Tedder Equipment Inc (USED tractor / refurbished dealer), substituted tractor images must show working/used equipment with character, NOT showroom-pristine new tractors. For a luxury dental practice, substituted equipment must look modern/clinical, NOT a worn dental chair from the 1980s. Read the design brief's `business.industry` + `business.subIndustry` + `design.style` and substitute to that context, not the industry's median.
+6. **Documented in `jobs/{domain}/option-c/image-substitutions.md`** (NEW dedicated file 2026-05-07; previously it was a single line in `build-design-decisions.md`). The file is markdown with a substitutions table. Each row: slot purpose, local file path, verified content description (what you SAW after Read), customer-context fit assessment, source URL. Without this file, the build fails the chokepoint (new `image-substitutions-log` qa-check rule). Template at `templates/image-substitutions-template.md`.
 
 ##### Allowed substitution sources
 
@@ -1705,7 +1714,11 @@ If during Stage 7 build you encounter a customer photo that won't carry its slot
 
 ##### Visual Sanity Pass check
 
-When reviewing C's screenshots, ask: "Are any of these photos NOT the customer's actual work?" If yes, are they (a) thematically tight, (b) aesthetically compatible, (c) high quality, AND (d) documented? If any of the four fails, swap back to a customer photo or omit. The bar is honest visual representation — substitutions that make the customer look bigger or more polished than they are read as deceptive.
+When reviewing C's screenshots, ask: "Are any of these photos NOT the customer's actual work?" If yes, are they (a) thematically tight, (b) aesthetically compatible, (c) high quality, (d) VERIFIED visually (post-download Read), (e) match the customer's specific context (used vs new, premium vs budget, etc.), AND (f) documented in `image-substitutions.md`? If any of the six fails, swap back to a customer photo or omit. The bar is honest visual representation — substitutions that make the customer look bigger or more polished than they are read as deceptive, and substitutions that don't even match the topic (sea turtle on a tractor card) are deploy-blocking failures.
+
+##### qa-check.js enforcement (NEW 2026-05-07)
+
+`image-substitutions-log` (FAIL): scans `option-c/dist/*.html` for image src paths that don't appear in `manifest.json` images / pages[*].images / pages[*].backgroundImages. Such images are stock substitutions per this rule. The build then requires `jobs/{domain}/option-c/image-substitutions.md` to exist AND each substituted file (basename) to be referenced in that file. If the file is missing OR a substituted file is undocumented, the build FAILS the chokepoint. This is the structural backstop that prevents the next blind-download bug from shipping silently.
 
 ---
 

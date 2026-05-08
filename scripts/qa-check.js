@@ -3438,6 +3438,114 @@ function rgbToHexFromComputed(rgb) {
   }
   // ---- end ANTI-SLOP — EMOJI AS ICONS BAN ----
 
+  // ---- IMAGE-SUBSTITUTIONS LOG (Option C only — added 2026-05-07) ----
+  //
+  // Per OPTION C IMAGE-QUALITY ESCAPE HATCH (SKILL.md), Option C may
+  // substitute thematically-tight stock when customer photos are
+  // insufficient. Substitutions MUST be documented in
+  // `jobs/{domain}/option-c/image-substitutions.md` AND each substituted
+  // file referenced in that log.
+  //
+  // Real bug 2026-05-07 (tedderequipmentinc.com — /webfactory-learn
+  // intake): an earlier worker-session blind-downloaded by Unsplash
+  // photo ID without opening the files. `tractors-card.jpg` shipped as
+  // a SEA TURTLE, `cutters-card.jpg` as a Japanese street scene,
+  // `trailers-card.jpg` as a sports car. No log existed; no mechanism
+  // would have caught it. This rule is the structural backstop.
+  //
+  // Detection: scan option-c/dist/*.html for image src paths starting
+  // with /images/. Cross-reference each src basename against the
+  // manifest's image inventory (manifest.images + pages[*].images +
+  // pages[*].backgroundImages). Any image NOT in the manifest is a
+  // stock substitution and MUST be referenced in image-substitutions.md.
+  //
+  // Scope: only runs when optionName === 'c' (Option C — per the
+  // escape hatch's Option-C-only scope). Silently no-ops for A and B.
+  if (optionName === 'c') try {
+    const distDirs = [];
+    if (manifestPath && optionName) {
+      const jobDir = dirname(manifestPath);
+      const dd = join(jobDir, `option-${optionName}`, 'dist');
+      if (existsSync(dd)) distDirs.push(dd);
+    }
+    if (referenceDistPath && existsSync(referenceDistPath)) distDirs.push(referenceDistPath);
+
+    // Build manifest basename set for cross-reference. The inventory is
+    // keyed by alias (where each alias IS a basename); iterate keys.
+    const manifestBasenames = new Set();
+    if (manifestImageInventory && manifestImageInventory.size > 0) {
+      for (const alias of manifestImageInventory.keys()) {
+        if (alias) manifestBasenames.add(String(alias).toLowerCase());
+      }
+    }
+
+    // Stock substitutions found in dist HTML (basename → first relative path).
+    const distSubstitutions = new Map();
+    for (const distDir of distDirs) {
+      const htmlFiles = [];
+      walkHtmlFiles(distDir, htmlFiles);
+      for (const htmlPath of htmlFiles) {
+        let html;
+        try { html = readFileSync(htmlPath, 'utf8'); } catch { continue; }
+        // Match /images/<file>.<ext> in src= and url(...) attributes.
+        const imgRe = /(?:src|background-image|url|content)\s*[:=]\s*['"]?\s*url\(['"]?([^'"\)\s]+)['"]?\)|(?:src|href)=["']([^"']+)["']/gi;
+        let m;
+        while ((m = imgRe.exec(html)) !== null) {
+          const url = m[1] || m[2] || '';
+          if (!/^\/images\/[^?\s]+\.(jpg|jpeg|png|webp|gif|svg)/i.test(url)) continue;
+          const base = url.replace(/^\/images\//, '').split(/[?#]/)[0].toLowerCase();
+          if (!manifestBasenames.has(base)) {
+            // Also skip canonical files that come from the LOGO RULE / favicon
+            // path (logo*, favicon*) — those aren't stock substitutions.
+            if (/^(logo|favicon)/.test(base)) continue;
+            if (!distSubstitutions.has(base)) {
+              distSubstitutions.set(base, url);
+            }
+          }
+        }
+      }
+    }
+
+    if (distSubstitutions.size > 0) {
+      // Look for the substitutions log
+      let logPath = null;
+      let logContent = null;
+      if (manifestPath) {
+        const jobDir = dirname(manifestPath);
+        const candidate = join(jobDir, 'option-c', 'image-substitutions.md');
+        if (existsSync(candidate)) {
+          logPath = candidate;
+          try { logContent = readFileSync(candidate, 'utf8').toLowerCase(); } catch { /* ignore */ }
+        }
+      }
+
+      if (!logPath) {
+        staticIssues.push({
+          severity: 'fail',
+          check: 'image-substitutions-log',
+          msg: `Option C dist contains ${distSubstitutions.size} image${distSubstitutions.size === 1 ? '' : 's'} not in the manifest (= stock substitution per OPTION C IMAGE-QUALITY ESCAPE HATCH). REQUIRED: jobs/{domain}/option-c/image-substitutions.md must exist and reference each substituted file. Found substitutions: ${Array.from(distSubstitutions.keys()).slice(0, 8).join(', ')}${distSubstitutions.size > 8 ? `, +${distSubstitutions.size - 8} more` : ''}. Real bug pattern this rule guards (tedderequipmentinc.com 2026-05-07): worker blind-downloaded by Unsplash photo ID without opening files; tractors-card was a sea turtle, cutters-card was a Japanese street scene. The log forces explicit verification + customer-context match.`,
+        });
+      } else {
+        const undocumented = [];
+        for (const base of distSubstitutions.keys()) {
+          if (!logContent.includes(base)) {
+            undocumented.push(base);
+          }
+        }
+        if (undocumented.length > 0) {
+          staticIssues.push({
+            severity: 'fail',
+            check: 'image-substitutions-log',
+            msg: `Option C dist contains ${undocumented.length} stock substitution${undocumented.length === 1 ? '' : 's'} NOT documented in image-substitutions.md: ${undocumented.slice(0, 8).join(', ')}${undocumented.length > 8 ? `, +${undocumented.length - 8} more` : ''}. Each substituted file must be referenced in jobs/${dirname(manifestPath).split('/').pop()}/option-c/image-substitutions.md with a verification entry (visual-check, customer-context match, source URL). See OPTION C IMAGE-QUALITY ESCAPE HATCH in SKILL.md.`,
+          });
+        }
+      }
+    }
+  } catch (e) {
+    console.warn(`⚠ image-substitutions-log: failed to run (${e.message}) — skipping.`);
+  }
+  // ---- end IMAGE-SUBSTITUTIONS LOG ----
+
   // ---- end static source lints ----
 
   // Report — grouped by viewport, with dedupe for issues that fire at both.
