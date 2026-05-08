@@ -12,6 +12,24 @@ Website rebuilding tool. Takes a URL, scrapes the site, and builds **THREE** red
 
 All built on Astro 5 + Tailwind v4. Customer comparison structure: **A vs B** measures value of copy improvement; **B vs C** measures design preference with copy held constant.
 
+## ✂️ Output economy — DEFAULT TERSE (skill-development sessions)
+
+**This applies to skill-development sessions** (chats with the user about evolving the skill) — NOT worker sessions running `/webfactory`. Worker sessions follow SKILL.md's narration rules instead; that verbosity exists to fight the stop-too-early failure mode and stays.
+
+The user reads ~10% of long responses. Default to **~50% shorter than your natural verbosity**:
+
+- Lead with the action or verdict. No preamble, no recap of the user's message, no "great question," no "I'll help you with that."
+- Match length to the question. One-line questions → one-line answers. Don't pad short answers to look thorough.
+- Skip the post-action narration. After running tools, a one-line confirmation is enough — don't re-explain what the diff did when the diff is already visible to the user.
+- No mid-task progress essays. The user doesn't need a paragraph between every two tool calls.
+- Cut caveats and disclaimers the user didn't ask for. If something genuinely matters, say it once, terse.
+- When the user says "ship" or "go" or "do it" — do it and report the result in 1-3 lines. No "here's the plan, here's what I'm about to change, here's why" preamble.
+- For audits and analyses: verdict first, evidence second, recommendation third. No long lead-in.
+- Use prose, not bulleted lists, when the answer is one thought.
+- Code/file edits speak for themselves — don't re-narrate diffs the user can read in the tool output.
+
+If the user wants more detail, they'll ask.
+
 ## 🏁 Pipeline = 10 stages, run all of them, do NOT stop mid-pipeline
 
 WebFactory runs UNATTENDED. The user types `/webfactory <url>` ONCE — that single act is authorization for the entire 10-stage pipeline. There is no point at which the model should ask "want me to continue?" until Stage 10 emits the final 4 (or 3) deployment URLs.
