@@ -48,6 +48,7 @@ VERCEL_SCOPE = os.environ.get("VERCEL_SCOPE", "tomek-group")
 VERCEL_ORG_ID = os.environ.get("VERCEL_ORG_ID", "team_4Hr5Lqd6pY5D7gmeXDVsDmYx")
 
 VENICE_BASE = "https://api.venice.ai/api/v1"
+VENICE_TIMEOUT = 300  # Overridden by --timeout in main()
 
 # ── Utility: run Node script with correct cwd ────────────────────────────────
 def run_node(script_name: str, args: List[str], cwd: str = None, timeout: int = 300) -> Tuple[int, str, str]:
@@ -92,7 +93,7 @@ def venice_chat(model: str, messages: List[Dict], temperature: float = 0.3,
     
     for attempt in range(3):
         try:
-            with urllib.request.urlopen(req, timeout=300) as resp:
+            with urllib.request.urlopen(req, timeout=VENICE_TIMEOUT) as resp:
                 result = json.loads(resp.read().decode("utf-8"))
                 global _last_usage
                 _last_usage = result.get("usage", {})
@@ -143,7 +144,7 @@ def venice_chat_with_image(model: str, text_prompt: str, image_path: Path,
     
     for attempt in range(3):
         try:
-            with urllib.request.urlopen(req, timeout=300) as resp:
+            with urllib.request.urlopen(req, timeout=VENICE_TIMEOUT) as resp:
                 result = json.loads(resp.read().decode("utf-8"))
                 global _last_usage
                 _last_usage = result.get("usage", {})
@@ -1229,12 +1230,17 @@ def main():
     parser = argparse.ArgumentParser(description="WebFactory — Full orchestrator")
     parser.add_argument("url", help="URL to rebuild")
     parser.add_argument("--tier", default="balanced", choices=["quality", "balanced", "cost"])
-    parser.add_argument("--all-tiers", action="store_true", help="Build all 3 tiers (quality, balanced, cost) — 9 projects total")
+    parser.add_argument("--all-tiers", action="store_true", help="Build all 3 tiers sequentially")
     parser.add_argument("--skip-c", action="store_true", help="Skip Option C")
     parser.add_argument("--max-pages", type=int, default=0, help="Max pages to scrape (0=unlimited)")
+    parser.add_argument("--timeout", type=int, default=600, help="Per-stage timeout in seconds (default 600)")
     parser.add_argument("--skip-preflight", action="store_true", help="Skip pre-flight (DANGEROUS)")
-    parser.add_argument("--full", action="store_true", help="Wipe jobs/{domain}/ before building (clean rebuild)")
+    parser.add_argument("--full", action="store_true", help="Wipe jobs/{domain}/ before building")
     args = parser.parse_args()
+    
+    # Apply configurable Venice API timeout
+    global VENICE_TIMEOUT
+    VENICE_TIMEOUT = args.timeout
     
     if not VENICE_API_KEY:
         print("ERROR: VENICE_API_KEY not set")
