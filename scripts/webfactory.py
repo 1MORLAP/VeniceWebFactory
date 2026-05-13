@@ -830,12 +830,26 @@ def stage5_build_b(manifest: Dict, brief: Dict, domain: str, tier: str):
     model, temp, effort = get_model("copyRewrite", tier)
     job_dir = JOBS_DIR / domain
     
-    # Copy Option A
+    # Copy Option A → skip node_modules and .vercel (symlinks break, rebuild deps)
     opt_a = job_dir / f"{tier}-a"
     opt_b = job_dir / f"{tier}-b"
     if opt_b.exists():
-        subprocess.run(["rm", "-rf", str(opt_b)])
-    subprocess.run(["cp", "-r", str(opt_a), str(opt_b)])
+        shutil.rmtree(str(opt_b))
+    
+    def _ignore_copy(src, names):
+        return {"node_modules", ".vercel", ".git", ".astro"}
+    
+    shutil.copytree(str(opt_a), str(opt_b), ignore=_ignore_copy)
+    
+    # Re-install dependencies in B
+    if (opt_b / "package.json").exists():
+        print("  Installing dependencies in Option B...")
+        install = subprocess.run(
+            ["npm", "install"], cwd=str(opt_b),
+            capture_output=True, text=True, timeout=120,
+        )
+        if install.returncode != 0:
+            print(f"  ⚠ npm install warning: {install.stderr[:300]}")
     
     pages_dir = opt_b / "src" / "pages"
     if not pages_dir.exists():
@@ -940,12 +954,26 @@ def stage7_build_c(manifest: Dict, brief: Dict, domain: str, tier: str):
     model, temp, effort = get_model("perPageC", tier)
     job_dir = JOBS_DIR / domain
     
-    # Copy Option B
+    # Copy Option B → skip node_modules and .vercel
     opt_b = job_dir / f"{tier}-b"
     opt_c = job_dir / f"{tier}-c"
     if opt_c.exists():
-        subprocess.run(["rm", "-rf", str(opt_c)])
-    subprocess.run(["cp", "-r", str(opt_b), str(opt_c)])
+        shutil.rmtree(str(opt_c))
+    
+    def _ignore_copy(src, names):
+        return {"node_modules", ".vercel", ".git", ".astro"}
+    
+    shutil.copytree(str(opt_b), str(opt_c), ignore=_ignore_copy)
+    
+    # Re-install dependencies in C
+    if (opt_c / "package.json").exists():
+        print("  Installing dependencies in Option C...")
+        install = subprocess.run(
+            ["npm", "install"], cwd=str(opt_c),
+            capture_output=True, text=True, timeout=120,
+        )
+        if install.returncode != 0:
+            print(f"  ⚠ npm install warning: {install.stderr[:300]}")
     
     pages_dir = opt_c / "src" / "pages"
     if not pages_dir.exists():
@@ -1038,6 +1066,16 @@ def _ensure_vercel_project(project_name: str, opt_dir: Path, vercel_token: str) 
         print(f"    ⚠ Link failed: {link.stderr[:200]}")
         return False
     
+    # Pull project settings so vercel build works
+    pull = subprocess.run(
+        ["npx", "vercel", "pull", "--yes",
+         "--scope", VERCEL_SCOPE, "--token", vercel_token],
+        cwd=str(opt_dir), capture_output=True, text=True, timeout=60,
+    )
+    if pull.returncode != 0:
+        print(f"    ⚠ Pull failed: {pull.stderr[:200]}")
+        # Continue — may already have settings
+    
     return True
 
 def stage8_deploy(domain: str, tier: str, skip_c: bool) -> Dict[str, str]:
@@ -1086,16 +1124,16 @@ def stage8_deploy(domain: str, tier: str, skip_c: bool) -> Dict[str, str]:
             print(f"    ✗ Could not link project {project_name}")
             continue
         
-        # Astro build
+        # Vercel build (creates .vercel/output/ for --prebuilt)
         build = subprocess.run(
-            ["npx", "astro", "build"],
-            cwd=str(tier_opt_dir), capture_output=True, text=True, timeout=120,
+            ["npx", "vercel", "build"],
+            cwd=str(tier_opt_dir), capture_output=True, text=True, timeout=180,
         )
         if build.returncode != 0:
             print(f"    ✗ Build failed: {build.stderr[:300]}")
             continue
         
-        # Deploy
+        # Deploy with --prebuilt
         deploy = subprocess.run(
             ["npx", "vercel", "deploy", "--prebuilt", "--yes",
              "--scope", VERCEL_SCOPE, "--token", vercel_token],
