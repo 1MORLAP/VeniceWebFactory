@@ -7,7 +7,7 @@ import { URL } from 'url';
 const MAX_PAGES = 30;
 const TIMEOUT = 60_000;
 
-async function scrape(startUrl) {
+async function scrape(startUrl, maxPages = 30) {
   const origin = new URL(startUrl).origin;
   const domain = new URL(startUrl).hostname.replace(/^www\./, '');
   const jobDir = resolve(process.cwd(), 'jobs', domain);
@@ -32,13 +32,13 @@ async function scrape(startUrl) {
 
   console.log(`Scraping ${startUrl} (domain: ${domain})`);
 
-  while (toVisit.length > 0 && visited.size < MAX_PAGES) {
+  while (toVisit.length > 0 && visited.size < maxPages) {
     const url = toVisit.shift();
     const normalized = normalizeUrl(url, origin);
     if (!normalized || visited.has(normalized)) continue;
     visited.add(normalized);
 
-    console.log(`  [${visited.size}/${MAX_PAGES}] ${normalized}`);
+    console.log(`  [${visited.size}/${maxPages}] ${normalized}`);
 
     const page = await context.newPage();
     try {
@@ -776,13 +776,44 @@ async function autoScroll(page) {
 }
 
 // CLI entry point
-const url = process.argv[2];
+function parseArgs(argv) {
+  let url = null;
+  let maxPages = 30;
+  for (let i = 2; i < argv.length; i++) {
+    if (argv[i] === '--max-pages' && i + 1 < argv.length) {
+      maxPages = parseInt(argv[i + 1], 10) || 30;
+      i++;
+    } else if (!argv[i].startsWith('--') && !url) {
+      url = argv[i];
+    }
+  }
+  return { url, maxPages };
+}
+
+async function tryScrape(url, maxPages) {
+  try {
+    return await scrape(url, maxPages);
+  } catch (err) {
+    const msg = err.message || '';
+    // Retry with http:// on SSL errors
+    if (msg.includes('ERR_SSL') || msg.includes('SSL') || msg.includes('certificate')) {
+      const httpUrl = url.replace(/^https:\/\//, 'http://');
+      if (httpUrl !== url) {
+        console.log(`  SSL error, retrying with http://${new URL(httpUrl).host}...`);
+        return await scrape(httpUrl, maxPages);
+      }
+    }
+    throw err;
+  }
+}
+
+const { url, maxPages } = parseArgs(process.argv);
 if (!url) {
-  console.error('Usage: node scripts/scrape.js <url>');
+  console.error('Usage: node scripts/scrape.js <url> [--max-pages N]');
   process.exit(1);
 }
 
-scrape(url).catch(err => {
+tryScrape(url, maxPages).catch(err => {
   console.error('Scrape failed:', err);
   process.exit(1);
 });

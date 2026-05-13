@@ -235,6 +235,21 @@ def stage1_scrape(url: str, domain: str, tier: str, max_pages: int = 0) -> Dict:
     
     page_count = len(manifest.get("pages", []))
     img_count = len(manifest.get("images", []))
+    
+    # SSL fallback: if 0 pages scraped and URL was https, try http
+    if page_count == 0 and url.startswith("https://"):
+        http_url = url.replace("https://", "http://", 1)
+        print(f"  0 pages scraped. Retrying with {http_url}...")
+        rc2, stdout2, stderr2 = run_node("scrape.js", [http_url, "--max-pages", pages_arg], timeout=120)
+        print(stdout2)
+        if rc2 == 0:
+            # Re-load manifest
+            if manifest_path.exists():
+                with open(manifest_path) as f:
+                    manifest = json.load(f)
+            page_count = len(manifest.get("pages", []))
+            img_count = len(manifest.get("images", []))
+    
     print(f"  ✓ Scraped: {page_count} pages, {img_count} images")
     return manifest
 
