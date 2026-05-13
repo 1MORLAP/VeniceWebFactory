@@ -14,7 +14,7 @@ Architecture:
 - No sub-agents. No permission prompts. Headless throughout.
 
 Usage:
-    python3 webfactory.py <url> [--tier=quality|balanced|cost] [--skip-c] [--max-pages=N] [--full]
+    python3 webfactory.py <url> [--tier=quality|balanced|cost] [--all-tiers] [--skip-c] [--max-pages=N] [--full]
 
 Prerequisites (one-time):
     cd ~/VeniceWebFactory && npm install
@@ -1214,6 +1214,7 @@ def main():
     parser = argparse.ArgumentParser(description="WebFactory — Full orchestrator")
     parser.add_argument("url", help="URL to rebuild")
     parser.add_argument("--tier", default="balanced", choices=["quality", "balanced", "cost"])
+    parser.add_argument("--all-tiers", action="store_true", help="Build all 3 tiers (quality, balanced, cost) — 9 projects total")
     parser.add_argument("--skip-c", action="store_true", help="Skip Option C")
     parser.add_argument("--max-pages", type=int, default=0, help="Max pages to scrape (0=unlimited)")
     parser.add_argument("--skip-preflight", action="store_true", help="Skip pre-flight (DANGEROUS)")
@@ -1247,58 +1248,74 @@ def main():
                 link_file.write_text(content)
             print(f"  ✓ --full: wiped jobs/{domain}/ (preserved {len(preserved)} Vercel links)")
     
-    print(f"\n{'='*60}")
-    print(f"  WebFactory Starting")
-    print(f"  URL: {args.url} | Domain: {domain} | Tier: {args.tier}")
-    print(f"  Max pages: {'unlimited' if args.max_pages == 0 else args.max_pages}")
-    print(f"{'='*60}")
+    # Determine which tiers to run
+    tiers = ["quality", "balanced", "cost"] if args.all_tiers else [args.tier]
     
-    try:
-        manifest = stage1_scrape(args.url, domain, args.tier, args.max_pages)
-        brief = stage2_brief(manifest, domain, args.tier)
-        stage3_build_a(manifest, brief, domain, args.tier)
-        qa_a = stage4_qa_a(domain, args.tier)
+    all_urls = {}
+    
+    for tier in tiers:
+        print(f"\n{'='*60}")
+        print(f"  WebFactory Starting — Tier: {tier}")
+        print(f"  URL: {args.url} | Domain: {domain}")
+        print(f"  Max pages: {'unlimited' if args.max_pages == 0 else args.max_pages}")
+        print(f"{'='*60}")
         
-        # Visual sanity pass + world-class audit
-        sanity_a = stage4c_visual_sanity(domain, args.tier, "a")
-        audit_a = stage4c_world_class_audit(domain, args.tier, "a", brief)
+        try:
+            # Only scrape once for all tiers
+            if tier == tiers[0]:
+                manifest = stage1_scrape(args.url, domain, tier, args.max_pages)
+            brief = stage2_brief(manifest, domain, tier)
+            stage3_build_a(manifest, brief, domain, tier)
+            qa_a = stage4_qa_a(domain, tier)
+            
+            # Visual sanity pass + world-class audit
+            sanity_a = stage4c_visual_sanity(domain, tier, "a")
+            audit_a = stage4c_world_class_audit(domain, tier, "a", brief)
+            
+            # Fix loop if needed
+            if sanity_a.get("verdict") == "fix":
+                stage4e_fix_loop(domain, tier, "a", sanity_a.get("issues", []), brief)
+                # Re-QA after fixes
+                qa_a = stage4_qa_a(domain, tier)
+            
+            stage5_build_b(manifest, brief, domain, tier)
+            qa_b = stage6_qa_b(domain, tier)
+            
+            # Visual sanity for B
+            sanity_b = stage4c_visual_sanity(domain, tier, "b")
+            if sanity_b.get("verdict") == "fix":
+                stage4e_fix_loop(domain, tier, "b", sanity_b.get("issues", []), brief)
+                qa_b = stage6_qa_b(domain, tier)
+            
+            if not args.skip_c:
+                stage7_build_c(manifest, brief, domain, tier)
+                # QA C would go here with --reference-dist pointing to B
+                sanity_c = stage4c_visual_sanity(domain, tier, "c")
+                stage4c_world_class_audit(domain, tier, "c", brief)
+            
+            urls = stage8_deploy(domain, tier, args.skip_c)
+            verify_ok = stage9_verify(urls)
+            stage10_report(domain, urls, tier, args.skip_c)
+            
+            # Merge URLs into combined report
+            all_urls.update(urls)
+            
+            if not verify_ok:
+                print(f"\n⚠ Some verifications failed for tier {tier}.")
         
-        # Fix loop if needed
-        if sanity_a.get("verdict") == "fix":
-            stage4e_fix_loop(domain, args.tier, "a", sanity_a.get("issues", []), brief)
-            # Re-QA after fixes
-            qa_a = stage4_qa_a(domain, args.tier)
-        
-        stage5_build_b(manifest, brief, domain, args.tier)
-        qa_b = stage6_qa_b(domain, args.tier)
-        
-        # Visual sanity for B
-        sanity_b = stage4c_visual_sanity(domain, args.tier, "b")
-        if sanity_b.get("verdict") == "fix":
-            stage4e_fix_loop(domain, args.tier, "b", sanity_b.get("issues", []), brief)
-            qa_b = stage6_qa_b(domain, args.tier)
-        
-        if not args.skip_c:
-            stage7_build_c(manifest, brief, domain, args.tier)
-            # QA C would go here with --reference-dist pointing to B
-            sanity_c = stage4c_visual_sanity(domain, args.tier, "c")
-            stage4c_world_class_audit(domain, args.tier, "c", brief)
-        
-        urls = stage8_deploy(domain, args.tier, args.skip_c)
-        verify_ok = stage9_verify(urls)
-        stage10_report(domain, urls, args.tier, args.skip_c)
-        
-        if not verify_ok:
-            print("\n⚠ Some verifications failed.")
-            sys.exit(1)
-        
-        print("\n✓ Pipeline complete!")
-        
-    except Exception as e:
-        print(f"\n✗ Pipeline failed: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+        except Exception as e:
+            print(f"\n✗ Tier {tier} failed: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    # Final combined report
+    print(f"\n{'='*60}")
+    print(f"  ALL TIERS COMPLETE: {domain}")
+    print(f"{'='*60}")
+    for key in sorted(all_urls.keys()):
+        print(f"  {key}: {all_urls[key]}")
+    
+    print(f"\n✓ Pipeline complete!")
 
 if __name__ == "__main__":
     main()
