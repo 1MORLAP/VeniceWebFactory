@@ -1,0 +1,505 @@
+{
+  "_meta": {
+    "version": "2.0.1",
+    "description": "Venice model assignments for WebFactory pipeline stages",
+    "updated": "2026-05-13",
+    "pricingUnit": "USD per 1M tokens (input/output)",
+    "costTierDescriptions": {
+      "quality": "Maximum quality regardless of cost. Uses top-tier models for each stage.",
+      "balanced": "Quality/cost tradeoff. Uses strong models but avoids the most expensive.",
+      "costOptimized": "Minimum viable quality at lowest cost. Uses efficient models.",
+      "adaptive": "Runtime selection based on scraped content complexity (future)"
+    }
+  },
+
+  "quality": {
+    "_tierCostMultiplier": "~5x vs costOptimized",
+    "stages": {
+      "orchestrator": {
+        "model": "claude-opus-4-7",
+        "fallback": "claude-opus-4-6",
+        "reasoningEffort": "high",
+        "temperature": 0.3,
+        "description": "Main orchestrator — needs reasoning, vision, coding, long context"
+      },
+      "scrape": {
+        "model": "qwen-3-6-plus",
+        "fallback": "qwen3-6-27b",
+        "description": "Content extraction — needs vision + long context"
+      },
+      "brief": {
+        "model": "claude-opus-4-7",
+        "fallback": "claude-opus-4-6",
+        "reasoningEffort": "high",
+        "temperature": 0.3,
+        "description": "Design brief synthesis — highest quality reasoning"
+      },
+      "specs": {
+        "model": "claude-opus-4-7",
+        "fallback": "claude-sonnet-4-6",
+        "reasoningEffort": "high",
+        "temperature": 0.3,
+        "description": "Technical specs — needs precise reasoning"
+      },
+      "perPageA": {
+        "model": "zai-org-glm-5-1",
+        "fallback": "claude-opus-4-7",
+        "description": "Option A per-page codegen — GLM-5.1 for website quality"
+      },
+      "perPageB": {
+        "model": "zai-org-glm-5-1",
+        "fallback": "claude-opus-4-7",
+        "description": "Option B per-page codegen"
+      },
+      "perPageC": {
+        "model": "zai-org-glm-5-1",
+        "fallback": "claude-opus-4-7",
+        "description": "Option C per-page codegen"
+      },
+      "visualPassA": {
+        "model": "claude-opus-4-6",
+        "fallback": "claude-sonnet-4-6",
+        "visionModel": "qwen3-vl-235b-a22b",
+        "description": "Option A visual QA — Opus for taste judgment + VL for screenshot review"
+      },
+      "visualPassB": {
+        "model": "claude-opus-4-6",
+        "fallback": "claude-sonnet-4-6",
+        "visionModel": "qwen3-vl-235b-a22b",
+        "description": "Option B visual QA — vision required"
+      },
+      "visualPassC": {
+        "model": "claude-opus-4-6",
+        "fallback": "claude-sonnet-4-6",
+        "visionModel": "qwen3-vl-235b-a22b",
+        "description": "Option C visual QA — vision required"
+      },
+      "worldClassAudit": {
+        "model": "claude-opus-4-7",
+        "fallback": "claude-opus-4-6",
+        "reasoningEffort": "high",
+        "temperature": 0.2,
+        "description": "World-class design audit — taste judgment, non-negotiable quality"
+      },
+      "fixLoop": {
+        "model": "kimi-k2-6",
+        "fallback": "zai-org-glm-5-1",
+        "description": "Fix-loop — Kimi K2.6 for coding"
+      },
+      "plugin": {
+        "model": "claude-opus-4-7",
+        "fallback": "claude-opus-4-6",
+        "description": "Plugin orchestration — needs reasoning + vision"
+      },
+      "multilingual": {
+        "model": "qwen-3-6-plus",
+        "fallback": "qwen3-6-27b",
+        "description": "Translation — Qwen excels at multilingual"
+      },
+      "scaffold": {
+        "model": "qwen3-6-27b",
+        "fallback": "qwen3-5-35b-a3b",
+        "description": "Project scaffolding — coding + reasoning"
+      },
+      "report": {
+        "model": "qwen-3-6-plus",
+        "fallback": "qwen3-6-27b",
+        "description": "Final report generation — synthesis"
+      },
+      "designResearch": {
+        "model": "zai-org-glm-5-1",
+        "fallback": "qwen-3-6-plus",
+        "description": "Design research — Refero/Stitch analysis"
+      },
+      "copyRewrite": {
+        "model": "claude-opus-4-7",
+        "fallback": "claude-opus-4-6",
+        "reasoningEffort": "high",
+        "temperature": 0.3,
+        "description": "Conversion copy rewrite — persuasion, tone, brand voice"
+      }
+    }
+  },
+
+  "balanced": {
+    "_tierCostMultiplier": "~1.5x vs costOptimized",
+    "stages": {
+      "orchestrator": {
+        "model": "qwen-3-6-plus",
+        "fallback": "qwen3-6-27b",
+        "reasoningEffort": "medium",
+        "temperature": 0.4,
+        "description": "Main orchestrator — strong quality, better value"
+      },
+      "scrape": {
+        "model": "qwen3-6-27b",
+        "fallback": "qwen3-5-9b",
+        "description": "Content extraction"
+      },
+      "brief": {
+        "model": "qwen-3-6-plus",
+        "fallback": "qwen3-6-27b",
+        "reasoningEffort": "medium",
+        "temperature": 0.4,
+        "description": "Design brief — Qwen is excellent at synthesis"
+      },
+      "specs": {
+        "model": "qwen-3-6-plus",
+        "fallback": "qwen3-6-27b",
+        "reasoningEffort": "medium",
+        "temperature": 0.4,
+        "description": "Technical specs"
+      },
+      "perPageA": {
+        "model": "kimi-k2-6",
+        "fallback": "zai-org-glm-5-1",
+        "description": "Option A codegen — Kimi K2.6 for coding value"
+      },
+      "perPageB": {
+        "model": "kimi-k2-6",
+        "fallback": "zai-org-glm-5-1",
+        "description": "Option B codegen"
+      },
+      "perPageC": {
+        "model": "kimi-k2-6",
+        "fallback": "zai-org-glm-5-1",
+        "description": "Option C codegen"
+      },
+      "visualPassA": {
+        "model": "claude-opus-4-6",
+        "fallback": "claude-sonnet-4-6",
+        "visionModel": "qwen3-vl-235b-a22b",
+        "description": "Option A visual QA — Opus for taste + VL for vision"
+      },
+      "visualPassB": {
+        "model": "claude-sonnet-4-6",
+        "fallback": "qwen-3-6-plus",
+        "visionModel": "qwen3-vl-235b-a22b",
+        "description": "Option B visual QA"
+      },
+      "visualPassC": {
+        "model": "claude-sonnet-4-6",
+        "fallback": "qwen-3-6-plus",
+        "visionModel": "qwen3-vl-235b-a22b",
+        "description": "Option C visual QA"
+      },
+      "worldClassAudit": {
+        "model": "qwen-3-6-plus",
+        "fallback": "qwen3-6-27b",
+        "reasoningEffort": "high",
+        "temperature": 0.2,
+        "description": "World-class audit — keep high for taste judgment"
+      },
+      "fixLoop": {
+        "model": "kimi-k2-6",
+        "fallback": "qwen3-6-27b",
+        "description": "Fix-loop — Kimi K2.6 for coding"
+      },
+      "plugin": {
+        "model": "qwen-3-6-plus",
+        "fallback": "qwen3-6-27b",
+        "description": "Plugin orchestration"
+      },
+      "multilingual": {
+        "model": "qwen3-5-9b",
+        "fallback": "qwen3-6-27b",
+        "description": "Translation — Qwen native multilingual"
+      },
+      "scaffold": {
+        "model": "qwen3-6-27b",
+        "fallback": "qwen3-5-35b-a3b",
+        "description": "Scaffolding"
+      },
+      "report": {
+        "model": "qwen3-6-27b",
+        "fallback": "qwen3-5-9b",
+        "description": "Report generation"
+      },
+      "designResearch": {
+        "model": "qwen-3-6-plus",
+        "fallback": "qwen3-6-27b",
+        "description": "Design research"
+      },
+      "copyRewrite": {
+        "model": "zai-org-glm-5-1",
+        "fallback": "qwen-3-6-plus",
+        "reasoningEffort": "medium",
+        "temperature": 0.3,
+        "description": "Conversion copy rewrite — GLM-5.1 #12 creative writing, proven taste"
+      }
+    }
+  },
+
+  "costOptimized": {
+    "_tierCostMultiplier": "~1.0x baseline",
+    "stages": {
+      "orchestrator": {
+        "model": "qwen3-6-27b",
+        "fallback": "qwen3-5-35b-a3b",
+        "reasoningEffort": "low",
+        "temperature": 0.5,
+        "description": "Orchestrator — efficient but capable"
+      },
+      "scrape": {
+        "model": "qwen3-5-9b",
+        "fallback": "llama-3.3-70b",
+        "description": "Scraping — minimal cost"
+      },
+      "brief": {
+        "model": "qwen3-6-27b",
+        "fallback": "qwen3-5-35b-a3b",
+        "reasoningEffort": "low",
+        "temperature": 0.5,
+        "description": "Brief — trade some quality for cost"
+      },
+      "specs": {
+        "model": "qwen3-6-27b",
+        "fallback": "qwen3-5-35b-a3b",
+        "reasoningEffort": "low",
+        "temperature": 0.5,
+        "description": "Specs — efficient"
+      },
+      "perPageA": {
+        "model": "qwen3-coder-480b-a35b-instruct-turbo",
+        "fallback": "zai-org-glm-5-1",
+        "description": "Option A codegen — Qwen Coder 480B for cheapest coding"
+      },
+      "perPageB": {
+        "model": "qwen3-coder-480b-a35b-instruct-turbo",
+        "fallback": "zai-org-glm-5-1",
+        "description": "Option B codegen"
+      },
+      "perPageC": {
+        "model": "qwen3-coder-480b-a35b-instruct-turbo",
+        "fallback": "zai-org-glm-5-1",
+        "description": "Option C codegen"
+      },
+      "visualPassA": {
+        "model": "qwen3-vl-235b-a22b",
+        "fallback": "qwen-3-6-plus",
+        "description": "Option A visual QA — cheapest vision model"
+      },
+      "visualPassB": {
+        "model": "qwen3-vl-235b-a22b",
+        "fallback": "qwen3-6-27b",
+        "description": "Option B visual QA"
+      },
+      "visualPassC": {
+        "model": "qwen3-vl-235b-a22b",
+        "fallback": "qwen3-6-27b",
+        "description": "Option C visual QA"
+      },
+      "worldClassAudit": {
+        "model": "qwen-3-6-plus",
+        "fallback": "qwen3-6-27b",
+        "reasoningEffort": "medium",
+        "temperature": 0.3,
+        "description": "World-class audit — keep relatively strong"
+      },
+      "fixLoop": {
+        "model": "qwen3-5-35b-a3b",
+        "fallback": "llama-3.3-70b",
+        "description": "Fix-loop"
+      },
+      "plugin": {
+        "model": "qwen3-6-27b",
+        "fallback": "qwen3-5-35b-a3b",
+        "description": "Plugin orchestration"
+      },
+      "multilingual": {
+        "model": "qwen3-5-9b",
+        "fallback": "qwen3-6-27b",
+        "description": "Translation"
+      },
+      "scaffold": {
+        "model": "qwen3-5-35b-a3b",
+        "fallback": "llama-3.3-70b",
+        "description": "Scaffolding"
+      },
+      "report": {
+        "model": "qwen3-5-9b",
+        "fallback": "qwen3-6-27b",
+        "description": "Report"
+      },
+      "designResearch": {
+        "model": "qwen3-6-27b",
+        "fallback": "qwen3-5-35b-a3b",
+        "description": "Design research"
+      },
+      "copyRewrite": {
+        "model": "qwen3-6-27b",
+        "fallback": "qwen3-5-35b-a3b",
+        "reasoningEffort": "low",
+        "temperature": 0.4,
+        "description": "Conversion copy rewrite — trade some tone for cost"
+      }
+    }
+  },
+
+  "modelDefinitions": {
+    "claude-opus-4-7": {
+      "name": "Claude Opus 4.7",
+      "contextLength": 200000,
+      "pricing": { "input": 15.0, "output": 75.0 },
+      "capabilities": ["reasoning", "vision", "coding", "longContext"],
+      "strengths": ["reasoning", "taste", "coding", "longContext"],
+      "weaknesses": ["cost"],
+      "recommendedFor": ["orchestrator", "brief", "specs", "worldClassAudit"]
+    },
+    "claude-opus-4-6": {
+      "name": "Claude Opus 4.6",
+      "contextLength": 200000,
+      "pricing": { "input": 10.0, "output": 50.0 },
+      "capabilities": ["reasoning", "vision", "coding", "longContext"],
+      "strengths": ["reasoning", "coding", "longContext"],
+      "weaknesses": ["cost"],
+      "recommendedFor": ["orchestrator", "brief", "specs"]
+    },
+    "claude-sonnet-4-6": {
+      "name": "Claude Sonnet 4.6",
+      "contextLength": 200000,
+      "pricing": { "input": 3.0, "output": 15.0 },
+      "capabilities": ["reasoning", "vision", "coding", "longContext"],
+      "strengths": ["reasoning", "coding", "value"],
+      "weaknesses": [],
+      "recommendedFor": ["orchestrator", "brief", "fixLoop"]
+    },
+    "zai-org-glm-5-1": {
+      "name": "GLM-5.1",
+      "contextLength": 128000,
+      "pricing": { "input": 2.0, "output": 10.0 },
+      "capabilities": ["reasoning", "coding", "functionCalling"],
+      "strengths": ["coding", "technical", "speed"],
+      "weaknesses": ["noVision"],
+      "recommendedFor": ["perPageA", "perPageB", "perPageC", "fixLoop", "designResearch"]
+    },
+    "qwen-3-6-plus": {
+      "name": "Qwen 3.6 Plus Uncensored",
+      "contextLength": 1000000,
+      "pricing": { "input": 0.625, "output": 3.75 },
+      "capabilities": ["reasoning", "vision", "coding", "functionCalling", "webSearch", "videoInput"],
+      "strengths": ["multilingual", "value", "vision", "coding"],
+      "weaknesses": [],
+      "recommendedFor": ["orchestrator", "brief", "specs", "visualPass", "multilingual"]
+    },
+    "qwen3-6-27b": {
+      "name": "Qwen 3.6 27B",
+      "contextLength": 256000,
+      "pricing": { "input": 0.325, "output": 3.25 },
+      "capabilities": ["reasoning", "vision", "coding", "functionCalling", "webSearch", "videoInput"],
+      "strengths": ["vision", "coding", "agentic"],
+      "weaknesses": [],
+      "recommendedFor": ["perPage", "visualPass", "scaffold", "fixLoop"]
+    },
+    "qwen3-5-35b-a3b": {
+      "name": "Qwen 3.5 35B A3B",
+      "contextLength": 256000,
+      "pricing": { "input": 0.3125, "output": 1.25 },
+      "capabilities": ["reasoning", "vision", "coding", "functionCalling", "webSearch", "videoInput"],
+      "strengths": ["efficiency", "coding"],
+      "weaknesses": ["smallerModel"],
+      "recommendedFor": ["perPage", "scaffold", "fixLoop"]
+    },
+    "qwen3-5-9b": {
+      "name": "Qwen 3.5 9B",
+      "contextLength": 256000,
+      "pricing": { "input": 0.10, "output": 0.15 },
+      "capabilities": ["reasoning", "vision", "functionCalling", "webSearch"],
+      "strengths": ["cost", "multilingual", "longContext"],
+      "weaknesses": ["coding"],
+      "recommendedFor": ["multilingual", "scrape", "report"]
+    },
+    "llama-3.3-70b": {
+      "name": "Llama 3.3 70B",
+      "contextLength": 128000,
+      "pricing": { "input": 0.15, "output": 0.60 },
+      "capabilities": ["reasoning", "coding", "functionCalling"],
+      "strengths": ["cost", "general"],
+      "weaknesses": ["noVision"],
+      "recommendedFor": ["scrape", "report", "fallback"]
+    },
+    "kimi-k2-6": {
+      "name": "Kimi K2.6",
+      "contextLength": 256000,
+      "pricing": { "input": 0.85, "output": 4.66 },
+      "capabilities": ["reasoning", "coding", "longContext"],
+      "strengths": ["coding", "value", "speed"],
+      "weaknesses": ["noVision"],
+      "recommendedFor": ["perPageA", "perPageB", "perPageC", "fixLoop"]
+    },
+    "qwen3-coder-480b-a35b-instruct-turbo": {
+      "name": "Qwen 3 Coder 480B Turbo",
+      "contextLength": 256000,
+      "pricing": { "input": 0.35, "output": 1.50 },
+      "capabilities": ["reasoning", "coding", "functionCalling"],
+      "strengths": ["coding", "cost", "efficiency"],
+      "weaknesses": ["noVision"],
+      "recommendedFor": ["perPageA", "perPageB", "perPageC", "fixLoop"]
+    },
+    "qwen3-vl-235b-a22b": {
+      "name": "Qwen3 VL 235B A22B",
+      "contextLength": 128000,
+      "pricing": { "input": 0.50, "output": 2.00 },
+      "capabilities": ["reasoning", "vision", "coding", "longContext"],
+      "strengths": ["vision", "cost", "multimodal"],
+      "weaknesses": ["cost"],
+      "recommendedFor": ["visualPass", "screenshotReview", "imageAnalysis"]
+    }
+  },
+
+  "veniceNativeParameters": {
+    "temperature": {
+      "description": "Sampling temperature. Lower = more deterministic",
+      "ranges": {
+        "orchestrator": "0.2-0.4",
+        "brief": "0.2-0.4",
+        "specs": "0.2-0.4",
+        "perPage": "0.1-0.3",
+        "visualPass": "0.2-0.5",
+        "worldClassAudit": "0.1-0.3",
+        "fixLoop": "0.1-0.3",
+        "multilingual": "0.3-0.5",
+        "scaffold": "0.2-0.4",
+        "report": "0.3-0.5"
+      }
+    },
+    "reasoningEffort": {
+      "description": "Controls thinking depth. Venice models support: none, low, medium, high",
+      "mapping": {
+        "none": "No explicit reasoning chain",
+        "low": "Minimal reasoning, faster",
+        "medium": "Balanced reasoning depth",
+        "high": "Maximum reasoning depth"
+      }
+    },
+    "topP": {
+      "description": "Nucleus sampling parameter",
+      "default": 0.95
+    },
+    "presencePenalty": {
+      "description": "Penalty for repeating tokens",
+      "default": 0
+    },
+    "frequencyPenalty": {
+      "description": "Frequency penalty",
+      "default": 0
+    }
+  },
+
+  "fallbackPolicy": {
+    "description": "If primary model fails or is unavailable, use fallback in order",
+    "strategy": "static",
+    "maxRetries": 2,
+    "retryDelayMs": 1000
+  },
+
+  "futureAdaptive": {
+    "description": "Runtime model selection based on content complexity (Phase 2)",
+    "enabled": false,
+    "triggers": {
+      "highComplexity": { "pages": "> 10", "images": "> 50", "industry": "enterprise|healthcare|finance" },
+      "mediumComplexity": { "pages": "5-10", "images": "20-50", "industry": "retail|services" },
+      "lowComplexity": { "pages": "< 5", "images": "< 20", "industry": "personal|portfolio" }
+    }
+  }
+}
