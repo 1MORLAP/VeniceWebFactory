@@ -311,9 +311,24 @@ def stage3_build_a(manifest: Dict, brief: Dict, domain: str, tier: str):
     opt_dir = job_dir / f"{tier}-a"
     opt_dir.mkdir(parents=True, exist_ok=True)
     
-    # Copy scaffold
+    # Copy scaffold contents directly into opt_dir (not a subdirectory)
     if SCAFFOLD_DIR.exists():
-        subprocess.run(["cp", "-r", str(SCAFFOLD_DIR / "."), str(opt_dir)], check=False)
+        for item in SCAFFOLD_DIR.iterdir():
+            dest = opt_dir / item.name
+            if item.is_dir():
+                if dest.exists():
+                    shutil.rmtree(str(dest))
+                shutil.copytree(str(item), str(dest))
+            else:
+                shutil.copy2(str(item), str(dest))
+        # Install dependencies so Astro can build
+        print("  Installing dependencies...")
+        install = subprocess.run(
+            ["npm", "install"], cwd=str(opt_dir),
+            capture_output=True, text=True, timeout=120,
+        )
+        if install.returncode != 0:
+            print(f"  ⚠ npm install warning: {install.stderr[:300]}")
     
     pages_dir = opt_dir / "src" / "pages"
     pages_dir.mkdir(parents=True, exist_ok=True)
@@ -1003,10 +1018,10 @@ def _ensure_vercel_project(project_name: str, opt_dir: Path, vercel_token: str) 
         except Exception:
             pass
     
-    # Create project
+    # Create project (no --yes flag for project add)
     create = subprocess.run(
         ["npx", "vercel", "project", "add", project_name,
-         "--scope", VERCEL_SCOPE, "--token", vercel_token, "--yes"],
+         "--scope", VERCEL_SCOPE, "--token", vercel_token],
         cwd=str(opt_dir), capture_output=True, text=True, timeout=60,
     )
     if create.returncode != 0 and "already exists" not in create.stderr.lower():
