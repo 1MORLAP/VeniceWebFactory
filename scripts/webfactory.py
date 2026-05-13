@@ -45,6 +45,7 @@ if not MODEL_CONFIG_PATH.exists():
 # Environment
 VENICE_API_KEY = os.environ.get("VENICE_API_KEY", "")
 VERCEL_SCOPE = os.environ.get("VERCEL_SCOPE", "tomek-group")
+VERCEL_ORG_ID = os.environ.get("VERCEL_ORG_ID", "team_4Hr5Lqd6pY5D7gmeXDVsDmYx")
 
 VENICE_BASE = "https://api.venice.ai/api/v1"
 
@@ -304,10 +305,10 @@ Create a world-class design brief."""
 
 # ── Stage 3: Build Option A (Venice API per page) ───────────────────────────
 def stage3_build_a(manifest: Dict, brief: Dict, domain: str, tier: str):
-    print(f"\n[Stage 3] Building Option A...")
+    print(f"\n[Stage 3] Building Option A ({tier})...")
     model, temp, effort = get_model("perPageA", tier)
     job_dir = JOBS_DIR / domain
-    opt_dir = job_dir / "option-a"
+    opt_dir = job_dir / f"{tier}-a"
     opt_dir.mkdir(parents=True, exist_ok=True)
     
     # Copy scaffold
@@ -430,7 +431,7 @@ Generate complete src/pages{page_path if page_path != '/' else '/index'}.astro""
     return opt_dir
 
 # ── Stage 4: QA (ORIGINAL scripts — full visual + deterministic) ────────────
-def stage4_qa_a(domain: str) -> bool:
+def stage4_qa_a(domain: str, tier: str) -> bool:
     """
     Run FULL original QA pipeline:
     1. Build site
@@ -439,14 +440,14 @@ def stage4_qa_a(domain: str) -> bool:
     4. Run qa.cjs (screenshots)
     5. Compress screenshots
     """
-    print(f"\n[Stage 4] QA Option A (Full)...")
+    print(f"\n[Stage 4] QA Option A ({tier}) (Full)...")
     job_dir = JOBS_DIR / domain
-    opt_dir = job_dir / "option-a"
-    qa_dir = job_dir / "qa-option-a"
+    opt_dir = job_dir / f"{tier}-a"
+    qa_dir = job_dir / f"qa-{tier}-a"
     qa_dir.mkdir(exist_ok=True)
     
     if not opt_dir.exists():
-        print("  ⚠ option-a not found")
+        print(f"  ⚠ {tier}-a not found")
         return False
     
     # 4a. Build
@@ -519,14 +520,14 @@ def stage4_qa_a(domain: str) -> bool:
             dev_proc.kill()
 
 # ── Stage 4c-bis: Visual Sanity Pass (Venice Vision API) ────────────────────
-def stage4c_visual_sanity(domain: str, option: str) -> Dict:
+def stage4c_visual_sanity(domain: str, tier: str, option: str) -> Dict:
     """
     Run visual sanity pass using Venice vision API.
     Reads compressed screenshots and sends to vision model for analysis.
     """
-    print(f"\n[Stage 4c-bis] Visual Sanity Pass on Option {option.upper()}...")
+    print(f"\n[Stage 4c-bis] Visual Sanity Pass on {tier}-{option.upper()}...")
     job_dir = JOBS_DIR / domain
-    qa_dir = job_dir / f"qa-option-{option}"
+    qa_dir = job_dir / f"qa-{tier}-{option}"
     
     if not qa_dir.exists():
         return {"verdict": "pass", "issues": [], "summary": "No screenshots available"}
@@ -656,11 +657,11 @@ Report any issues found, or output NO_ISSUES"""
     return result
 
 # ── Stage 4c-tris: World-Class Audit (Venice API + Refero) ──────────────────
-def stage4c_world_class_audit(domain: str, option: str, brief: Dict) -> Dict:
+def stage4c_world_class_audit(domain: str, tier: str, option: str, brief: Dict) -> Dict:
     """
     World-class design audit using local Refero taxonomy + anti-ai-slop rules.
     """
-    print(f"\n[Stage 4c-tris] World-Class Audit on Option {option.upper()}...")
+    print(f"\n[Stage 4c-tris] World-Class Audit on {tier}-{option.upper()}...")
     model, temp, effort = get_model("worldClassAudit", "balanced")
     
     # Load Refero anti-ai-slop rules from local files
@@ -730,7 +731,7 @@ Provide world-class audit verdict."""
         audit = {"verdict": "pass", "score": 75, "error": "No JSON found"}
     
     # Write audit
-    audit_path = JOBS_DIR / domain / f"qa-option-{option}" / "world-class-audit.json"
+    audit_path = JOBS_DIR / domain / f"qa-{tier}-{option}" / "world-class-audit.json"
     audit_path.parent.mkdir(parents=True, exist_ok=True)
     with open(audit_path, "w") as f:
         json.dump(audit, f, indent=2)
@@ -739,19 +740,19 @@ Provide world-class audit verdict."""
     return audit
 
 # ── Stage 4e: Fix Loop (Venice API) ─────────────────────────────────────────
-def stage4e_fix_loop(domain: str, option: str, issues: List[Dict], brief: Dict) -> bool:
+def stage4e_fix_loop(domain: str, tier: str, option: str, issues: List[Dict], brief: Dict) -> bool:
     """
     Iterative fix loop. Takes issues from visual sanity pass and applies fixes.
     """
     if not issues:
         return True
     
-    print(f"\n[Stage 4e] Fix Loop for Option {option.upper()}...")
+    print(f"\n[Stage 4e] Fix Loop for {tier}-{option.upper()}...")
     print(f"  Issues to fix: {len(issues)}")
     
     model, temp, effort = get_model("fixLoop", "balanced")
     job_dir = JOBS_DIR / domain
-    opt_dir = job_dir / f"option-{option}"
+    opt_dir = job_dir / f"{tier}-{option}"
     pages_dir = opt_dir / "src" / "pages"
     
     if not pages_dir.exists():
@@ -809,21 +810,21 @@ Code:
 
 # ── Stage 5: Build Option B (Venice API — copy rewrite) ─────────────────────
 def stage5_build_b(manifest: Dict, brief: Dict, domain: str, tier: str):
-    print(f"\n[Stage 5] Building Option B...")
+    print(f"\n[Stage 5] Building Option B ({tier})...")
     # Option B is copy rewrite, NOT codegen — use copyRewrite model assignment
     model, temp, effort = get_model("copyRewrite", tier)
     job_dir = JOBS_DIR / domain
     
     # Copy Option A
-    opt_a = job_dir / "option-a"
-    opt_b = job_dir / "option-b"
+    opt_a = job_dir / f"{tier}-a"
+    opt_b = job_dir / f"{tier}-b"
     if opt_b.exists():
         subprocess.run(["rm", "-rf", str(opt_b)])
     subprocess.run(["cp", "-r", str(opt_a), str(opt_b)])
     
     pages_dir = opt_b / "src" / "pages"
     if not pages_dir.exists():
-        print("  ⚠ Option A not found")
+        print(f"  ⚠ {tier}-a not found")
         return None
     
     # Rewrite each page for conversion
@@ -859,12 +860,12 @@ Rules:
     return opt_b
 
 # ── Stage 6: QA B (same pattern as A) ─────────────────────────────────────────
-def stage6_qa_b(domain: str) -> bool:
-    print(f"\n[Stage 6] QA Option B...")
-    # Same as stage4 but with --reference-dist pointing to option-a/dist
+def stage6_qa_b(domain: str, tier: str) -> bool:
+    print(f"\n[Stage 6] QA Option B ({tier})...")
+    # Same as stage4 but with --reference-dist pointing to {tier}-a/dist
     job_dir = JOBS_DIR / domain
-    opt_dir = job_dir / "option-b"
-    qa_dir = job_dir / "qa-option-b"
+    opt_dir = job_dir / f"{tier}-b"
+    qa_dir = job_dir / f"qa-{tier}-b"
     qa_dir.mkdir(exist_ok=True)
     
     if not opt_dir.exists():
@@ -891,7 +892,7 @@ def stage6_qa_b(domain: str) -> bool:
     
     try:
         # Run qa-check with reference-dist for testimonial preservation
-        ref_dist = job_dir / "option-a" / "dist"
+        ref_dist = job_dir / f"{tier}-a" / "dist"
         manifest_path = job_dir / "manifest.json"
         
         check_args = [
@@ -920,20 +921,20 @@ def stage6_qa_b(domain: str) -> bool:
 
 # ── Stage 7: Build Option C (Venice API — design language) ──────────────────
 def stage7_build_c(manifest: Dict, brief: Dict, domain: str, tier: str):
-    print(f"\n[Stage 7] Building Option C...")
+    print(f"\n[Stage 7] Building Option C ({tier})...")
     model, temp, effort = get_model("perPageC", tier)
     job_dir = JOBS_DIR / domain
     
     # Copy Option B
-    opt_b = job_dir / "option-b"
-    opt_c = job_dir / "option-c"
+    opt_b = job_dir / f"{tier}-b"
+    opt_c = job_dir / f"{tier}-c"
     if opt_c.exists():
         subprocess.run(["rm", "-rf", str(opt_c)])
     subprocess.run(["cp", "-r", str(opt_b), str(opt_c)])
     
     pages_dir = opt_c / "src" / "pages"
     if not pages_dir.exists():
-        print("  ⚠ Option B not found")
+        print(f"  ⚠ {tier}-b not found")
         return None
     
     # Apply new design language to each page
@@ -990,60 +991,109 @@ def get_vercel_token() -> Optional[str]:
     
     return None
 
-def stage8_deploy(domain: str, skip_c: bool) -> Dict[str, str]:
-    print(f"\n[Stage 8] Deploying...")
+def _ensure_vercel_project(project_name: str, opt_dir: Path, vercel_token: str) -> bool:
+    """Create Vercel project if it doesn't exist, then link opt_dir to it."""
+    # Check if already linked
+    project_json = opt_dir / ".vercel" / "project.json"
+    if project_json.exists():
+        try:
+            data = json.loads(project_json.read_text())
+            if data.get("projectId") and data.get("orgId") == VERCEL_ORG_ID:
+                return True
+        except Exception:
+            pass
+    
+    # Create project
+    create = subprocess.run(
+        ["npx", "vercel", "project", "add", project_name,
+         "--scope", VERCEL_SCOPE, "--token", vercel_token, "--yes"],
+        cwd=str(opt_dir), capture_output=True, text=True, timeout=60,
+    )
+    if create.returncode != 0 and "already exists" not in create.stderr.lower():
+        print(f"    ⚠ Project create failed: {create.stderr[:200]}")
+        # Continue anyway — may already exist
+    
+    # Link directory to project (non-interactive)
+    link = subprocess.run(
+        ["npx", "vercel", "link", "--project", project_name,
+         "--scope", VERCEL_SCOPE, "--token", vercel_token, "--yes"],
+        cwd=str(opt_dir), capture_output=True, text=True, timeout=60,
+    )
+    if link.returncode != 0:
+        print(f"    ⚠ Link failed: {link.stderr[:200]}")
+        return False
+    
+    return True
+
+def stage8_deploy(domain: str, tier: str, skip_c: bool) -> Dict[str, str]:
+    """
+    Deploy each (tier, option) to its own Vercel project.
+    Naming: wf-{tier}-{option}-{sanitized-domain}
+    """
+    print(f"\n[Stage 8] Deploying (9-project mode)...")
     urls = {}
     job_dir = JOBS_DIR / domain
     
-    # Resolve Vercel token ONCE before deploying
     vercel_token = get_vercel_token()
     if not vercel_token:
         print("  ✗ Vercel token not found")
-        print("  ")
-        print("  To fix:")
-        print("    1. Run: npx vercel login")
-        print("    2. Or set env: export VERCEL_TOKEN=<token>")
-        print("    3. Or: op item get 'Vercel API Token' --field token")
-        print("  ")
-        print("  Build outputs are ready in:")
-        for option in ["a", "b"] + ([] if skip_c else ["c"]):
-            opt_dir = job_dir / f"option-{option}"
-            if opt_dir.exists():
-                print(f"    {opt_dir}")
-        print("  ")
-        print("  Deploy manually with:")
-        print("    cd <option-dir> && npx vercel deploy --prebuilt")
-        return urls  # Return empty — pipeline continues to report stage
+        print("  To fix: npx vercel login   OR   export VERCEL_TOKEN=<token>")
+        return urls
     
     print(f"  ✓ Vercel token resolved")
     
+    # Sanitize domain for project name
+    safe_domain = domain.replace(".", "-").replace("_", "-").lower()
+    
     for option in ["a", "b"] + ([] if skip_c else ["c"]):
-        opt_dir = job_dir / f"option-{option}"
-        if not opt_dir.exists():
+        # Tiered directory naming
+        tier_opt_dir = job_dir / f"{tier}-{option}"
+        
+        if not tier_opt_dir.exists():
+            # Fallback: check old-style option-{option} for backwards compat
+            legacy_dir = job_dir / f"option-{option}"
+            if legacy_dir.exists():
+                # Copy to tiered location for this deploy
+                if tier_opt_dir.exists():
+                    shutil.rmtree(str(tier_opt_dir))
+                shutil.copytree(str(legacy_dir), str(tier_opt_dir))
+                print(f"  Copied legacy option-{option} → {tier}-{option}")
+            else:
+                print(f"  ⚠ {tier}-{option} not found, skipping")
+                continue
+        
+        project_name = f"wf-{tier}-{option}-{safe_domain}"
+        
+        print(f"  Building {tier}-{option} → project {project_name}...")
+        
+        # Ensure project exists and is linked
+        if not _ensure_vercel_project(project_name, tier_opt_dir, vercel_token):
+            print(f"    ✗ Could not link project {project_name}")
             continue
         
-        print(f"  Building option-{option}...")
+        # Astro build
         build = subprocess.run(
             ["npx", "astro", "build"],
-            cwd=str(opt_dir), capture_output=True, text=True, timeout=120,
+            cwd=str(tier_opt_dir), capture_output=True, text=True, timeout=120,
         )
         if build.returncode != 0:
-            print(f"  ✗ Build failed: {build.stderr[:300]}")
+            print(f"    ✗ Build failed: {build.stderr[:300]}")
             continue
         
-        print(f"  Deploying option-{option}...")
+        # Deploy
         deploy = subprocess.run(
-            ["npx", "vercel", "deploy", "--prebuilt", "--yes", "--scope", VERCEL_SCOPE, "--token", vercel_token],
-            cwd=str(opt_dir), capture_output=True, text=True, timeout=120,
+            ["npx", "vercel", "deploy", "--prebuilt", "--yes",
+             "--scope", VERCEL_SCOPE, "--token", vercel_token],
+            cwd=str(tier_opt_dir), capture_output=True, text=True, timeout=120,
         )
         
         if deploy.returncode == 0:
             url_match = re.search(r'https?://[^\s]+', deploy.stdout)
             if url_match:
-                urls[option] = url_match.group()
-                print(f"  ✓ {urls[option]}")
+                urls[f"{tier}-{option}"] = url_match.group()
+                print(f"    ✓ {urls[f'{tier}-{option}']}")
         else:
-            print(f"  ⚠ Deploy failed: {deploy.stderr[:300]}")
+            print(f"    ⚠ Deploy failed: {deploy.stderr[:300]}")
     
     return urls
 
@@ -1072,10 +1122,10 @@ def stage10_report(domain: str, urls: Dict[str, str], tier: str, skip_c: bool):
     print(f"\n{'='*60}")
     print(f"  WebFactory Complete: {domain}")
     print(f"{'='*60}")
-    print(f"1. Option A (Faithful):    {urls.get('a', 'N/A')}")
-    print(f"2. Option B (Conversion):  {urls.get('b', 'N/A')}")
+    print(f"1. {tier}-A (Faithful):    {urls.get(f'{tier}-a', 'N/A')}")
+    print(f"2. {tier}-B (Conversion):  {urls.get(f'{tier}-b', 'N/A')}")
     if not skip_c:
-        print(f"3. Option C (Design):      {urls.get('c', 'N/A')}")
+        print(f"3. {tier}-C (Design):      {urls.get(f'{tier}-c', 'N/A')}")
     print(f"\nTier: {tier}")
     
     # Cost report
@@ -1154,34 +1204,34 @@ def main():
         manifest = stage1_scrape(args.url, domain, args.tier, args.max_pages)
         brief = stage2_brief(manifest, domain, args.tier)
         stage3_build_a(manifest, brief, domain, args.tier)
-        qa_a = stage4_qa_a(domain)
+        qa_a = stage4_qa_a(domain, args.tier)
         
         # Visual sanity pass + world-class audit
-        sanity_a = stage4c_visual_sanity(domain, "a")
-        audit_a = stage4c_world_class_audit(domain, "a", brief)
+        sanity_a = stage4c_visual_sanity(domain, args.tier, "a")
+        audit_a = stage4c_world_class_audit(domain, args.tier, "a", brief)
         
         # Fix loop if needed
         if sanity_a.get("verdict") == "fix":
-            stage4e_fix_loop(domain, "a", sanity_a.get("issues", []), brief)
+            stage4e_fix_loop(domain, args.tier, "a", sanity_a.get("issues", []), brief)
             # Re-QA after fixes
-            qa_a = stage4_qa_a(domain)
+            qa_a = stage4_qa_a(domain, args.tier)
         
         stage5_build_b(manifest, brief, domain, args.tier)
-        qa_b = stage6_qa_b(domain)
+        qa_b = stage6_qa_b(domain, args.tier)
         
         # Visual sanity for B
-        sanity_b = stage4c_visual_sanity(domain, "b")
+        sanity_b = stage4c_visual_sanity(domain, args.tier, "b")
         if sanity_b.get("verdict") == "fix":
-            stage4e_fix_loop(domain, "b", sanity_b.get("issues", []), brief)
-            qa_b = stage6_qa_b(domain)
+            stage4e_fix_loop(domain, args.tier, "b", sanity_b.get("issues", []), brief)
+            qa_b = stage6_qa_b(domain, args.tier)
         
         if not args.skip_c:
             stage7_build_c(manifest, brief, domain, args.tier)
             # QA C would go here with --reference-dist pointing to B
-            sanity_c = stage4c_visual_sanity(domain, "c")
-            stage4c_world_class_audit(domain, "c", brief)
+            sanity_c = stage4c_visual_sanity(domain, args.tier, "c")
+            stage4c_world_class_audit(domain, args.tier, "c", brief)
         
-        urls = stage8_deploy(domain, args.skip_c)
+        urls = stage8_deploy(domain, args.tier, args.skip_c)
         verify_ok = stage9_verify(urls)
         stage10_report(domain, urls, args.tier, args.skip_c)
         
